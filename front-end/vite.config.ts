@@ -13,7 +13,7 @@ export default defineConfig({
     proxy: {
       // Proxy all /api calls to the Flask backend
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://127.0.0.1:5050',
         changeOrigin: true,
         secure: false,
       },

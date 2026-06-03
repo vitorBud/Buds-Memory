@@ -14,7 +14,7 @@ export function ChatWindow({ messages }: ChatWindowProps) {
   }, [messages])
 
   return (
-    <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-5 flex flex-col gap-4">
+    <div className="chat-window scrollbar-thin">
       {messages.map((msg, i) => (
         <MessageBubble key={i} message={msg} />
       ))}

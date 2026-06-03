@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
-import { Send, Mic, MicOff, ChevronDown } from 'lucide-react'
+import { Bot, ChevronDown, Compass, Mic, MicOff, Send, ShieldCheck, Zap } from 'lucide-react'
+import type { DensityMode } from '../types'
 
 interface ChatInputProps {
   onSend: (text: string) => void
@@ -10,13 +11,15 @@ interface ChatInputProps {
   selectedModel: string
   models?: string[]
   onModelChange?: (m: string) => void
+  showQuickPrompts?: boolean
+  density?: DensityMode
 }
 
 const QUICK_PROMPTS = [
-  { icon: '🔬', label: 'Como funciono', prompt: 'Me explique como você funciona tecnicamente.' },
-  { icon: '⚡', label: 'Verdade dolorosa', prompt: 'Me diga uma verdade dolorosa sobre humanos.' },
-  { icon: '🌌', label: 'Sentido da vida', prompt: 'Qual é o sentido da vida de forma filosófica?' },
-  { icon: '🔥', label: 'Modo rabugento', prompt: 'Me xingue de forma criativa.' },
+  { icon: Bot, label: 'Tecnico', prompt: 'Explique como você funciona tecnicamente, de forma objetiva.' },
+  { icon: Zap, label: 'Direto', prompt: 'Responda de forma curta, prática e sem floreios.' },
+  { icon: Compass, label: 'Plano', prompt: 'Monte um plano de ação com prioridades claras.' },
+  { icon: ShieldCheck, label: 'Revisar', prompt: 'Revise minha ideia procurando riscos, lacunas e melhorias.' },
 ]
 
 export function ChatInput({
@@ -28,6 +31,8 @@ export function ChatInput({
   selectedModel,
   models = ['qwen3:8b'],
   onModelChange,
+  showQuickPrompts = true,
+  density = 'compact',
 }: ChatInputProps) {
   const [text, setText] = useState('')
   const [showModelPicker, setShowModelPicker] = useState(false)
@@ -36,9 +41,10 @@ export function ChatInput({
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 140) + 'px'
+      const maxHeight = density === 'compact' ? 104 : 142
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, maxHeight) + 'px'
     }
-  }, [text])
+  }, [text, density])
 
   function handleSend() {
     if (!text.trim() || isProcessing) return
@@ -47,62 +53,65 @@ export function ChatInput({
   }
 
   function handleKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
   }
 
   return (
-    <div className="shrink-0 px-5 pb-5 pt-3 bg-gradient-to-t from-[#04060f] via-[rgba(4,6,15,0.95)] to-transparent">
-      {/* Quick prompts */}
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
-        {QUICK_PROMPTS.map(q => (
-          <button
-            key={q.label}
-            onClick={() => onSend(q.prompt)}
-            disabled={isProcessing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg glass border border-[rgba(0,212,255,0.1)] text-[12px] text-[#7a8fb5] hover:text-cyan-400 hover:border-[rgba(0,212,255,0.3)] hover:bg-[rgba(0,212,255,0.06)] transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <span>{q.icon}</span>
-            <span>{q.label}</span>
-          </button>
-        ))}
-      </div>
+    <div className={`chat-input-shell density-${density}`}>
+      {showQuickPrompts && (
+        <div className="quick-prompts">
+          {QUICK_PROMPTS.map(({ icon: Icon, label, prompt }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => onSend(prompt)}
+              disabled={isProcessing}
+              className="quick-prompt"
+            >
+              <Icon size={13} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Input box */}
-      <div className={`flex items-end gap-2 px-4 py-3 rounded-2xl border transition-all duration-200
-        bg-[#0c1425]
-        ${isRecording
-          ? 'border-rose-500/60 shadow-[0_0_20px_rgba(255,68,102,0.15)]'
-          : 'border-[rgba(0,212,255,0.15)] focus-within:border-[rgba(0,212,255,0.4)] focus-within:shadow-[0_0_24px_rgba(0,212,255,0.1)]'
-        }`}
-      >
+      <div className={`composer ${isRecording ? 'is-recording' : ''}`}>
         <textarea
           ref={textareaRef}
-          value={isRecording ? `⏺ Gravando... ${recSeconds}s` : text}
+          value={isRecording ? `Gravando... ${recSeconds}s` : text}
           onChange={e => !isRecording && setText(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="Ask anything. Nexus Prime is ready."
+          placeholder="Digite um comando ou mensagem"
           disabled={isProcessing || isRecording}
           rows={1}
-          className="flex-1 bg-transparent border-none outline-none text-[14px] text-[#e8f0ff] placeholder-[#3d5078] resize-none max-h-[140px] overflow-y-auto scrollbar-thin disabled:opacity-70 font-['Outfit']"
         />
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Model selector */}
-          <div className="relative hidden sm:block">
+
+        <div className="composer-actions">
+          <div className="model-select">
             <button
+              type="button"
               onClick={() => setShowModelPicker(!showModelPicker)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#111e36] border border-[rgba(0,212,255,0.15)] text-[11px] text-[#7a8fb5] hover:text-cyan-400 hover:border-[rgba(0,212,255,0.3)] transition-all"
+              className="model-button"
             >
-              <div className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" style={{ boxShadow: '0 0 6px #7b2ff7' }} />
+              <span />
               {selectedModel}
-              <ChevronDown size={10} />
+              <ChevronDown size={12} />
             </button>
+
             {showModelPicker && (
-              <div className="absolute bottom-full mb-1 left-0 glass border border-[rgba(0,212,255,0.2)] rounded-xl overflow-hidden z-20 min-w-[130px]">
+              <div className="model-menu">
                 {models.map(m => (
                   <button
                     key={m}
-                    onClick={() => { onModelChange?.(m); setShowModelPicker(false) }}
-                    className={`w-full text-left px-3 py-2 text-[12px] hover:bg-[rgba(0,212,255,0.08)] transition-colors ${m === selectedModel ? 'text-cyan-400' : 'text-[#7a8fb5]'}`}
+                    type="button"
+                    onClick={() => {
+                      onModelChange?.(m)
+                      setShowModelPicker(false)
+                    }}
+                    className={m === selectedModel ? 'is-active' : ''}
                   >
                     {m}
                   </button>
@@ -111,32 +120,33 @@ export function ChatInput({
             )}
           </div>
 
-          {/* Mic button */}
           <button
+            type="button"
             onClick={onMicToggle}
             disabled={isProcessing && !isRecording}
-            className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-150
-              ${isRecording
-                ? 'bg-rose-500/20 border border-rose-500/60 text-rose-400 animate-glow-pulse'
-                : 'bg-[#111e36] border border-[rgba(0,212,255,0.15)] text-[#7a8fb5] hover:text-cyan-400 hover:border-[rgba(0,212,255,0.35)] hover:bg-[rgba(0,212,255,0.08)]'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
+            className={`round-action ${isRecording ? 'is-recording' : ''}`}
+            aria-label={isRecording ? 'Parar gravacao' : 'Gravar audio'}
+            title={isRecording ? 'Parar gravacao' : 'Gravar audio'}
           >
-            {isRecording ? <MicOff size={15} /> : <Mic size={15} />}
+            {isRecording ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
 
-          {/* Send button */}
           <button
+            type="button"
             onClick={handleSend}
             disabled={!text.trim() || isProcessing || isRecording}
-            className="w-9 h-9 rounded-xl flex items-center justify-center bg-cyan-500/20 border border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/30 hover:shadow-[0_0_18px_rgba(0,212,255,0.25)] transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:shadow-none"
+            className="send-action"
+            aria-label="Enviar mensagem"
+            title="Enviar"
           >
-            <Send size={15} />
+            <Send size={16} />
           </button>
         </div>
       </div>
-      <div className="flex justify-between mt-1.5 px-1">
-        <span className="text-[10px] text-[#3d5078] font-mono">{text.length} / 4000</span>
-        <span className="text-[10px] text-[#3d5078]">Enter para enviar · Shift+Enter para nova linha</span>
+
+      <div className="composer-meta">
+        <span>{text.length} / 4000</span>
+        <span>Enter envia</span>
       </div>
     </div>
   )

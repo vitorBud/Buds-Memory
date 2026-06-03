@@ -13,6 +13,16 @@ export function useRecorder({ onStop, onStateChange }: UseRecorderOptions) {
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const stop = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.stop()
+      mediaRecorderRef.current = null
+    }
+    setIsRecording(false)
+    setSeconds(0)
+  }, [])
+
   const start = useCallback(async () => {
     if (isRecording) return
     try {
@@ -51,17 +61,7 @@ export function useRecorder({ onStop, onStateChange }: UseRecorderOptions) {
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 2000)
     }
-  }, [isRecording])
-
-  const stop = useCallback(() => {
-    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop()
-      mediaRecorderRef.current = null
-    }
-    setIsRecording(false)
-    setSeconds(0)
-  }, [])
+  }, [isRecording, onStateChange, onStop, stop])
 
   const toggle = useCallback(() => {
     if (isRecording) stop(); else start()

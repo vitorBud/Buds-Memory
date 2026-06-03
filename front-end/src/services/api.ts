@@ -1,9 +1,17 @@
 // ─── API Service Layer ───────────────────────────────────────────────────────
-// All calls go through the Vite proxy → http://localhost:5000
+// All calls go through the Vite proxy → http://127.0.0.1:5050
 
-import type { Session, Message } from '../types'
+import type { Session, Message, BackendConfig } from '../types'
 
 const BASE = '/api'
+
+// ── Backend Config ─────────────────────────────────────────────────────────
+
+export async function getBackendConfig(): Promise<BackendConfig> {
+  const res = await fetch(`${BASE}/config`)
+  if (!res.ok) throw new Error(`getBackendConfig: ${res.status}`)
+  return res.json()
+}
 
 // ── Sessions ────────────────────────────────────────────────────────────────
 
@@ -26,6 +34,16 @@ export async function createSession(title?: string): Promise<Session> {
 export async function deleteSession(id: string): Promise<void> {
   const res = await fetch(`${BASE}/sessions/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`deleteSession: ${res.status}`)
+}
+
+export async function updateSessionTitle(id: string, title: string): Promise<Pick<Session, 'id' | 'title'>> {
+  const res = await fetch(`${BASE}/sessions/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+  if (!res.ok) throw new Error(`updateSessionTitle: ${res.status}`)
+  return res.json()
 }
 
 export async function getSessionMessages(id: string): Promise<Message[]> {

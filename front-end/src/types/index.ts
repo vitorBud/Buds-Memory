@@ -1,6 +1,8 @@
 // ─── Type Definitions ───────────────────────────────────────────────────────
 
 export type AiState = 'idle' | 'listening' | 'transcribing' | 'thinking' | 'speaking' | 'error'
+export type ThemeMode = 'dark' | 'light'
+export type DensityMode = 'compact' | 'comfortable'
 
 export interface Session {
   id: string
@@ -54,4 +56,19 @@ export interface TaskItem {
   category: string
   progress: number
   color: string
+}
+
+export interface InterfaceSettings {
+  theme: ThemeMode
+  density: DensityMode
+  showInsights: boolean
+  showBrainMap: boolean
+  showQuickPrompts: boolean
+  reduceMotion: boolean
+  autoPlayAudio: boolean
+}
+
+export interface BackendConfig {
+  model: string
+  ollama_url: string
 }

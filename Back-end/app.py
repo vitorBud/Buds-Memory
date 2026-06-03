@@ -4,6 +4,7 @@ import json
 import time
 import re
 from pathlib import Path
+from typing import Optional
 
 # Importações de agenty.py (reaproveitando lógica já existente)
 from agenty import (
@@ -17,14 +18,31 @@ from agenty import (
 import database
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
+FRONTEND_DIST_DIR = BASE_DIR.parent / "front-end" / "dist"
+STATIC_DIR = FRONTEND_DIST_DIR if FRONTEND_DIST_DIR.exists() else BASE_DIR / "static"
 
-app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
+app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 # Habilita CORS para permitir conexões do Front-end em outras portas
 CORS(app)
 
 # Inicializa as tabelas do banco de dados SQLite
 database.init_db()
+
+
+def sse_event(payload: dict) -> str:
+    """Formata um payload JSON como evento SSE compatível com Python 3.x."""
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def gerar_audio_url(texto: str, filename: str) -> Optional[str]:
+    """Tenta gerar TTS; se falhar, mantém o chat por texto funcionando."""
+    out_file = OUT_DIR / filename
+    try:
+        tts_piper(texto, out_file)
+        return f"/api/audio/{filename}"
+    except Exception as e:
+        print(f"[TTS] Áudio ignorado: {e}")
+        return None
 
 
 # ====== ROTA PRINCIPAL - SERVE O FRONT-END ======
@@ -33,6 +51,22 @@ database.init_db()
 def index():
     """Serve o index.html principal do Front-end."""
     return send_from_directory(STATIC_DIR, 'index.html')
+
+
+@app.route('/assets/<path:filename>')
+def frontend_assets(filename):
+    """Serve os arquivos gerados pelo Vite em front-end/dist/assets."""
+    return send_from_directory(STATIC_DIR / "assets", filename)
+
+
+@app.route('/favicon.svg')
+@app.route('/icons.svg')
+@app.route('/nexus-icon.svg')
+def frontend_public_asset():
+    """Serve ícones públicos do Front-end pela mesma porta do Flask."""
+    requested = request.path.lstrip("/")
+    filename = "favicon.svg" if requested == "nexus-icon.svg" else requested
+    return send_from_directory(STATIC_DIR, filename)
 
 
 
@@ -46,6 +80,15 @@ def get_sessions():
         return jsonify(sessions), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """Retorna configurações públicas usadas pelo Front-end."""
+    return jsonify({
+        "model": OLLAMA_MODEL,
+        "ollama_url": "http://localhost:11434",
+    }), 200
 
 
 @app.route('/api/sessions', methods=['POST'])
@@ -66,6 +109,20 @@ def delete_session(session_id):
     try:
         database.delete_session(session_id)
         return jsonify({"success": True, "message": "Sessão deletada com sucesso!"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sessions/<session_id>', methods=['PATCH'])
+def update_session(session_id):
+    """Atualiza metadados de uma sessão, como o título."""
+    try:
+        data = request.json or {}
+        title = data.get("title", "")
+        session = database.update_session_title(session_id, title)
+        return jsonify(session), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -126,9 +183,7 @@ def chat():
 
         # 2. Gera a resposta por voz usando o Piper
         audio_filename = f"reply_{int(time.time())}.wav"
-        out_file = OUT_DIR / audio_filename
-        tts_piper(reply, out_file)
-        audio_url = f"/api/audio/{audio_filename}"
+        audio_url = gerar_audio_url(reply, audio_filename)
 
         # 3. Salva a resposta da IA no banco de dados se houver sessão ativa
         msg_data = None
@@ -175,7 +230,7 @@ def chat_stream():
 
     def generate():
         # Envia a transcrição do áudio do usuário primeiro
-        yield f"data: {json.dumps({'type': 'transcription', 'content': user_text})}\n\n"
+        yield sse_event({'type': 'transcription', 'content': user_text})
 
         buffer = ""
         full_response = ""
@@ -184,7 +239,7 @@ def chat_stream():
         try:
             for token in llm_ollama_stream(user_text):
                 # Envia o token de texto gerado para o Front-end imprimir na tela
-                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                yield sse_event({'type': 'token', 'content': token})
                 buffer += token
                 full_response += token
                 
@@ -195,44 +250,38 @@ def chat_stream():
                         sentence_clean = sentence.strip()
                         if sentence_clean:
                             audio_filename = f"reply_{int(time.time())}_{sentence_idx}.wav"
-                            out_file = OUT_DIR / audio_filename
-                            try:
-                                tts_piper(sentence_clean, out_file)
+                            audio_url = gerar_audio_url(sentence_clean, audio_filename)
+                            if audio_url:
                                 # Envia o evento de áudio pronto para aquela frase
-                                yield f"data: {json.dumps({
+                                yield sse_event({
                                     'type': 'audio_sentence',
                                     'text': sentence_clean,
-                                    'url': f'/api/audio/{audio_filename}'
-                                })}\n\n"
-                                sentence_idx += 1
-                            except Exception as e:
-                                print(f"Erro TTS no streaming: {e}")
+                                    'url': audio_url
+                                })
+                            sentence_idx += 1
                     buffer = parts[-1]
             
             # Processa o que restou no buffer
             if buffer.strip():
                 sentence_clean = buffer.strip()
                 audio_filename = f"reply_{int(time.time())}_{sentence_idx}.wav"
-                out_file = OUT_DIR / audio_filename
-                try:
-                    tts_piper(sentence_clean, out_file)
-                    yield f"data: {json.dumps({
+                audio_url = gerar_audio_url(sentence_clean, audio_filename)
+                if audio_url:
+                    yield sse_event({
                         'type': 'audio_sentence',
                         'text': sentence_clean,
-                        'url': f'/api/audio/{audio_filename}'
-                    })}\n\n"
-                except Exception as e:
-                    print(f"Erro TTS no streaming (fim): {e}")
+                        'url': audio_url
+                    })
 
             # Salva a resposta completa da IA ao final do fluxo
             if session_id and full_response:
                 # Salva o texto completo gerado
-                database.add_message(session_id, "ia", full_response.strip(), f"/api/audio/reply_{int(time.time())}_0.wav")
+                database.add_message(session_id, "ia", full_response.strip())
 
         except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            yield sse_event({'type': 'error', 'content': str(e)})
             
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        yield sse_event({'type': 'done'})
 
     return Response(generate(), mimetype='text/event-stream')
 
@@ -244,5 +293,5 @@ def get_audio(filename):
 
 
 if __name__ == "__main__":
-    # Roda a API Flask na porta local 5000
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Roda a API Flask em 5050 para evitar conflito com AirPlay/AirTunes no macOS.
+    app.run(host="127.0.0.1", port=5050, debug=False, use_reloader=False)

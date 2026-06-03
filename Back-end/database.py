@@ -61,6 +61,23 @@ def delete_session(session_id):
         conn.commit()
     return True
 
+def update_session_title(session_id, title):
+    title = (title or "").strip()
+    if not title:
+        raise ValueError("O título não pode ficar vazio.")
+
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            "UPDATE sessions SET title = ? WHERE id = ?;",
+            (title, session_id)
+        )
+        conn.commit()
+
+    if cursor.rowcount == 0:
+        raise ValueError("Sessão não encontrada.")
+
+    return {"id": session_id, "title": title}
+
 def add_message(session_id, sender, text, audio_url=None):
     created_at = datetime.datetime.now().isoformat()
     with get_db_connection() as conn:

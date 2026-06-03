@@ -19,7 +19,10 @@ export function AiOrb({ state, size = 180 }: AiOrbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameRef  = useRef(0)
   const stateRef  = useRef<AiState>(state)
-  stateRef.current = state
+
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
 
   useEffect(() => {
     const canvas = canvasRef.current
