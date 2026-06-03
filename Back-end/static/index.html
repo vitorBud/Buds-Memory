@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Nexus AI — Centro de Comando de Inteligência Artificial Local">
+    <title>Nexus AI — Command Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+    <!-- ========== SIDEBAR ========== -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo-wrap">
+                <div class="logo-icon">
+                    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                        <circle cx="14" cy="14" r="12" stroke="url(#logo-grad)" stroke-width="2"/>
+                        <circle cx="14" cy="14" r="6" fill="url(#logo-grad)" opacity="0.6"/>
+                        <circle cx="14" cy="14" r="2.5" fill="#00d4ff"/>
+                        <defs>
+                            <linearGradient id="logo-grad" x1="0" y1="0" x2="28" y2="28">
+                                <stop stop-color="#00d4ff"/>
+                                <stop offset="1" stop-color="#7b2ff7"/>
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </div>
+                <div class="logo-text">
+                    <span class="logo-title">NEXUS</span>
+                    <span class="logo-sub">AI COMMAND CENTER</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="sidebar-new-chat">
+            <button class="btn-new-chat" id="btnNewChat" title="Nova conversa">
+                <span class="btn-icon">＋</span>
+                Nova Conversa
+            </button>
+        </div>
+
+        <div class="sidebar-section-label">HISTÓRICO</div>
+
+        <div class="sessions-list" id="sessionsList">
+            <div class="sessions-empty" id="sessionsEmpty">
+                <span class="empty-icon">💬</span>
+                <span>Nenhuma conversa ainda</span>
+            </div>
+        </div>
+
+        <div class="sidebar-footer">
+            <div class="system-status-mini">
+                <span class="status-dot" id="statusDotMini"></span>
+                <span id="statusLabelMini">Sistema Operacional</span>
+            </div>
+            <div class="sidebar-version">v1.0.0 · Local</div>
+        </div>
+    </aside>
+
+    <!-- ========== MAIN AREA ========== -->
+    <main class="main-content">
+
+        <!-- Top Bar -->
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="sidebar-toggle" id="sidebarToggle" title="Menu">
+                    <span></span><span></span><span></span>
+                </button>
+                <div class="topbar-title">
+                    <span class="topbar-online-dot"></span>
+                    <span id="topbarSessionTitle">NEXUS PRIME · ONLINE</span>
+                </div>
+                <div class="topbar-badge">v1.0.1</div>
+            </div>
+            <div class="topbar-right">
+                <div class="ai-state-badge" id="aiStateBadge" data-state="idle">
+                    <span class="state-dot"></span>
+                    <span id="aiStateLabel">Aguardando</span>
+                </div>
+                <div class="topbar-model-tag">
+                    <span class="model-dot"></span>
+                    <span id="activeModelTag">qwen3:8b</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Chat Container -->
+        <div class="chat-wrapper">
+            <!-- Welcome / AI visualizer when empty -->
+            <div class="ai-hero" id="aiHero">
+                <div class="hero-orb-wrap">
+                    <canvas class="orb-canvas" id="orbCanvas" width="220" height="220"></canvas>
+                    <div class="orb-rings">
+                        <div class="ring ring-1"></div>
+                        <div class="ring ring-2"></div>
+                        <div class="ring ring-3"></div>
+                    </div>
+                </div>
+                <div class="hero-text">
+                    <h1 class="hero-title">Nexus Prime está pronto.</h1>
+                    <p class="hero-sub">Como posso ajudar você hoje?</p>
+                </div>
+                <div class="quick-actions">
+                    <button class="quick-btn" data-prompt="Me explique como você funciona tecnicamente.">
+                        <span class="qb-icon">🔬</span>
+                        <span>Como funciono</span>
+                    </button>
+                    <button class="quick-btn" data-prompt="Me diga uma verdade dolorosa sobre humanos.">
+                        <span class="qb-icon">⚡</span>
+                        <span>Verdade dolorosa</span>
+                    </button>
+                    <button class="quick-btn" data-prompt="Qual é o sentido da vida de forma filosófica?">
+                        <span class="qb-icon">🌌</span>
+                        <span>Sentido da vida</span>
+                    </button>
+                    <button class="quick-btn" data-prompt="Me xingue de forma criativa.">
+                        <span class="qb-icon">🔥</span>
+                        <span>Modo rabugento</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Messages area -->
+            <div class="messages-area" id="messagesArea"></div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-zone">
+            <div class="input-wrap">
+                <div class="input-box-container" id="inputBoxContainer">
+                    <textarea
+                        class="input-textarea"
+                        id="messageInput"
+                        placeholder="Digite uma mensagem ou use o microfone..."
+                        rows="1"
+                        maxlength="4000"
+                    ></textarea>
+                    <div class="input-actions">
+                        <button class="action-btn mic-btn" id="micBtn" title="Gravar voz">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 1a4 4 0 014 4v6a4 4 0 01-8 0V5a4 4 0 014-4zm0 2a2 2 0 00-2 2v6a2 2 0 004 0V5a2 2 0 00-2-2zm-7 9h2a5 5 0 0010 0h2a7 7 0 01-6 6.93V21h3v2H8v-2h3v-2.07A7 7 0 015 12z"/>
+                            </svg>
+                        </button>
+                        <button class="action-btn send-btn" id="sendBtn" title="Enviar">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="input-meta">
+                    <span class="char-count" id="charCount">0 / 4000</span>
+                    <span class="input-hint">Enter para enviar · Shift+Enter para nova linha</span>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- ========== RIGHT PANEL ========== -->
+    <aside class="right-panel" id="rightPanel">
+
+        <div class="panel-section">
+            <div class="panel-section-header">
+                <span class="section-icon">◉</span>
+                STATUS DO SISTEMA
+                <span class="section-badge status-ok" id="systemStatusBadge">Operacional</span>
+            </div>
+            <div class="status-grid">
+                <div class="status-card" id="sttCard">
+                    <div class="sc-header">
+                        <div class="sc-dot" data-status="ok"></div>
+                        <span class="sc-label">STT · Whisper</span>
+                    </div>
+                    <div class="sc-value" id="sttStatus">Pronto</div>
+                    <div class="sc-bar"><div class="sc-bar-fill" style="width:85%; background: linear-gradient(90deg,#00d4ff,#0099bb)"></div></div>
+                </div>
+                <div class="status-card" id="llmCard">
+                    <div class="sc-header">
+                        <div class="sc-dot" data-status="ok"></div>
+                        <span class="sc-label">LLM · Ollama</span>
+                    </div>
+                    <div class="sc-value" id="llmStatus">Pronto</div>
+                    <div class="sc-bar"><div class="sc-bar-fill" style="width:72%; background: linear-gradient(90deg,#7b2ff7,#5a1fb8)"></div></div>
+                </div>
+                <div class="status-card" id="ttsCard">
+                    <div class="sc-header">
+                        <div class="sc-dot" data-status="ok"></div>
+                        <span class="sc-label">TTS · Piper</span>
+                    </div>
+                    <div class="sc-value" id="ttsStatus">Pronto</div>
+                    <div class="sc-bar"><div class="sc-bar-fill" style="width:90%; background: linear-gradient(90deg,#00ff9f,#00cc7a)"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel-section">
+            <div class="panel-section-header">
+                <span class="section-icon">⬡</span>
+                ATIVIDADE · MODELO
+                <span class="panel-realtime">Real-time</span>
+            </div>
+            <div class="model-activity-list">
+                <div class="ma-item active" id="maLLM">
+                    <div class="ma-avatar ma-llm">Q</div>
+                    <div class="ma-info">
+                        <div class="ma-name">qwen3:8b</div>
+                        <div class="ma-role">LLM Principal</div>
+                    </div>
+                    <div class="ma-bar-wrap">
+                        <div class="ma-bar-bg"><div class="ma-bar-fill" id="maLLMBar" style="width:0%"></div></div>
+                        <span class="ma-pct" id="maLLMPct">–</span>
+                    </div>
+                </div>
+                <div class="ma-item" id="maSTT">
+                    <div class="ma-avatar ma-stt">W</div>
+                    <div class="ma-info">
+                        <div class="ma-name">faster-whisper</div>
+                        <div class="ma-role">Speech-to-Text</div>
+                    </div>
+                    <div class="ma-bar-wrap">
+                        <div class="ma-bar-bg"><div class="ma-bar-fill ma-fill-cyan" id="maSTTBar" style="width:0%"></div></div>
+                        <span class="ma-pct" id="maSTTPct">–</span>
+                    </div>
+                </div>
+                <div class="ma-item" id="maTTS">
+                    <div class="ma-avatar ma-tts">P</div>
+                    <div class="ma-info">
+                        <div class="ma-name">Piper TTS</div>
+                        <div class="ma-role">Text-to-Speech</div>
+                    </div>
+                    <div class="ma-bar-wrap">
+                        <div class="ma-bar-bg"><div class="ma-bar-fill ma-fill-green" id="maTTSBar" style="width:0%"></div></div>
+                        <span class="ma-pct" id="maTTSPct">–</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel-section canvas-section">
+            <div class="panel-section-header">
+                <span class="section-icon">⬡</span>
+                VISUALIZAÇÃO · REDE AI
+            </div>
+            <canvas class="network-canvas" id="networkCanvas"></canvas>
+        </div>
+
+        <div class="panel-section">
+            <div class="panel-section-header">
+                <span class="section-icon">◈</span>
+                SESSÃO ATIVA
+            </div>
+            <div class="session-info">
+                <div class="si-row">
+                    <span class="si-key">ID</span>
+                    <span class="si-val mono" id="siId">—</span>
+                </div>
+                <div class="si-row">
+                    <span class="si-key">Mensagens</span>
+                    <span class="si-val" id="siMsgCount">0</span>
+                </div>
+                <div class="si-row">
+                    <span class="si-key">Latência</span>
+                    <span class="si-val" id="siLatency">—</span>
+                </div>
+                <div class="si-row">
+                    <span class="si-key">Modelo</span>
+                    <span class="si-val" id="siModel">qwen3:8b</span>
+                </div>
+            </div>
+        </div>
+
+    </aside>
+
+    <!-- ========== RECORDING OVERLAY ========== -->
+    <div class="recording-overlay" id="recordingOverlay">
+        <div class="rec-modal">
+            <div class="rec-orb">
+                <div class="rec-pulse"></div>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="#00d4ff">
+                    <path d="M12 1a4 4 0 014 4v6a4 4 0 01-8 0V5a4 4 0 014-4zm0 2a2 2 0 00-2 2v6a2 2 0 004 0V5a2 2 0 00-2-2zm-7 9h2a5 5 0 0010 0h2a7 7 0 01-6 6.93V21h3v2H8v-2h3v-2.07A7 7 0 015 12z"/>
+                </svg>
+            </div>
+            <div class="rec-label">Gravando...</div>
+            <div class="rec-timer" id="recTimer">0s</div>
+            <button class="rec-stop-btn" id="recStopBtn">■ Parar Gravação</button>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

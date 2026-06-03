@@ -1,0 +1,95 @@
+import sqlite3
+from pathlib import Path
+import uuid
+import datetime
+
+BASE = Path(__file__).resolve().parent
+DB_PATH = BASE / "chat_history.db"
+
+def get_db_connection():
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    # Habilita suporte a chaves estrangeiras (cascade delete)
+    conn.execute("PRAGMA foreign_keys = ON;")
+    return conn
+
+def init_db():
+    with get_db_connection() as conn:
+        # Tabela de sessões
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+        """)
+        # Tabela de mensagens vinculadas
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                sender TEXT NOT NULL,
+                text TEXT NOT NULL,
+                audio_url TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
+            );
+        """)
+        conn.commit()
+
+def create_session(title=None):
+    session_id = str(uuid.uuid4())
+    if not title:
+        title = f"Conversa {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    created_at = datetime.datetime.now().isoformat()
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, title, created_at) VALUES (?, ?, ?);",
+            (session_id, title, created_at)
+        )
+        conn.commit()
+    return {"id": session_id, "title": title, "created_at": created_at}
+
+def get_all_sessions():
+    with get_db_connection() as conn:
+        rows = conn.execute("SELECT * FROM sessions ORDER BY created_at DESC;").fetchall()
+        return [dict(row) for row in rows]
+
+def delete_session(session_id):
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM sessions WHERE id = ?;", (session_id,))
+        conn.commit()
+    return True
+
+def add_message(session_id, sender, text, audio_url=None):
+    created_at = datetime.datetime.now().isoformat()
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """INSERT INTO messages (session_id, sender, text, audio_url, created_at) 
+               VALUES (?, ?, ?, ?, ?);""",
+            (session_id, sender, text, audio_url, created_at)
+        )
+        conn.commit()
+        msg_id = cursor.lastrowid
+    return {
+        "id": msg_id,
+        "session_id": session_id,
+        "sender": sender,
+        "text": text,
+        "audio_url": audio_url,
+        "created_at": created_at
+    }
+
+def get_session_messages(session_id):
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC;",
+            (session_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+# Inicializa o banco ao rodar o script diretamente
+if __name__ == "__main__":
+    init_db()
+    print("Banco de dados SQLite inicializado com sucesso!")

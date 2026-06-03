@@ -1,0 +1,25 @@
+# ====== Áudios gerados pelo assistente ======
+Back-end/out/*.wav
+
+# ====== Python ======
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.env
+.venv/
+venv/
+env/
+ambiente/
+Back-end/ambiente/
+config.json
+Back-end/config.json
+
+# ====== Modelos baixados pelo Whisper (cache) ======
+~/.cache/huggingface/
+Back-end/models/
+
