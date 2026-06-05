@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BrainCircuit, MousePointer2, Rotate3D, ScanSearch, ZoomIn } from 'lucide-react'
+import { BrainCircuit, GitBranch, Layers3, MousePointer2, Rotate3D, ScanSearch, ZoomIn } from 'lucide-react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import type { Message } from '../types'
@@ -8,11 +8,23 @@ interface BrainMapProps {
   messages: Message[]
 }
 
+interface ConceptNode {
+  id: string
+  label: string
+  count: number
+  index: number
+  senderMix: {
+    user: number
+    ia: number
+  }
+}
+
 const STOP_WORDS = new Set([
   'para', 'como', 'uma', 'com', 'que', 'por', 'mais', 'menos', 'isso', 'esse',
   'essa', 'aqui', 'voce', 'você', 'esta', 'está', 'ser', 'ter', 'das', 'dos',
   'nas', 'nos', 'sim', 'não', 'nao', 'meu', 'minha', 'seu', 'sua', 'ele',
-  'ela', 'tem', 'vai', 'fazer', 'sobre', 'apenas', 'agora',
+  'ela', 'tem', 'vai', 'fazer', 'sobre', 'apenas', 'agora', 'entao', 'então',
+  'quando', 'onde', 'porque', 'qual', 'quais', 'cada', 'toda', 'todo', 'isso',
 ])
 
 function normalize(text: string) {
@@ -23,21 +35,91 @@ function normalize(text: string) {
     .replace(/[^a-z0-9\s-]/g, ' ')
 }
 
-function getConcepts(messages: Message[]) {
-  const counts = new Map<string, number>()
+function hashString(value: string) {
+  let hash = 0
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0
+  }
+  return Math.abs(hash)
+}
+
+function getConcepts(messages: Message[]): ConceptNode[] {
+  const counts = new Map<string, ConceptNode>()
 
   messages.forEach(message => {
     if (message.text === '__thinking__') return
+
     normalize(message.text)
       .split(/\s+/)
       .filter(word => word.length > 3 && !STOP_WORDS.has(word))
-      .forEach(word => counts.set(word, (counts.get(word) ?? 0) + 1))
+      .forEach(word => {
+        const previous = counts.get(word) ?? {
+          id: word,
+          label: word,
+          count: 0,
+          index: 0,
+          senderMix: { user: 0, ia: 0 },
+        }
+        previous.count += 1
+        previous.senderMix[message.sender === 'user' ? 'user' : 'ia'] += 1
+        counts.set(word, previous)
+      })
   })
 
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 9)
-    .map(([label, count], index) => ({ id: label, label, count, index }))
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    .slice(0, 10)
+    .map((node, index) => ({ ...node, index }))
+}
+
+function makeLabelSprite(label: string, color: string, selected: boolean) {
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  canvas.width = 256
+  canvas.height = 72
+
+  if (context) {
+    context.clearRect(0, 0, canvas.width, canvas.height)
+    context.fillStyle = selected ? 'rgba(10, 18, 30, 0.88)' : 'rgba(10, 18, 30, 0.68)'
+    context.strokeStyle = color
+    context.lineWidth = selected ? 3 : 1.5
+    context.beginPath()
+    context.roundRect(8, 8, 240, 48, 10)
+    context.fill()
+    context.stroke()
+
+    context.fillStyle = '#edf3fb'
+    context.font = '600 22px Outfit, system-ui, sans-serif'
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.fillText(label.slice(0, 18), 128, 32)
+  }
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity: selected ? 1 : 0.82,
+    depthTest: false,
+  })
+  const sprite = new THREE.Sprite(material)
+  sprite.scale.set(selected ? 1.42 : 1.18, selected ? 0.4 : 0.34, 1)
+  sprite.userData = { texture, material }
+  return sprite
+}
+
+function getNodePosition(node: ConceptNode, total: number) {
+  const hash = hashString(node.label)
+  const angle = node.index * 2.399963 + (hash % 64) * 0.012
+  const radius = 2.35 + (hash % 4) * 0.28 + Math.min(node.count, 5) * 0.08
+  const y = (((hash >> 4) % 9) - 4) * 0.18
+
+  return new THREE.Vector3(
+    Math.cos(angle) * radius,
+    y + Math.sin((node.index / Math.max(total, 1)) * Math.PI * 2) * 0.34,
+    Math.sin(angle) * radius,
+  )
 }
 
 export function BrainMap({ messages }: BrainMapProps) {
@@ -47,15 +129,22 @@ export function BrainMap({ messages }: BrainMapProps) {
   const nodes = concepts.length
     ? concepts
     : [
-        { id: 'memoria', label: 'memoria', count: 1, index: 0 },
-        { id: 'voz', label: 'voz', count: 1, index: 1 },
-        { id: 'modelo', label: 'modelo', count: 1, index: 2 },
-        { id: 'contexto', label: 'contexto', count: 1, index: 3 },
+        { id: 'memoria', label: 'memoria', count: 1, index: 0, senderMix: { user: 0, ia: 1 } },
+        { id: 'voz', label: 'voz', count: 1, index: 1, senderMix: { user: 0, ia: 1 } },
+        { id: 'modelo', label: 'modelo', count: 1, index: 2, senderMix: { user: 0, ia: 1 } },
+        { id: 'contexto', label: 'contexto', count: 1, index: 3, senderMix: { user: 0, ia: 1 } },
+        { id: 'codigo', label: 'codigo', count: 1, index: 4, senderMix: { user: 0, ia: 1 } },
+        { id: 'resposta', label: 'resposta', count: 1, index: 5, senderMix: { user: 0, ia: 1 } },
+        { id: 'frontend', label: 'frontend', count: 1, index: 6, senderMix: { user: 0, ia: 1 } },
+        { id: 'sessao', label: 'sessao', count: 1, index: 7, senderMix: { user: 0, ia: 1 } },
       ]
-  const conceptSignature = nodes.map(node => `${node.id}:${node.count}`).join('|')
+  const selectedNode = nodes.find(node => node.label === selectedConcept)
+  const conceptSignature = nodes.map(node => `${node.id}:${node.count}:${node.senderMix.user}:${node.senderMix.ia}`).join('|')
   const activeMessages = messages.filter(message => message.text !== '__thinking__')
   const userMessages = activeMessages.filter(message => message.sender === 'user').length
   const aiMessages = activeMessages.filter(message => message.sender === 'ia').length
+  const totalMentions = nodes.reduce((sum, node) => sum + node.count, 0)
+  const memoryLoad = Math.min(100, Math.round((activeMessages.length / 12) * 100))
 
   useEffect(() => {
     const mount = mountRef.current
@@ -69,15 +158,16 @@ export function BrainMap({ messages }: BrainMapProps) {
       violet: style.getPropertyValue('--violet').trim() || '#8b5cf6',
       emerald: style.getPropertyValue('--emerald').trim() || '#22c55e',
       amber: style.getPropertyValue('--amber').trim() || '#f59e0b',
+      rose: style.getPropertyValue('--rose').trim() || '#f43f5e',
     }
 
     const width = Math.max(mount.clientWidth, 260)
-    const height = Math.max(mount.clientHeight, 220)
+    const height = Math.max(mount.clientHeight, 260)
     const scene = new THREE.Scene()
-    scene.fog = new THREE.Fog(colors.surface, 7, 15)
+    scene.fog = new THREE.Fog(colors.surface, 8, 17)
 
-    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100)
-    camera.position.set(0, 1.2, 8.8)
+    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100)
+    camera.position.set(0, 1.35, 8.6)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -87,113 +177,277 @@ export function BrainMap({ messages }: BrainMapProps) {
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
-    controls.minDistance = 5
+    controls.minDistance = 4.6
     controls.maxDistance = 13
-    controls.rotateSpeed = 0.65
+    controls.rotateSpeed = 0.62
+    controls.autoRotate = activeMessages.length > 0
+    controls.autoRotateSpeed = 0.45
 
     const root = new THREE.Group()
     scene.add(root)
 
-    const ambient = new THREE.AmbientLight(colors.text, 0.55)
-    const key = new THREE.PointLight(colors.cyan, 1.35, 16)
-    key.position.set(4, 5, 5)
-    const fill = new THREE.PointLight(colors.violet, 0.9, 12)
+    const ambient = new THREE.AmbientLight(colors.text, 0.58)
+    const key = new THREE.PointLight(colors.cyan, 1.5, 18)
+    key.position.set(4.5, 5, 5)
+    const fill = new THREE.PointLight(colors.violet, 1.05, 14)
     fill.position.set(-4, -2, 4)
     scene.add(ambient, key, fill)
 
-    const coreGeometry = new THREE.IcosahedronGeometry(0.9, 3)
+    const disposables: Array<{ dispose: () => void }> = []
+    const selectable: THREE.Mesh[] = []
+    const labelSprites: THREE.Sprite[] = []
+    const pulseSignals: Array<{
+      mesh: THREE.Mesh
+      curve: THREE.CatmullRomCurve3
+      offset: number
+      speed: number
+    }> = []
+    const positionMap = new Map<string, THREE.Vector3>()
+    const selectedLabel = selectedNode?.label
+
+    const coreGeometry = new THREE.IcosahedronGeometry(0.38, 4)
     const coreMaterial = new THREE.MeshStandardMaterial({
       color: colors.cyan,
       emissive: colors.cyan,
-      emissiveIntensity: 0.18,
-      metalness: 0.35,
-      roughness: 0.28,
+      emissiveIntensity: 0.38,
+      metalness: 0.42,
+      roughness: 0.24,
       transparent: true,
-      opacity: 0.94,
+      opacity: 0.88,
     })
+    disposables.push(coreGeometry, coreMaterial)
     const core = new THREE.Mesh(coreGeometry, coreMaterial)
     core.name = 'Nexus core'
     root.add(core)
 
-    const ringMaterial = new THREE.MeshBasicMaterial({
-      color: colors.violet,
-      transparent: true,
-      opacity: 0.24,
-      side: THREE.DoubleSide,
+    const neuronCluster = new THREE.Group()
+    const microGeometry = new THREE.SphereGeometry(0.045, 16, 16)
+    const microMaterial = new THREE.MeshStandardMaterial({
+      color: colors.cyan,
+      emissive: colors.cyan,
+      emissiveIntensity: 0.45,
+      metalness: 0.2,
+      roughness: 0.28,
     })
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.55, 0.008, 12, 96), ringMaterial)
-    ring.rotation.x = Math.PI / 2.7
-    root.add(ring)
-
-    const sphereGeometry = new THREE.SphereGeometry(0.16, 28, 28)
-    const selectable: THREE.Mesh[] = []
-    const linkMaterial = new THREE.LineBasicMaterial({
+    disposables.push(microGeometry, microMaterial)
+    const microLinkMaterial = new THREE.LineBasicMaterial({
       color: colors.cyan,
       transparent: true,
-      opacity: 0.33,
+      opacity: 0.22,
+    })
+    disposables.push(microLinkMaterial)
+
+    for (let index = 0; index < 44; index += 1) {
+      const angle = index * 2.399963
+      const radius = 0.58 + (index % 5) * 0.065
+      const neuron = new THREE.Mesh(microGeometry, microMaterial)
+      neuron.position.set(
+        Math.cos(angle) * radius,
+        Math.sin(index * 1.41) * 0.46,
+        Math.sin(angle) * radius,
+      )
+      neuron.userData = { basePosition: neuron.position.clone(), index }
+      neuronCluster.add(neuron)
+
+      const linkGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), neuron.position])
+      disposables.push(linkGeometry)
+      neuronCluster.add(new THREE.Line(linkGeometry, microLinkMaterial))
+    }
+    root.add(neuronCluster)
+
+    const coreHaloMaterial = new THREE.MeshBasicMaterial({
+      color: colors.cyan,
+      transparent: true,
+      opacity: 0.12,
+      side: THREE.DoubleSide,
+    })
+    disposables.push(coreHaloMaterial)
+    const haloA = new THREE.Mesh(new THREE.TorusGeometry(1.34, 0.008, 10, 120), coreHaloMaterial)
+    const haloB = new THREE.Mesh(new THREE.TorusGeometry(1.75, 0.006, 10, 120), coreHaloMaterial.clone())
+    disposables.push(haloA.geometry, haloB.geometry, haloB.material as THREE.Material)
+    haloA.rotation.x = Math.PI / 2.35
+    haloB.rotation.y = Math.PI / 2.9
+    root.add(haloA, haloB)
+
+    const nodeGeometry = new THREE.SphereGeometry(0.15, 32, 32)
+    const pulseGeometry = new THREE.SphereGeometry(0.045, 18, 18)
+    disposables.push(nodeGeometry)
+    disposables.push(pulseGeometry)
+
+    const regions = [
+      { label: 'memoria', color: colors.cyan, position: new THREE.Vector3(-2.9, 1.35, -1.4) },
+      { label: 'codigo', color: colors.amber, position: new THREE.Vector3(2.9, 1.05, -1.1) },
+      { label: 'contexto', color: colors.emerald, position: new THREE.Vector3(-2.65, -1.2, 1.2) },
+      { label: 'resposta', color: colors.violet, position: new THREE.Vector3(2.65, -1.15, 1.35) },
+    ]
+
+    regions.forEach(region => {
+      const sprite = makeLabelSprite(region.label, region.color, false)
+      sprite.position.copy(region.position)
+      sprite.scale.multiplyScalar(0.78)
+      labelSprites.push(sprite)
+      root.add(sprite)
     })
 
     nodes.forEach((node, index) => {
-      const angle = (Math.PI * 2 * index) / nodes.length
-      const layer = index % 3
-      const radius = 2.2 + layer * 0.42 + Math.min(node.count, 4) * 0.08
-      const position = new THREE.Vector3(
-        Math.cos(angle) * radius,
-        Math.sin(index * 1.7) * 0.78,
-        Math.sin(angle) * radius,
-      )
-
-      const color = index % 3 === 0 ? colors.emerald : index % 3 === 1 ? colors.violet : colors.amber
+      const position = getNodePosition(node, nodes.length)
+      positionMap.set(node.label, position)
+      const isSelected = node.label === selectedLabel
+      const color = node.senderMix.user > node.senderMix.ia
+        ? colors.amber
+        : index % 3 === 0 ? colors.emerald : index % 3 === 1 ? colors.violet : colors.cyan
       const nodeMaterial = new THREE.MeshStandardMaterial({
         color,
         emissive: color,
-        emissiveIntensity: 0.14 + Math.min(node.count, 4) * 0.035,
+        emissiveIntensity: isSelected ? 0.52 : 0.18 + Math.min(node.count, 5) * 0.035,
         metalness: 0.22,
-        roughness: 0.34,
+        roughness: 0.3,
       })
-      const sphere = new THREE.Mesh(sphereGeometry, nodeMaterial)
+      disposables.push(nodeMaterial)
+
+      const sphere = new THREE.Mesh(nodeGeometry, nodeMaterial)
       sphere.position.copy(position)
-      sphere.scale.setScalar(0.82 + Math.min(node.count, 5) * 0.12)
-      sphere.userData = { label: node.label, count: node.count, baseScale: sphere.scale.x }
+      sphere.scale.setScalar((isSelected ? 1.34 : 0.92) + Math.min(node.count, 5) * 0.11)
+      sphere.userData = {
+        label: node.label,
+        count: node.count,
+        baseScale: sphere.scale.x,
+        material: nodeMaterial,
+      }
       selectable.push(sphere)
       root.add(sphere)
 
-      const lineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), position])
-      const line = new THREE.Line(lineGeometry, linkMaterial)
-      root.add(line)
+      for (let satelliteIndex = 0; satelliteIndex < 4; satelliteIndex += 1) {
+        const satelliteAngle = index * 1.17 + satelliteIndex * 2.08
+        const satelliteOffset = new THREE.Vector3(
+          Math.cos(satelliteAngle) * (0.36 + satelliteIndex * 0.05),
+          Math.sin(satelliteAngle * 1.3) * 0.2,
+          Math.sin(satelliteAngle) * (0.36 + satelliteIndex * 0.05),
+        )
+        const satellite = new THREE.Mesh(microGeometry, nodeMaterial)
+        satellite.position.copy(position).add(satelliteOffset)
+        satellite.userData = {
+          basePosition: satellite.position.clone(),
+          index: index + satelliteIndex,
+        }
+        root.add(satellite)
+
+        const satelliteCurve = new THREE.CatmullRomCurve3([
+          position,
+          position.clone().lerp(satellite.position, 0.5).add(new THREE.Vector3(0, 0.12, 0)),
+          satellite.position,
+        ])
+        const satelliteLinkGeometry = new THREE.BufferGeometry().setFromPoints(satelliteCurve.getPoints(18))
+        const satelliteLinkMaterial = new THREE.LineBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.18,
+        })
+        disposables.push(satelliteLinkGeometry, satelliteLinkMaterial)
+        root.add(new THREE.Line(satelliteLinkGeometry, satelliteLinkMaterial))
+      }
+
+      const labelSprite = makeLabelSprite(node.label, color, isSelected)
+      labelSprite.position.copy(position).add(new THREE.Vector3(0, 0.45 + Math.min(node.count, 4) * 0.05, 0))
+      labelSprites.push(labelSprite)
+      root.add(labelSprite)
+
+      const linkMaterial = new THREE.LineBasicMaterial({
+        color: isSelected ? colors.violet : colors.cyan,
+        transparent: true,
+        opacity: isSelected ? 0.56 : 0.28,
+      })
+      const curve = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, 0, 0),
+        position.clone().multiplyScalar(0.42).add(new THREE.Vector3(0, Math.sin(index + 1) * 0.7, 0)),
+        position,
+      ])
+      const linkGeometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(34))
+      disposables.push(linkMaterial, linkGeometry)
+      root.add(new THREE.Line(linkGeometry, linkMaterial))
+
+      const pulseMaterial = new THREE.MeshBasicMaterial({
+        color: isSelected ? colors.violet : color,
+        transparent: true,
+        opacity: isSelected ? 0.95 : 0.72,
+      })
+      disposables.push(pulseMaterial)
+      const pulse = new THREE.Mesh(pulseGeometry, pulseMaterial)
+      pulseSignals.push({
+        mesh: pulse,
+        curve,
+        offset: index / Math.max(nodes.length, 1),
+        speed: 0.18 + (index % 4) * 0.035,
+      })
+      root.add(pulse)
+    })
+
+    nodes.forEach((node, index) => {
+      if (index >= nodes.length - 1) return
+      const from = positionMap.get(node.label)
+      const to = positionMap.get(nodes[index + 1].label)
+      if (!from || !to) return
+
+      const relationMaterial = new THREE.LineBasicMaterial({
+        color: colors.violet,
+        transparent: true,
+        opacity: 0.14 + Math.min(node.count, 4) * 0.025,
+      })
+      const relationCurve = new THREE.CatmullRomCurve3([
+        from,
+        from.clone().lerp(to, 0.5).add(new THREE.Vector3(0, 0.5 + (index % 2) * 0.2, 0)),
+        to,
+      ])
+      const relationGeometry = new THREE.BufferGeometry().setFromPoints(relationCurve.getPoints(26))
+      disposables.push(relationMaterial, relationGeometry)
+      root.add(new THREE.Line(relationGeometry, relationMaterial))
     })
 
     const starGeometry = new THREE.BufferGeometry()
-    const starPositions = new Float32Array(180 * 3)
-    for (let i = 0; i < starPositions.length; i += 3) {
-      starPositions[i] = (Math.random() - 0.5) * 9
-      starPositions[i + 1] = (Math.random() - 0.5) * 5
-      starPositions[i + 2] = (Math.random() - 0.5) * 9
+    const starPositions = new Float32Array(420 * 3)
+    for (let index = 0; index < starPositions.length; index += 3) {
+      const seed = index + nodes.length * 17
+      starPositions[index] = (((seed * 37) % 100) / 100 - 0.5) * 9
+      starPositions[index + 1] = (((seed * 53) % 100) / 100 - 0.5) * 5.4
+      starPositions[index + 2] = (((seed * 71) % 100) / 100 - 0.5) * 9
     }
     starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
-    const stars = new THREE.Points(
-      starGeometry,
-      new THREE.PointsMaterial({ color: colors.cyan, size: 0.018, transparent: true, opacity: 0.42 }),
-    )
+    const starsMaterial = new THREE.PointsMaterial({
+      color: colors.cyan,
+      size: 0.018,
+      transparent: true,
+      opacity: 0.44,
+    })
+    disposables.push(starGeometry, starsMaterial)
+    const stars = new THREE.Points(starGeometry, starsMaterial)
     scene.add(stars)
 
     const raycaster = new THREE.Raycaster()
     const pointer = new THREE.Vector2()
-    const onPointerDown = (event: PointerEvent) => {
+    const setPointer = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect()
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
       raycaster.setFromCamera(pointer, camera)
+    }
+    const onPointerMove = (event: PointerEvent) => {
+      setPointer(event)
+      const [hit] = raycaster.intersectObjects(selectable)
+      renderer.domElement.style.cursor = hit ? 'pointer' : 'grab'
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      setPointer(event)
       const [hit] = raycaster.intersectObjects(selectable)
       if (hit?.object.userData.label) {
         setSelectedConcept(hit.object.userData.label)
       }
     }
+    renderer.domElement.addEventListener('pointermove', onPointerMove)
     renderer.domElement.addEventListener('pointerdown', onPointerDown)
 
     const resizeObserver = new ResizeObserver(([entry]) => {
       const nextWidth = Math.max(entry.contentRect.width, 260)
-      const nextHeight = Math.max(entry.contentRect.height, 220)
+      const nextHeight = Math.max(entry.contentRect.height, 260)
       camera.aspect = nextWidth / nextHeight
       camera.updateProjectionMatrix()
       renderer.setSize(nextWidth, nextHeight)
@@ -206,14 +460,40 @@ export function BrainMap({ messages }: BrainMapProps) {
       frame += 0.01
       core.rotation.x += 0.004
       core.rotation.y += 0.006
-      ring.rotation.z += 0.003
-      root.rotation.y += 0.0018
-      stars.rotation.y -= 0.0009
+      neuronCluster.rotation.y -= 0.0025
+      neuronCluster.rotation.x = Math.sin(frame * 0.8) * 0.08
+      haloA.rotation.z += 0.004
+      haloB.rotation.x -= 0.003
+      stars.rotation.y -= 0.0008
 
       selectable.forEach((mesh, index) => {
         const baseScale = mesh.userData.baseScale || 1
-        const pulse = Math.sin(frame * 4 + index) * 0.045
+        const activePulse = mesh.userData.label === selectedLabel ? 0.09 : 0.035
+        const pulse = Math.sin(frame * 4 + index) * activePulse
         mesh.scale.setScalar(baseScale + pulse)
+      })
+
+      neuronCluster.children.forEach(child => {
+        if (!(child instanceof THREE.Mesh) || !child.userData.basePosition) return
+        const base = child.userData.basePosition as THREE.Vector3
+        const index = child.userData.index as number
+        child.position.copy(base).add(new THREE.Vector3(
+          Math.sin(frame * 2.2 + index) * 0.025,
+          Math.cos(frame * 1.8 + index) * 0.025,
+          Math.sin(frame * 2.4 + index * 0.7) * 0.025,
+        ))
+      })
+
+      pulseSignals.forEach(signal => {
+        const t = (frame * signal.speed + signal.offset) % 1
+        const point = signal.curve.getPointAt(t)
+        signal.mesh.position.copy(point)
+        const scale = 0.72 + Math.sin((t + frame) * Math.PI * 2) * 0.22
+        signal.mesh.scale.setScalar(scale)
+      })
+
+      labelSprites.forEach(sprite => {
+        sprite.quaternion.copy(camera.quaternion)
       })
 
       controls.update()
@@ -225,38 +505,50 @@ export function BrainMap({ messages }: BrainMapProps) {
     return () => {
       window.cancelAnimationFrame(animationId)
       resizeObserver.disconnect()
+      renderer.domElement.removeEventListener('pointermove', onPointerMove)
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
       controls.dispose()
       renderer.dispose()
-      coreGeometry.dispose()
-      sphereGeometry.dispose()
-      starGeometry.dispose()
-      coreMaterial.dispose()
-      ringMaterial.dispose()
-      linkMaterial.dispose()
+      labelSprites.forEach(sprite => {
+        sprite.userData.texture?.dispose()
+        sprite.userData.material?.dispose()
+      })
+      disposables.forEach(item => item.dispose())
       mount.removeChild(renderer.domElement)
     }
-  }, [conceptSignature])
+  }, [activeMessages.length, conceptSignature, selectedNode?.label])
 
   return (
     <div className="brain-card">
-      <div className="panel-heading">
-        <span>Cérebro IA</span>
-        <BrainCircuit size={14} />
+      <div className="brain-card-header">
+        <div>
+          <span className="eyebrow">Obsidian Graph</span>
+          <strong>Cérebro IA</strong>
+        </div>
+        <div className="brain-header-actions">
+          <span><GitBranch size={12} /> {Math.max(0, nodes.length - 1)}</span>
+          <BrainCircuit size={15} />
+        </div>
       </div>
 
       <div className="brain-graph" aria-label="Mapa 3D de conceitos da conversa">
         <div ref={mountRef} className="brain-canvas" />
         <div className="brain-hud">
-          <strong>{selectedConcept}</strong>
-          <span>{nodes.length} nós ativos</span>
+          <span>Selecionado</span>
+          <strong>{selectedNode?.label ?? selectedConcept}</strong>
+          <em>{selectedNode ? `${selectedNode.count} menções` : `${nodes.length} nós ativos`}</em>
+        </div>
+        <div className="brain-vault-status">
+          <Layers3 size={13} />
+          <span>Memória</span>
+          <strong>{memoryLoad}%</strong>
         </div>
       </div>
 
       <div className="brain-controls">
         <span><Rotate3D size={12} /> arraste</span>
         <span><ZoomIn size={12} /> zoom</span>
-        <span><MousePointer2 size={12} /> clique</span>
+        <span><MousePointer2 size={12} /> selecione</span>
       </div>
 
       <div className="brain-stats">
@@ -269,9 +561,19 @@ export function BrainMap({ messages }: BrainMapProps) {
           <strong>{aiMessages}</strong>
         </div>
         <div>
-          <span>Conceitos</span>
-          <strong>{nodes.length}</strong>
+          <span>Menções</span>
+          <strong>{totalMentions}</strong>
         </div>
+      </div>
+
+      <div className="brain-detail">
+        <span>Nó ativo</span>
+        <strong>{selectedNode?.label ?? 'Nexus'}</strong>
+        <p>
+          {selectedNode
+            ? `Aparece ${selectedNode.count} vez(es), com ${selectedNode.senderMix.user} menção(ões) suas e ${selectedNode.senderMix.ia} da IA.`
+            : 'Núcleo da conversa atual, conectando contexto, memória e respostas do modelo.'}
+        </p>
       </div>
 
       <div className="concept-list">
@@ -279,7 +581,7 @@ export function BrainMap({ messages }: BrainMapProps) {
           <span>Conceitos em tempo real</span>
           <ScanSearch size={13} />
         </div>
-        {nodes.slice(0, 6).map(node => (
+        {nodes.slice(0, 7).map(node => (
           <button
             key={node.id}
             type="button"

@@ -45,6 +45,22 @@ def gerar_audio_url(texto: str, filename: str) -> Optional[str]:
         return None
 
 
+def prepare_session_context(session_id: Optional[str], user_text: str):
+    history = []
+    title_update = None
+
+    if not session_id:
+        return history, title_update
+
+    history = database.get_recent_session_messages(session_id, limit=12)
+    if not history:
+        title = database.make_title_from_message(user_text)
+        title_update = database.update_session_title(session_id, title)
+
+    database.add_message(session_id, "user", user_text)
+    return history, title_update
+
+
 # ====== ROTA PRINCIPAL - SERVE O FRONT-END ======
 
 @app.route('/')
@@ -158,26 +174,28 @@ def chat():
         user_text = stt_local(filepath)
         
         if session_id and user_text:
-            database.add_message(session_id, "user", user_text)
+            pass
             
     # Se receber texto em formato JSON
     elif request.is_json:
         user_text = request.json.get("text", "")
         if session_id and user_text:
-            database.add_message(session_id, "user", user_text)
+            pass
             
     # Se receber texto em formulário tradicional
     else:
         user_text = request.form.get("text", "")
         if session_id and user_text:
-            database.add_message(session_id, "user", user_text)
+            pass
 
     if not user_text:
         return jsonify({"error": "Nenhum texto ou áudio fornecido"}), 400
 
     try:
+        history, title_update = prepare_session_context(session_id, user_text)
+
         # 1. Envia o texto para a IA (Ollama)
-        reply = llm_ollama(user_text)
+        reply = llm_ollama(user_text, history)
         if not reply:
             return jsonify({"error": "Nenhuma resposta foi obtida da IA."}), 500
 
@@ -194,7 +212,8 @@ def chat():
             "user_text": user_text,
             "response_text": reply,
             "audio_url": audio_url,
-            "message": msg_data
+            "message": msg_data,
+            "session": title_update
         }), 200
 
     except Exception as e:
@@ -224,20 +243,20 @@ def chat_stream():
     if not user_text:
         return jsonify({"error": "Nenhum texto ou áudio fornecido"}), 400
 
-    # Salva a mensagem do usuário se a sessão existir
-    if session_id:
-        database.add_message(session_id, "user", user_text)
+    history, title_update = prepare_session_context(session_id, user_text)
 
     def generate():
         # Envia a transcrição do áudio do usuário primeiro
         yield sse_event({'type': 'transcription', 'content': user_text})
+        if title_update:
+            yield sse_event({'type': 'session_update', 'session': title_update})
 
         buffer = ""
         full_response = ""
         sentence_idx = 0
         
         try:
-            for token in llm_ollama_stream(user_text):
+            for token in llm_ollama_stream(user_text, history):
                 # Envia o token de texto gerado para o Front-end imprimir na tela
                 yield sse_event({'type': 'token', 'content': token})
                 buffer += token

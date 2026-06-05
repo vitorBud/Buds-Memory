@@ -178,19 +178,54 @@ SYSTEM_STYLE = (
     "Você é um assistente virtual prestativo, claro e educado, com um estilo parecido com o ChatGPT. "
     "Responda sempre em português do Brasil, com precisão, naturalidade e objetividade. "
     "Quando for útil, organize a resposta em passos curtos ou tópicos, sem ironia, grosseria ou sarcasmo. "
-    "Se faltar contexto, faça uma pergunta simples antes de assumir algo arriscado."
+    "Se faltar contexto, faça uma pergunta simples antes de assumir algo arriscado. "
+    "Ao analisar código, use apenas o trecho e o erro fornecidos pelo usuário; não invente bugs, arquivos, funções, "
+    "logs ou requisitos que não foram mostrados. Se fizer uma hipótese, marque claramente como hipótese."
 )
 
 
-def llm_ollama(user_text: str) -> str:
-    prompt = f"{SYSTEM_STYLE}\n\nUsuário: {user_text}\nAssistente:"
+def build_prompt(user_text: str, history=None) -> str:
+    history = history or []
+    lines = [
+        SYSTEM_STYLE,
+        "",
+        "Histórico recente da conversa:",
+    ]
+
+    if history:
+        for item in history[-12:]:
+            sender = item.get("sender", "")
+            role = "Usuário" if sender == "user" else "Assistente"
+            text = str(item.get("text", "")).strip()
+            if text:
+                if len(text) > 2200:
+                    text = text[-2200:]
+                lines.append(f"{role}: {text}")
+    else:
+        lines.append("(sem histórico anterior)")
+
+    lines.extend([
+        "",
+        f"Usuário: {user_text}",
+        "Assistente:",
+    ])
+    return "\n".join(lines)
+
+
+def llm_ollama(user_text: str, history=None) -> str:
+    prompt = build_prompt(user_text, history)
 
     r = requests.post(
         OLLAMA_URL,
         json={
             "model": OLLAMA_MODEL,
             "prompt": prompt,
-            "stream": False
+            "stream": False,
+            "options": {
+                "temperature": 0.2,
+                "top_p": 0.85,
+                "repeat_penalty": 1.08
+            }
         },
         timeout=180
     )
@@ -200,15 +235,20 @@ def llm_ollama(user_text: str) -> str:
     return r.json().get("response", "").strip()
 
 
-def llm_ollama_stream(user_text: str):
-    prompt = f"{SYSTEM_STYLE}\n\nUsuário: {user_text}\nAssistente:"
+def llm_ollama_stream(user_text: str, history=None):
+    prompt = build_prompt(user_text, history)
 
     r = requests.post(
         OLLAMA_URL,
         json={
             "model": OLLAMA_MODEL,
             "prompt": prompt,
-            "stream": True
+            "stream": True,
+            "options": {
+                "temperature": 0.2,
+                "top_p": 0.85,
+                "repeat_penalty": 1.08
+            }
         },
         stream=True,
         timeout=180

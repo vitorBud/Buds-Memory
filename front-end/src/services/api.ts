@@ -1,7 +1,7 @@
 // ─── API Service Layer ───────────────────────────────────────────────────────
 // All calls go through the Vite proxy → http://127.0.0.1:5050
 
-import type { Session, Message, BackendConfig } from '../types'
+import type { Session, Message, BackendConfig, ChatStreamEvent } from '../types'
 
 const BASE = '/api'
 
@@ -36,7 +36,7 @@ export async function deleteSession(id: string): Promise<void> {
   if (!res.ok) throw new Error(`deleteSession: ${res.status}`)
 }
 
-export async function updateSessionTitle(id: string, title: string): Promise<Pick<Session, 'id' | 'title'>> {
+export async function updateSessionTitle(id: string, title: string): Promise<Session> {
   const res = await fetch(`${BASE}/sessions/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -56,7 +56,7 @@ export async function getSessionMessages(id: string): Promise<Message[]> {
 
 export async function streamChat(
   payload: { text?: string; audio?: Blob; sessionId?: string },
-  onEvent: (event: { type: string; content?: string; text?: string; url?: string }) => void,
+  onEvent: (event: ChatStreamEvent) => void,
 ): Promise<void> {
   let body: FormData | null = null
 

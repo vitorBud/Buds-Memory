@@ -107,11 +107,6 @@ export function StatusPanel({
             onChange={(checked) => onSettingChange('showBrainMap', checked)}
           />
           <ToggleRow
-            label="Reduzir animacoes"
-            checked={settings.reduceMotion}
-            onChange={(checked) => onSettingChange('reduceMotion', checked)}
-          />
-          <ToggleRow
             label="Voz automática"
             checked={settings.autoPlayAudio}
             onChange={(checked) => onSettingChange('autoPlayAudio', checked)}

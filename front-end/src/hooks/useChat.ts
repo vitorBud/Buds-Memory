@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { streamChat } from '../services/api'
-import type { Message, AiState } from '../types'
+import type { Message, AiState, Session } from '../types'
 
 interface UseChatOptions {
   sessionId: string | null
@@ -8,6 +8,7 @@ interface UseChatOptions {
   onStateChange: (s: AiState) => void
   onLatency: (ms: number) => void
   onMsgCountChange: (n: number) => void
+  onSessionUpdate?: (session: Session) => void
   autoPlayAudio?: boolean
 }
 
@@ -17,6 +18,7 @@ export function useChat({
   onStateChange,
   onLatency,
   onMsgCountChange,
+  onSessionUpdate,
   autoPlayAudio = true,
 }: UseChatOptions) {
   const [messages, setMessages] = useState<Message[]>([])
@@ -147,6 +149,8 @@ export function useChat({
         if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
+        } else if (event.type === 'session_update' && event.session) {
+          onSessionUpdate?.(event.session)
         } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio) {
           receivedAudio = true
           queueAudio(event.url)
@@ -198,6 +202,8 @@ export function useChat({
         } else if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
+        } else if (event.type === 'session_update' && event.session) {
+          onSessionUpdate?.(event.session)
         } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio) {
           receivedAudio = true
           queueAudio(event.url)

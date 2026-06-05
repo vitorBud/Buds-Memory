@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 import uuid
 import datetime
+import re
 
 BASE = Path(__file__).resolve().parent
 DB_PATH = BASE / "chat_history.db"
@@ -50,6 +51,32 @@ def create_session(title=None):
         conn.commit()
     return {"id": session_id, "title": title, "created_at": created_at}
 
+def make_title_from_message(text):
+    title = re.sub(r"```[\s\S]*?```", " ", text or "")
+    title = re.sub(r"`([^`]*)`", r"\1", title)
+    title = re.sub(r"https?://\S+", " ", title)
+    title = re.sub(r"\s+", " ", title).strip(" .,:;!?-_\n\t")
+
+    if not title:
+        return f"Conversa {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}"
+
+    first_sentence = re.split(r"(?<=[.!?])\s+", title)[0].strip()
+    if 12 <= len(first_sentence) <= 58:
+        title = first_sentence
+
+    if len(title) > 58:
+        title = title[:55].rstrip(" ,.;:-") + "..."
+
+    return title[:1].upper() + title[1:]
+
+def get_session(session_id):
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM sessions WHERE id = ?;",
+            (session_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
 def get_all_sessions():
     with get_db_connection() as conn:
         rows = conn.execute("SELECT * FROM sessions ORDER BY created_at DESC;").fetchall()
@@ -76,7 +103,8 @@ def update_session_title(session_id, title):
     if cursor.rowcount == 0:
         raise ValueError("Sessão não encontrada.")
 
-    return {"id": session_id, "title": title}
+    session = get_session(session_id)
+    return session or {"id": session_id, "title": title}
 
 def add_message(session_id, sender, text, audio_url=None):
     created_at = datetime.datetime.now().isoformat()
@@ -103,6 +131,22 @@ def get_session_messages(session_id):
         rows = conn.execute(
             "SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC;",
             (session_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+def get_recent_session_messages(session_id, limit=12):
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM (
+                SELECT * FROM messages
+                WHERE session_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+            )
+            ORDER BY id ASC;
+            """,
+            (session_id, limit)
         ).fetchall()
         return [dict(row) for row in rows]
 

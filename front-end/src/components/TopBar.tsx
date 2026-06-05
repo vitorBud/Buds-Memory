@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react'
-import { Search, Settings } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Search, Settings } from 'lucide-react'
 import type { AiState } from '../types'
 
 interface TopBarProps {
   aiState: AiState
   sessionTitle: string | null
   latency: string
+  focusMode: boolean
+  onToggleFocus: () => void
   settingsOpen: boolean
   onToggleSettings: () => void
   searchQuery: string
@@ -25,6 +27,8 @@ export function TopBar({
   aiState,
   sessionTitle,
   latency,
+  focusMode,
+  onToggleFocus,
   settingsOpen,
   onToggleSettings,
   searchQuery,
@@ -78,6 +82,17 @@ export function TopBar({
         </div>
 
         {latency && <span className="latency-pill">{latency}</span>}
+
+        <button
+          className={`topbar-text-button ${focusMode ? 'is-active' : ''}`}
+          type="button"
+          onClick={onToggleFocus}
+          aria-label={focusMode ? 'Mostrar navegação' : 'Ativar modo foco'}
+          title={focusMode ? 'Mostrar navegação' : 'Modo foco'}
+        >
+          {focusMode ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <span>{focusMode ? 'Navegação' : 'Foco'}</span>
+        </button>
 
         <button
           className={`topbar-text-button ${settingsOpen ? 'is-active' : ''}`}

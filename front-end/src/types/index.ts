@@ -21,10 +21,11 @@ export interface Message {
 }
 
 export interface ChatStreamEvent {
-  type: 'transcription' | 'token' | 'audio_sentence' | 'done' | 'error'
+  type: 'transcription' | 'token' | 'audio_sentence' | 'session_update' | 'done' | 'error'
   content?: string
   text?: string
   url?: string
+  session?: Session
 }
 
 export interface SystemStats {
@@ -64,7 +65,6 @@ export interface InterfaceSettings {
   showInsights: boolean
   showBrainMap: boolean
   showQuickPrompts: boolean
-  reduceMotion: boolean
   autoPlayAudio: boolean
 }
 

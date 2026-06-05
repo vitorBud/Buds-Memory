@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { MessageBubble } from './MessageBubble'
 import type { Message } from '../types'
 
@@ -7,18 +7,22 @@ interface ChatWindowProps {
 }
 
 export function ChatWindow({ messages }: ChatWindowProps) {
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const windowRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  useLayoutEffect(() => {
+    const chatWindow = windowRef.current
+    if (!chatWindow) return
+
+    window.requestAnimationFrame(() => {
+      chatWindow.scrollTop = chatWindow.scrollHeight
+    })
   }, [messages])
 
   return (
-    <div className="chat-window scrollbar-thin">
+    <div className="chat-window scrollbar-thin" ref={windowRef}>
       {messages.map((msg, i) => (
-        <MessageBubble key={i} message={msg} />
+        <MessageBubble key={msg.id ?? `${msg.sender}-${msg.created_at ?? i}`} message={msg} />
       ))}
-      <div ref={bottomRef} />
     </div>
   )
 }
