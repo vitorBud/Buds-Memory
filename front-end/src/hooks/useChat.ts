@@ -1,9 +1,11 @@
 import { useState, useRef } from 'react'
 import { streamChat } from '../services/api'
-import type { Message, AiState, Session } from '../types'
+import type { Message, AiState, Session, ChatStreamEvent } from '../types'
 
 interface UseChatOptions {
   sessionId: string | null
+  selectedModel: string
+  webSearchEnabled: boolean
   onNeedSession: () => Promise<string>
   onStateChange: (s: AiState) => void
   onLatency: (ms: number) => void
@@ -12,8 +14,11 @@ interface UseChatOptions {
   autoPlayAudio?: boolean
 }
 
+// Hook central do chat: envia texto/áudio, controla streaming, voz e interrupção da resposta.
 export function useChat({
   sessionId,
+  selectedModel,
+  webSearchEnabled,
   onNeedSession,
   onStateChange,
   onLatency,
@@ -26,6 +31,7 @@ export function useChat({
   const audioQueueRef = useRef<string[]>([])
   const isPlayingRef  = useRef(false)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const activeAbortRef = useRef<AbortController | null>(null)
   const msgCountRef = useRef(0)
   const streamIdRef = useRef(-1)
 
@@ -67,6 +73,21 @@ export function useChat({
   function queueAudio(url: string) {
     audioQueueRef.current.push(url)
     if (!isPlayingRef.current) playNextAudio()
+  }
+
+  function stopOutput() {
+    activeAbortRef.current?.abort()
+    activeAbortRef.current = null
+    audioQueueRef.current = []
+    currentAudioRef.current?.pause()
+    currentAudioRef.current = null
+    isPlayingRef.current = false
+    window.speechSynthesis?.cancel()
+    setMessages(prev => prev
+      .map(msg => msg.streaming ? { ...msg, streaming: false } : msg)
+      .filter(msg => msg.text !== '__thinking__'))
+    setIsProcessing(false)
+    onStateChange('idle')
   }
 
   // ── Append message helpers ─────────────────────────────────────────────────
@@ -111,6 +132,14 @@ export function useChat({
     })
   }
 
+  function appendWebSearchStatus(messageId: number, event: ChatStreamEvent) {
+    const found = event.results?.length ?? 0
+    const status = found > 0
+      ? `Google: ${found} fonte${found > 1 ? 's' : ''} encontrada${found > 1 ? 's' : ''} em tempo real.\n\n`
+      : `Google: ${event.content || 'busca sem resultados.'}\n\n`
+    appendStreamingToken(messageId, status)
+  }
+
   function finalizeStreaming(messageId: number) {
     setMessages(prev => {
       let finalized = false
@@ -143,12 +172,16 @@ export function useChat({
     const start = Date.now()
     let streamedText = ''
     let receivedAudio = false
+    const controller = new AbortController()
+    activeAbortRef.current = controller
 
     try {
-      await streamChat({ text, sessionId: sid }, (event) => {
+      await streamChat({ text, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled }, (event) => {
         if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
+        } else if (event.type === 'web_search') {
+          appendWebSearchStatus(assistantMessageId, event)
         } else if (event.type === 'session_update' && event.session) {
           onSessionUpdate?.(event.session)
         } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio) {
@@ -162,14 +195,16 @@ export function useChat({
           console.error('[Chat] SSE error:', event.content)
           onStateChange('error')
         }
-      })
+      }, controller.signal)
     } catch (err) {
+      if (controller.signal.aborted) return
       console.error('[Chat] fetch error:', err)
       setMessages(prev => prev.filter(m => m.id !== assistantMessageId))
       addMessage({ sender: 'ia', text: '⚠ Erro ao conectar com o servidor. Verifique se o Ollama está rodando.', created_at: new Date().toISOString() })
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {
+      if (activeAbortRef.current === controller) activeAbortRef.current = null
       setIsProcessing(false)
       if (!isPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
     }
@@ -185,9 +220,11 @@ export function useChat({
     const start = Date.now()
     let streamedText = ''
     let receivedAudio = false
+    const controller = new AbortController()
+    activeAbortRef.current = controller
 
     try {
-      await streamChat({ audio: blob, sessionId: sid }, (event) => {
+      await streamChat({ audio: blob, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled }, (event) => {
         if (event.type === 'transcription' && event.content) {
           // Show user transcription
           setMessages(prev => {
@@ -202,6 +239,8 @@ export function useChat({
         } else if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
+        } else if (event.type === 'web_search') {
+          appendWebSearchStatus(assistantMessageId, event)
         } else if (event.type === 'session_update' && event.session) {
           onSessionUpdate?.(event.session)
         } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio) {
@@ -212,14 +251,16 @@ export function useChat({
           if (autoPlayAudio && !receivedAudio) speakText(streamedText)
           onLatency(Date.now() - start)
         }
-      })
+      }, controller.signal)
     } catch (err) {
+      if (controller.signal.aborted) return
       console.error('[Audio Chat] error:', err)
       setMessages(prev => prev.filter(m => m.id !== assistantMessageId))
       addMessage({ sender: 'ia', text: '⚠ Erro ao processar o áudio. Tente novamente.', created_at: new Date().toISOString() })
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {
+      if (activeAbortRef.current === controller) activeAbortRef.current = null
       setIsProcessing(false)
       if (!isPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
     }
@@ -237,5 +278,5 @@ export function useChat({
     onMsgCountChange(msgs.length)
   }
 
-  return { messages, isProcessing, sendText, sendAudio, clearMessages, loadMessages }
+  return { messages, isProcessing, sendText, sendAudio, stopOutput, clearMessages, loadMessages }
 }

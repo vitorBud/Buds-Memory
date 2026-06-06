@@ -1,17 +1,17 @@
 import { useEffect, useRef } from 'react'
-import { PanelLeftClose, PanelLeftOpen, Search, Settings } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Settings, Square } from 'lucide-react'
 import type { AiState } from '../types'
 
 interface TopBarProps {
   aiState: AiState
   sessionTitle: string | null
   latency: string
-  focusMode: boolean
-  onToggleFocus: () => void
+  historyHidden: boolean
+  onToggleHistory: () => void
   settingsOpen: boolean
   onToggleSettings: () => void
-  searchQuery: string
-  onSearchChange: (value: string) => void
+  canStopOutput: boolean
+  onStopOutput: () => void
 }
 
 const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
@@ -23,25 +23,26 @@ const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
   error: { label: 'Erro', tone: 'rose' },
 }
 
+// Barra superior com busca, estado da IA, foco, parada da resposta e configurações.
 export function TopBar({
   aiState,
   sessionTitle,
   latency,
-  focusMode,
-  onToggleFocus,
+  historyHidden,
+  onToggleHistory,
   settingsOpen,
   onToggleSettings,
-  searchQuery,
-  onSearchChange,
+  canStopOutput,
+  onStopOutput,
 }: TopBarProps) {
   const stateInfo = STATE_MAP[aiState]
-  const searchRef = useRef<HTMLInputElement>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
-        searchRef.current?.focus()
+        settingsButtonRef.current?.focus()
       }
     }
 
@@ -64,17 +65,6 @@ export function TopBar({
         </div>
       </div>
 
-      <label className="command-search">
-        <Search size={14} />
-        <input
-          ref={searchRef}
-          value={searchQuery}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Buscar conversa"
-        />
-        <kbd>Ctrl K</kbd>
-      </label>
-
       <div className="topbar-actions">
         <div className={`state-pill tone-${stateInfo.tone}`}>
           <span />
@@ -83,18 +73,32 @@ export function TopBar({
 
         {latency && <span className="latency-pill">{latency}</span>}
 
+        {canStopOutput && (
+          <button
+            className="topbar-text-button stop-output-button"
+            type="button"
+            onClick={onStopOutput}
+            aria-label="Parar resposta e voz"
+            title="Parar resposta e voz"
+          >
+            <Square size={14} />
+            <span>Parar</span>
+          </button>
+        )}
+
         <button
-          className={`topbar-text-button ${focusMode ? 'is-active' : ''}`}
+          className={`topbar-text-button ${historyHidden ? 'is-active' : ''}`}
           type="button"
-          onClick={onToggleFocus}
-          aria-label={focusMode ? 'Mostrar navegação' : 'Ativar modo foco'}
-          title={focusMode ? 'Mostrar navegação' : 'Modo foco'}
+          onClick={onToggleHistory}
+          aria-label={historyHidden ? 'Mostrar histórico' : 'Ocultar histórico'}
+          title={historyHidden ? 'Mostrar histórico' : 'Ocultar histórico'}
         >
-          {focusMode ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          <span>{focusMode ? 'Navegação' : 'Foco'}</span>
+          {historyHidden ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <span>{historyHidden ? 'Histórico' : 'Ocultar'}</span>
         </button>
 
         <button
+          ref={settingsButtonRef}
           className={`topbar-text-button ${settingsOpen ? 'is-active' : ''}`}
           type="button"
           onClick={onToggleSettings}

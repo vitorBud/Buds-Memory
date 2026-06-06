@@ -6,6 +6,7 @@ interface UseRecorderOptions {
   onStateChange: (s: AiState) => void
 }
 
+// Hook de gravação do microfone usado para capturar áudio e enviar ao backend.
 export function useRecorder({ onStop, onStateChange }: UseRecorderOptions) {
   const [isRecording, setIsRecording] = useState(false)
   const [seconds, setSeconds] = useState(0)

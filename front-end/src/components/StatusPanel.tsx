@@ -1,4 +1,5 @@
 import { Activity, Cpu, Gauge, Moon, SlidersHorizontal, Sun, Volume2, X } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { AiState, InterfaceSettings } from '../types'
 
 interface StatusPanelProps {
@@ -7,9 +8,11 @@ interface StatusPanelProps {
   msgCount: number
   latency: string
   model: string
+  googleSearchAvailable: boolean
   settings: InterfaceSettings
   onSettingChange: <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => void
   onClose: () => void
+  children?: ReactNode
 }
 
 function ToggleRow({
@@ -43,15 +46,18 @@ function StatusLine({ label, value }: { label: string; value: string }) {
   )
 }
 
+// Gaveta de configurações da interface, voz, tema e status técnico da sessão.
 export function StatusPanel({
   aiState,
   sessionId,
   msgCount,
   latency,
   model,
+  googleSearchAvailable,
   settings,
   onSettingChange,
   onClose,
+  children,
 }: StatusPanelProps) {
   return (
     <aside className="settings-panel">
@@ -97,11 +103,6 @@ export function StatusPanel({
             onChange={(checked) => onSettingChange('showQuickPrompts', checked)}
           />
           <ToggleRow
-            label="Telemetria lateral"
-            checked={settings.showInsights}
-            onChange={(checked) => onSettingChange('showInsights', checked)}
-          />
-          <ToggleRow
             label="Cérebro IA"
             checked={settings.showBrainMap}
             onChange={(checked) => onSettingChange('showBrainMap', checked)}
@@ -110,6 +111,11 @@ export function StatusPanel({
             label="Voz automática"
             checked={settings.autoPlayAudio}
             onChange={(checked) => onSettingChange('autoPlayAudio', checked)}
+          />
+          <ToggleRow
+            label="Buscar no Google"
+            checked={settings.webSearchEnabled}
+            onChange={(checked) => onSettingChange('webSearchEnabled', checked)}
           />
         </div>
       </div>
@@ -148,8 +154,15 @@ export function StatusPanel({
             <span>TTS</span>
             <strong>Piper</strong>
           </div>
+          <div>
+            <Gauge size={14} />
+            <span>Google</span>
+            <strong>{googleSearchAvailable ? 'Pronto' : 'Sem chave'}</strong>
+          </div>
         </div>
       </div>
+
+      {children}
     </aside>
   )
 }

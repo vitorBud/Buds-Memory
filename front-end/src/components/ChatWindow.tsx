@@ -6,6 +6,7 @@ interface ChatWindowProps {
   messages: Message[]
 }
 
+// Janela rolável que renderiza a sequência de mensagens da conversa.
 export function ChatWindow({ messages }: ChatWindowProps) {
   const windowRef = useRef<HTMLDivElement>(null)
 

@@ -55,8 +55,9 @@ export async function getSessionMessages(id: string): Promise<Message[]> {
 // ── Chat Streaming (SSE via ReadableStream) ─────────────────────────────────
 
 export async function streamChat(
-  payload: { text?: string; audio?: Blob; sessionId?: string },
+  payload: { text?: string; audio?: Blob; sessionId?: string; model?: string; webSearch?: boolean },
   onEvent: (event: ChatStreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   let body: FormData | null = null
 
@@ -64,14 +65,22 @@ export async function streamChat(
     body = new FormData()
     body.append('audio', payload.audio, 'recording.webm')
     if (payload.sessionId) body.append('session_id', payload.sessionId)
+    if (payload.model) body.append('model', payload.model)
+    if (payload.webSearch) body.append('web_search', 'true')
   }
 
   const fetchOptions: RequestInit = payload.audio
-    ? { method: 'POST', body }
+    ? { method: 'POST', body, signal }
     : {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: payload.text, session_id: payload.sessionId }),
+        body: JSON.stringify({
+          text: payload.text,
+          session_id: payload.sessionId,
+          model: payload.model,
+          web_search: payload.webSearch,
+        }),
+        signal,
       }
 
   const response = await fetch(`${BASE}/chat/stream`, fetchOptions)

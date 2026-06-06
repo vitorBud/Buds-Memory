@@ -1,4 +1,4 @@
-import { Bot, Clock3, MessageSquare, Plus, Trash2 } from 'lucide-react'
+import { Bot, Clock3, MessageSquare, Plus, Search, Trash2 } from 'lucide-react'
 import type { Session } from '../types'
 import { formatSessionDate, truncate } from '../utils/formatters'
 
@@ -6,16 +6,19 @@ interface SidebarProps {
   sessions: Session[]
   currentSessionId: string | null
   searchQuery: string
+  onSearchChange: (value: string) => void
   onNewChat: () => void
   onSelect: (s: Session) => void
   onDelete: (id: string) => void
   systemUptime: string
 }
 
+// Barra lateral de conversas, responsável por listar sessões e criar/remover chats.
 export function Sidebar({
   sessions,
   currentSessionId,
   searchQuery,
+  onSearchChange,
   onNewChat,
   onSelect,
   onDelete,
@@ -36,6 +39,14 @@ export function Sidebar({
           <Plus size={15} />
           <span>Novo chat</span>
         </button>
+        <label className="sidebar-search">
+          <Search size={13} />
+          <input
+            value={searchQuery}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Buscar conversa"
+          />
+        </label>
       </div>
 
       <div className="sidebar-section">

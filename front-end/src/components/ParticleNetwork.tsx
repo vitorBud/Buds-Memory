@@ -10,6 +10,7 @@ interface ParticleNetworkProps {
   maxDist?: number
 }
 
+// Canvas decorativo que desenha partículas conectadas para dar sensação tecnológica ao chat.
 export function ParticleNetwork({ className = '', count = 55, maxDist = 90 }: ParticleNetworkProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, type MouseEvent } from 'react'
 import {
   Check,
   ChevronDown,
@@ -25,7 +25,7 @@ import { formatSessionDate } from './utils/formatters'
 
 const SETTINGS_KEY = 'nexus-interface-settings'
 const FALLBACK_MODEL = 'qwen2.5-coder:7b'
-const AVAILABLE_MODELS = [FALLBACK_MODEL]
+const DEFAULT_MODELS = ['qwen2.5-coder:3b', FALLBACK_MODEL, 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
 
 const DEFAULT_SETTINGS: InterfaceSettings = {
@@ -35,6 +35,7 @@ const DEFAULT_SETTINGS: InterfaceSettings = {
   showBrainMap: true,
   showQuickPrompts: true,
   autoPlayAudio: true,
+  webSearchEnabled: false,
 }
 
 function getInitialSettings(): InterfaceSettings {
@@ -96,6 +97,7 @@ function getFirstUserMessage(messages: Message[]) {
   return messages.find(message => message.sender === 'user' && message.text !== '__thinking__')?.text ?? ''
 }
 
+// Painel lateral que resume conceitos recentes e memória curta da conversa.
 function MemoryPanel({ messages }: { messages: Message[] }) {
   const concepts = getConversationConcepts(messages)
   const recent = messages.filter(message => message.text !== '__thinking__').slice(-5)
@@ -128,6 +130,7 @@ function MemoryPanel({ messages }: { messages: Message[] }) {
   )
 }
 
+// Painel lateral que identifica arquivos, linguagens e sinais técnicos citados no chat.
 function FilesPanel({ messages }: { messages: Message[] }) {
   const files = getDetectedFiles(messages)
   const codeMentions = getConversationConcepts(messages)
@@ -168,6 +171,7 @@ function FilesPanel({ messages }: { messages: Message[] }) {
   )
 }
 
+// Painel lateral que mostra uma visão compacta do estado atual da conversa.
 function SummaryPanel({
   messages,
   aiState,
@@ -205,7 +209,7 @@ function SummaryPanel({
           <strong>{latency || '--'}</strong>
         </div>
         <div>
-          <span>Msgs</span>
+          <span>Mensagens</span>
           <strong>{msgCount}</strong>
         </div>
       </div>
@@ -221,6 +225,7 @@ function SummaryPanel({
   )
 }
 
+// Componente principal que conecta histórico, chat, configurações, voz e visualização Obsidian.
 export default function App() {
   const pageRef = useRef<HTMLDivElement>(null)
   const chatSceneRef = useRef<HTMLElement>(null)
@@ -234,6 +239,8 @@ export default function App() {
   const [msgCount, setMsgCount] = useState(0)
   const [, setActivityItems] = useState<ActivityItem[]>([])
   const [selectedModel, setSelectedModel] = useState(FALLBACK_MODEL)
+  const [availableModels, setAvailableModels] = useState(DEFAULT_MODELS)
+  const [googleSearchAvailable, setGoogleSearchAvailable] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<InterfaceSettings>(getInitialSettings)
   const [uptimeSeconds, setUptimeSeconds] = useState(0)
@@ -294,8 +301,10 @@ export default function App() {
     pushActivity('Título criado pela primeira pergunta', 'emerald')
   }, [pushActivity])
 
-  const { messages, isProcessing, sendText, sendAudio, clearMessages, loadMessages } = useChat({
+  const { messages, isProcessing, sendText, sendAudio, stopOutput, clearMessages, loadMessages } = useChat({
     sessionId: currentSessionId,
+    selectedModel,
+    webSearchEnabled: settings.webSearchEnabled,
     onNeedSession: ensureSession,
     onStateChange: setAiState,
     onLatency: (ms) => setLatency(ms + 'ms'),
@@ -316,7 +325,12 @@ export default function App() {
   useEffect(() => {
     getSessions().then(setSessions).catch(console.error)
     getBackendConfig()
-      .then(config => setSelectedModel(config.model || FALLBACK_MODEL))
+      .then(config => {
+        const models = config.models?.length ? config.models : DEFAULT_MODELS
+        setAvailableModels(models)
+        setSelectedModel(models.includes(config.model) ? config.model : models[0] || FALLBACK_MODEL)
+        setGoogleSearchAvailable(Boolean(config.google_search_available))
+      })
       .catch(console.error)
   }, [])
 
@@ -427,6 +441,11 @@ export default function App() {
     await handleDeleteSession(currentSessionId)
   }
 
+  const handleSmoothScrollToObsidian = (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault()
+    obsidianSceneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   const hasMessages = messages.length > 0
   const railTabs: Array<{ id: RailTab; label: string; icon: typeof Database }> = [
     { id: 'memory', label: 'Memória', icon: Database },
@@ -443,6 +462,7 @@ export default function App() {
               sessions={sessions}
               currentSessionId={currentSessionId}
               searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
               onNewChat={handleNewChat}
               onSelect={handleSelectSession}
               onDelete={handleDeleteSession}
@@ -455,12 +475,12 @@ export default function App() {
               aiState={aiState}
               sessionTitle={currentSessionTitle}
               latency={latency}
-              focusMode={focusMode}
-              onToggleFocus={() => setFocusMode(value => !value)}
+              historyHidden={focusMode}
+              onToggleHistory={() => setFocusMode(value => !value)}
               settingsOpen={settingsOpen}
               onToggleSettings={() => setSettingsOpen(v => !v)}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
+              canStopOutput={isProcessing || aiState === 'speaking'}
+              onStopOutput={stopOutput}
             />
 
             <section className="content-grid">
@@ -521,7 +541,7 @@ export default function App() {
                       <span className="eyebrow">Pronto para operar</span>
                       <h2>Como posso ajudar hoje?</h2>
                       <p>Envie uma pergunta, cole um erro ou peça uma análise do seu código.</p>
-                      <a className="scroll-note" href="#obsidian">
+                      <a className="scroll-note" href="#obsidian" onClick={handleSmoothScrollToObsidian}>
                         <ChevronDown size={15} />
                         <span>Esta página continua: role para o cérebro IA</span>
                       </a>
@@ -538,45 +558,23 @@ export default function App() {
                   recSeconds={seconds}
                   onMicToggle={toggleMic}
                   selectedModel={selectedModel}
-                  models={AVAILABLE_MODELS}
+                  models={availableModels}
                   onModelChange={setSelectedModel}
                   showQuickPrompts={settings.showQuickPrompts}
                   density="compact"
                 />
               </div>
 
-              <aside className={`insights-rail ${settings.showInsights ? '' : 'is-hidden'}`}>
-                <div className="rail-tabs" role="tablist" aria-label="Painel lateral">
-                  {railTabs.map(({ id, label, icon: Icon }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      className={railTab === id ? 'is-active' : ''}
-                      onClick={() => setRailTab(id)}
-                    >
-                      <Icon size={14} />
-                      <span>{label}</span>
-                    </button>
-                  ))}
-                </div>
-
-                {railTab === 'memory' && <MemoryPanel messages={messages} />}
-                {railTab === 'files' && <FilesPanel messages={messages} />}
-                {railTab === 'summary' && (
-                  <SummaryPanel
-                    messages={messages}
-                    aiState={aiState}
-                    latency={latency}
-                    msgCount={msgCount}
-                    selectedModel={selectedModel}
-                  />
-                )}
-              </aside>
             </section>
           </main>
         </div>
 
-        <a className={`scroll-cue ${showScrollHint ? '' : 'is-hidden'}`} href="#obsidian" aria-label="Rolar para a seção Obsidian">
+        <a
+          className={`scroll-cue ${showScrollHint ? '' : 'is-hidden'}`}
+          href="#obsidian"
+          onClick={handleSmoothScrollToObsidian}
+          aria-label="Rolar suavemente para a seção Obsidian"
+        >
           <span>Role para ver o cérebro IA</span>
           <small>2ª seção</small>
           <ChevronDown size={18} />
@@ -616,10 +614,42 @@ export default function App() {
             msgCount={msgCount}
             latency={latency}
             model={selectedModel}
+            googleSearchAvailable={googleSearchAvailable}
             settings={settings}
             onSettingChange={updateSetting}
             onClose={() => setSettingsOpen(false)}
-          />
+          >
+            <div className="panel-block settings-insights-block">
+              <div className="panel-heading">
+                <span>Contexto da conversa</span>
+                <ListChecks size={15} />
+              </div>
+              <div className="rail-tabs settings-rail-tabs" role="tablist" aria-label="Contexto da conversa">
+                {railTabs.map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={railTab === id ? 'is-active' : ''}
+                    onClick={() => setRailTab(id)}
+                  >
+                    <Icon size={14} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+              {railTab === 'memory' && <MemoryPanel messages={messages} />}
+              {railTab === 'files' && <FilesPanel messages={messages} />}
+              {railTab === 'summary' && (
+                <SummaryPanel
+                  messages={messages}
+                  aiState={aiState}
+                  latency={latency}
+                  msgCount={msgCount}
+                  selectedModel={selectedModel}
+                />
+              )}
+            </div>
+          </StatusPanel>
         </>
       )}
     </div>

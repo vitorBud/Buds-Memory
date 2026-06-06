@@ -15,6 +15,7 @@ const STATE_COLORS: Record<AiState, { core: string; ring1: string; ring2: string
   error:        { core: 'rgba(255,68,102,0.5)',  ring1: 'rgba(255,68,102,0.8)', ring2: 'rgba(255,68,102,0.3)' },
 }
 
+// Orbe visual que reflete o estado atual da IA: ouvindo, pensando, falando ou erro.
 export function AiOrb({ state, size = 180 }: AiOrbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameRef  = useRef(0)

@@ -1,7 +1,9 @@
 import subprocess
 import time
 import json
+import os
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import requests
@@ -173,6 +175,14 @@ def stt_local(wav_path: Path) -> str:
 # ====== LLM local via HTTP (Ollama) ======
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "qwen2.5-coder:7b"
+OLLAMA_MODELS = [
+    "qwen2.5-coder:3b",
+    "qwen2.5-coder:7b",
+    "qwen2.5-coder:14b",
+]
+GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_SEARCH_API_KEY")
+GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_SEARCH_ENGINE_ID")
 
 SYSTEM_STYLE = (
     "Você é um assistente virtual prestativo, claro e educado, com um estilo parecido com o ChatGPT. "
@@ -184,7 +194,54 @@ SYSTEM_STYLE = (
 )
 
 
-def build_prompt(user_text: str, history=None) -> str:
+def is_google_search_configured() -> bool:
+    return bool(GOOGLE_API_KEY and GOOGLE_CSE_ID)
+
+
+def search_google(query: str, num_results: int = 5):
+    if not is_google_search_configured():
+        raise RuntimeError("Busca Google não configurada. Defina GOOGLE_API_KEY e GOOGLE_CSE_ID.")
+
+    response = requests.get(
+        GOOGLE_SEARCH_URL,
+        params={
+            "key": GOOGLE_API_KEY,
+            "cx": GOOGLE_CSE_ID,
+            "q": query,
+            "num": max(1, min(num_results, 10)),
+            "gl": "br",
+            "lr": "lang_pt",
+        },
+        timeout=12,
+    )
+    response.raise_for_status()
+    data = response.json()
+    results = []
+    for item in data.get("items", []):
+        results.append({
+            "title": item.get("title", "").strip(),
+            "link": item.get("link", "").strip(),
+            "snippet": item.get("snippet", "").strip(),
+        })
+    return results
+
+
+def format_web_context(results) -> str:
+    if not results:
+        return ""
+
+    lines = [
+        "Resultados recentes do Google para usar como contexto. Cite links quando usar informações destes resultados:",
+    ]
+    for index, result in enumerate(results, start=1):
+        title = result.get("title") or "Resultado sem título"
+        link = result.get("link") or "sem link"
+        snippet = result.get("snippet") or "sem resumo"
+        lines.append(f"{index}. {title}\nURL: {link}\nResumo: {snippet}")
+    return "\n\n".join(lines)
+
+
+def build_prompt(user_text: str, history=None, web_context: Optional[str] = None) -> str:
     history = history or []
     lines = [
         SYSTEM_STYLE,
@@ -204,6 +261,15 @@ def build_prompt(user_text: str, history=None) -> str:
     else:
         lines.append("(sem histórico anterior)")
 
+    if web_context:
+        lines.extend([
+            "",
+            "Contexto de busca em tempo real:",
+            web_context,
+            "",
+            "Use a busca apenas quando ela ajudar a responder. Se os resultados forem insuficientes, diga isso claramente.",
+        ])
+
     lines.extend([
         "",
         f"Usuário: {user_text}",
@@ -212,13 +278,18 @@ def build_prompt(user_text: str, history=None) -> str:
     return "\n".join(lines)
 
 
-def llm_ollama(user_text: str, history=None) -> str:
-    prompt = build_prompt(user_text, history)
+def resolve_ollama_model(model: Optional[str] = None) -> str:
+    return model if model in OLLAMA_MODELS else OLLAMA_MODEL
+
+
+def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None) -> str:
+    prompt = build_prompt(user_text, history, web_context)
+    selected_model = resolve_ollama_model(model)
 
     r = requests.post(
         OLLAMA_URL,
         json={
-            "model": OLLAMA_MODEL,
+            "model": selected_model,
             "prompt": prompt,
             "stream": False,
             "options": {
@@ -235,13 +306,14 @@ def llm_ollama(user_text: str, history=None) -> str:
     return r.json().get("response", "").strip()
 
 
-def llm_ollama_stream(user_text: str, history=None):
-    prompt = build_prompt(user_text, history)
+def llm_ollama_stream(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None):
+    prompt = build_prompt(user_text, history, web_context)
+    selected_model = resolve_ollama_model(model)
 
     r = requests.post(
         OLLAMA_URL,
         json={
-            "model": OLLAMA_MODEL,
+            "model": selected_model,
             "prompt": prompt,
             "stream": True,
             "options": {

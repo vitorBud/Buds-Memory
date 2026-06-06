@@ -6,6 +6,7 @@ interface MessageBubbleProps {
   message: Message
 }
 
+// Bolha individual de mensagem, incluindo estado de pensamento e reprodução de áudio salvo.
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.sender === 'user'
   const isThinking = message.streaming && message.text === '__thinking__'

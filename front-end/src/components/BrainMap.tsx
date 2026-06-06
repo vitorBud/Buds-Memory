@@ -122,6 +122,7 @@ function getNodePosition(node: ConceptNode, total: number) {
   )
 }
 
+// Mapa 3D estilo Obsidian que transforma conceitos da conversa em nós e conexões.
 export function BrainMap({ messages }: BrainMapProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const [selectedConcept, setSelectedConcept] = useState('Nexus')
@@ -522,7 +523,7 @@ export function BrainMap({ messages }: BrainMapProps) {
     <div className="brain-card">
       <div className="brain-card-header">
         <div>
-          <span className="eyebrow">Obsidian Graph</span>
+          <span className="eyebrow">Mapa Obsidian</span>
           <strong>Cérebro IA</strong>
         </div>
         <div className="brain-header-actions">

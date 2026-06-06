@@ -21,11 +21,12 @@ export interface Message {
 }
 
 export interface ChatStreamEvent {
-  type: 'transcription' | 'token' | 'audio_sentence' | 'session_update' | 'done' | 'error'
+  type: 'transcription' | 'token' | 'audio_sentence' | 'session_update' | 'web_search' | 'done' | 'error'
   content?: string
   text?: string
   url?: string
   session?: Session
+  results?: Array<{ title: string; link: string; snippet: string }>
 }
 
 export interface SystemStats {
@@ -66,9 +67,12 @@ export interface InterfaceSettings {
   showBrainMap: boolean
   showQuickPrompts: boolean
   autoPlayAudio: boolean
+  webSearchEnabled: boolean
 }
 
 export interface BackendConfig {
   model: string
+  models: string[]
   ollama_url: string
+  google_search_available: boolean
 }

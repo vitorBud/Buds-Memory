@@ -22,6 +22,13 @@ const QUICK_PROMPTS = [
   { icon: ShieldCheck, label: 'Revisar', prompt: 'Revise minha ideia procurando riscos, lacunas e melhorias.' },
 ]
 
+const MODEL_LABELS: Record<string, { label: string; hint: string }> = {
+  'qwen2.5-coder:3b': { label: 'Rápido', hint: 'leve' },
+  'qwen2.5-coder:7b': { label: 'Padrão', hint: 'equilibrado' },
+  'qwen2.5-coder:14b': { label: 'Mais potente', hint: 'melhor raciocínio' },
+}
+
+// Campo de composição do chat com prompts rápidos, seletor de modelo, microfone e envio.
 export function ChatInput({
   onSend,
   isProcessing,
@@ -97,7 +104,7 @@ export function ChatInput({
               className="model-button"
             >
               <span />
-              {selectedModel}
+              {MODEL_LABELS[selectedModel]?.label ?? selectedModel}
               <ChevronDown size={12} />
             </button>
 
@@ -113,7 +120,8 @@ export function ChatInput({
                     }}
                     className={m === selectedModel ? 'is-active' : ''}
                   >
-                    {m}
+                    <span>{MODEL_LABELS[m]?.label ?? m}</span>
+                    <small>{MODEL_LABELS[m]?.hint ?? m}</small>
                   </button>
                 ))}
               </div>

@@ -13,7 +13,12 @@ from agenty import (
     llm_ollama_stream,
     tts_piper,
     OUT_DIR,
-    OLLAMA_MODEL
+    OLLAMA_MODEL,
+    OLLAMA_MODELS,
+    format_web_context,
+    is_google_search_configured,
+    resolve_ollama_model,
+    search_google,
 )
 import database
 
@@ -103,8 +108,28 @@ def get_config():
     """Retorna configurações públicas usadas pelo Front-end."""
     return jsonify({
         "model": OLLAMA_MODEL,
+        "models": OLLAMA_MODELS,
         "ollama_url": "http://localhost:11434",
+        "google_search_available": is_google_search_configured(),
     }), 200
+
+
+def get_requested_model() -> str:
+    """Lê o modelo escolhido no front-end e limita aos modelos permitidos."""
+    data = request.get_json(silent=True) if request.is_json else {}
+    data = data or {}
+    requested = request.form.get("model") or data.get("model")
+    return resolve_ollama_model(requested)
+
+
+def get_requested_web_search() -> bool:
+    """Lê se a pergunta deve consultar o Google antes de chamar o modelo."""
+    data = request.get_json(silent=True) if request.is_json else {}
+    data = data or {}
+    value = request.form.get("web_search")
+    if value is None:
+        value = data.get("web_search")
+    return str(value).lower() in {"1", "true", "yes", "sim"}
 
 
 @app.route('/api/sessions', methods=['POST'])
@@ -162,6 +187,8 @@ def chat():
     Salva automaticamente a interação no banco se session_id for enviado.
     """
     session_id = request.form.get("session_id") or (request.json.get("session_id") if request.is_json else None)
+    selected_model = get_requested_model()
+    should_search_web = get_requested_web_search()
     
     user_text = ""
     # Se receber um arquivo de áudio
@@ -194,8 +221,14 @@ def chat():
     try:
         history, title_update = prepare_session_context(session_id, user_text)
 
+        web_results = []
+        web_context = None
+        if should_search_web:
+            web_results = search_google(user_text)
+            web_context = format_web_context(web_results)
+
         # 1. Envia o texto para a IA (Ollama)
-        reply = llm_ollama(user_text, history)
+        reply = llm_ollama(user_text, history, selected_model, web_context)
         if not reply:
             return jsonify({"error": "Nenhuma resposta foi obtida da IA."}), 500
 
@@ -213,7 +246,8 @@ def chat():
             "response_text": reply,
             "audio_url": audio_url,
             "message": msg_data,
-            "session": title_update
+            "session": title_update,
+            "web_results": web_results,
         }), 200
 
     except Exception as e:
@@ -227,6 +261,8 @@ def chat_stream():
     Gera tokens de texto instantâneos e áudios sentença por sentença.
     """
     session_id = request.form.get("session_id") or (request.json.get("session_id") if request.is_json else None)
+    selected_model = get_requested_model()
+    should_search_web = get_requested_web_search()
     
     user_text = ""
     if 'audio' in request.files:
@@ -251,12 +287,21 @@ def chat_stream():
         if title_update:
             yield sse_event({'type': 'session_update', 'session': title_update})
 
+        web_context = None
+        if should_search_web:
+            try:
+                web_results = search_google(user_text)
+                web_context = format_web_context(web_results)
+                yield sse_event({'type': 'web_search', 'content': 'Busca Google concluída', 'results': web_results})
+            except Exception as e:
+                yield sse_event({'type': 'web_search', 'content': f'Busca Google indisponível: {str(e)}', 'results': []})
+
         buffer = ""
         full_response = ""
         sentence_idx = 0
         
         try:
-            for token in llm_ollama_stream(user_text, history):
+            for token in llm_ollama_stream(user_text, history, selected_model, web_context):
                 # Envia o token de texto gerado para o Front-end imprimir na tela
                 yield sse_event({'type': 'token', 'content': token})
                 buffer += token
