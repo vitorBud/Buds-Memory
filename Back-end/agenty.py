@@ -13,8 +13,28 @@ from faster_whisper import WhisperModel
 
 BASE = Path(__file__).resolve().parent
 CONFIG_FILE = BASE / "config.json"
+ENV_FILE = BASE / ".env"
 OUT_DIR = BASE / "out"
 OUT_DIR.mkdir(exist_ok=True)
+
+
+def load_env_file(path: Path):
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file(ENV_FILE)
 
 # ====== Piper (TTS - 100% Offline) ======
 PIPER_EXE = BASE / "piper" / "piper.exe"
@@ -198,6 +218,23 @@ def is_google_search_configured() -> bool:
     return bool(GOOGLE_API_KEY and GOOGLE_CSE_ID)
 
 
+def get_google_error_message(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    error = payload.get("error", {}) if isinstance(payload, dict) else {}
+    message = error.get("message") or response.reason or "erro desconhecido"
+    reasons = [
+        item.get("reason")
+        for item in error.get("errors", [])
+        if isinstance(item, dict) and item.get("reason")
+    ]
+    reason = f" ({', '.join(reasons)})" if reasons else ""
+    return f"Google respondeu {response.status_code}: {message}{reason}"
+
+
 def search_google(query: str, num_results: int = 5):
     if not is_google_search_configured():
         raise RuntimeError("Busca Google não configurada. Defina GOOGLE_API_KEY e GOOGLE_CSE_ID.")
@@ -214,7 +251,9 @@ def search_google(query: str, num_results: int = 5):
         },
         timeout=12,
     )
-    response.raise_for_status()
+    if response.status_code >= 400:
+        raise RuntimeError(get_google_error_message(response))
+
     data = response.json()
     results = []
     for item in data.get("items", []):

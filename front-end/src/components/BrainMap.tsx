@@ -146,6 +146,9 @@ export function BrainMap({ messages }: BrainMapProps) {
   const aiMessages = activeMessages.filter(message => message.sender === 'ia').length
   const totalMentions = nodes.reduce((sum, node) => sum + node.count, 0)
   const memoryLoad = Math.min(100, Math.round((activeMessages.length / 12) * 100))
+  const totalMentionsLabel = totalMentions === 1 ? '1 menção mapeada' : `${totalMentions} menções mapeadas`
+  const selectedUserLabel = selectedNode?.senderMix.user === 1 ? '1 citação sua' : `${selectedNode?.senderMix.user ?? 0} citações suas`
+  const selectedIaLabel = selectedNode?.senderMix.ia === 1 ? '1 citação da IA' : `${selectedNode?.senderMix.ia ?? 0} citações da IA`
 
   useEffect(() => {
     const mount = mountRef.current
@@ -553,17 +556,25 @@ export function BrainMap({ messages }: BrainMapProps) {
       </div>
 
       <div className="brain-stats">
-        <div>
-          <span>Usuário</span>
+        <div className="brain-stat-card">
+          <span>Suas mensagens</span>
           <strong>{userMessages}</strong>
+          <small>entradas usadas como contexto</small>
         </div>
-        <div>
-          <span>IA</span>
+        <div className="brain-stat-card">
+          <span>Respostas da IA</span>
           <strong>{aiMessages}</strong>
+          <small>respostas na conversa atual</small>
         </div>
-        <div>
-          <span>Menções</span>
-          <strong>{totalMentions}</strong>
+        <div className="brain-stat-card">
+          <span>Conceitos ligados</span>
+          <strong>{nodes.length}</strong>
+          <small>nós ativos no cérebro 3D</small>
+        </div>
+        <div className="brain-stat-card">
+          <span>Carga da memória</span>
+          <strong>{memoryLoad}%</strong>
+          <small>{totalMentionsLabel}</small>
         </div>
       </div>
 
@@ -572,7 +583,7 @@ export function BrainMap({ messages }: BrainMapProps) {
         <strong>{selectedNode?.label ?? 'Nexus'}</strong>
         <p>
           {selectedNode
-            ? `Aparece ${selectedNode.count} vez(es), com ${selectedNode.senderMix.user} menção(ões) suas e ${selectedNode.senderMix.ia} da IA.`
+            ? `Aparece ${selectedNode.count} ${selectedNode.count === 1 ? 'vez' : 'vezes'}, com ${selectedUserLabel} e ${selectedIaLabel}.`
             : 'Núcleo da conversa atual, conectando contexto, memória e respostas do modelo.'}
         </p>
       </div>

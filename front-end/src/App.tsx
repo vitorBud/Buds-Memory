@@ -249,7 +249,6 @@ export default function App() {
   const [draftTitle, setDraftTitle] = useState('')
   const [focusMode, setFocusMode] = useState(false)
   const [railTab, setRailTab] = useState<RailTab>('memory')
-  const [showScrollHint, setShowScrollHint] = useState(true)
 
   useEffect(() => {
     const t = setInterval(() => setUptimeSeconds(s => s + 1), 1000)
@@ -345,7 +344,6 @@ export default function App() {
       if (chatRect && pageRef.current) {
         const progress = clamp((viewport - chatRect.top) / (viewport + chatRect.height))
         pageRef.current.style.setProperty('--chat-scroll', progress.toFixed(4))
-        setShowScrollHint(progress < 0.72)
       }
 
       if (obsidianRect && obsidianSceneRef.current) {
@@ -569,16 +567,6 @@ export default function App() {
           </main>
         </div>
 
-        <a
-          className={`scroll-cue ${showScrollHint ? '' : 'is-hidden'}`}
-          href="#obsidian"
-          onClick={handleSmoothScrollToObsidian}
-          aria-label="Rolar suavemente para a seção Obsidian"
-        >
-          <span>Role para ver o cérebro IA</span>
-          <small>2ª seção</small>
-          <ChevronDown size={18} />
-        </a>
       </section>
 
       <section className="obsidian-scroll-scene" id="obsidian" ref={obsidianSceneRef}>
