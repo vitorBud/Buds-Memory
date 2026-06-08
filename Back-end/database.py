@@ -36,6 +36,21 @@ def init_db():
                 FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
             );
         """)
+        # Fontes de conhecimento importadas pelo usuário para cada sessão.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_name TEXT,
+                summary TEXT NOT NULL,
+                content TEXT NOT NULL,
+                topics TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
+            );
+        """)
         conn.commit()
 
 def create_session(title=None):
@@ -149,6 +164,73 @@ def get_recent_session_messages(session_id, limit=12):
             (session_id, limit)
         ).fetchall()
         return [dict(row) for row in rows]
+
+def add_knowledge_source(session_id, title, source_type, source_name, summary, content, topics):
+    created_at = datetime.datetime.now().isoformat()
+    topics_text = ",".join(topics or [])
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO knowledge_sources
+            (session_id, title, source_type, source_name, summary, content, topics, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """,
+            (session_id, title, source_type, source_name, summary, content, topics_text, created_at)
+        )
+        conn.commit()
+        item_id = cursor.lastrowid
+
+    return {
+        "id": item_id,
+        "session_id": session_id,
+        "title": title,
+        "source_type": source_type,
+        "source_name": source_name,
+        "summary": summary,
+        "content": content,
+        "topics": topics or [],
+        "created_at": created_at,
+    }
+
+def get_session_knowledge(session_id, limit=20):
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM knowledge_sources
+            WHERE session_id = ?
+            ORDER BY id DESC
+            LIMIT ?;
+            """,
+            (session_id, limit)
+        ).fetchall()
+
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["topics"] = [topic for topic in item.get("topics", "").split(",") if topic]
+        items.append(item)
+    return items
+
+def build_knowledge_context(session_id, limit=5):
+    sources = get_session_knowledge(session_id, limit=limit)
+    if not sources:
+        return ""
+
+    lines = [
+        "Conhecimento importado pelo usuário para esta conversa. Use este material como fonte prioritária quando a pergunta tocar nesses assuntos:",
+    ]
+    for index, source in enumerate(sources, start=1):
+        excerpt = (source.get("content") or "")[:1800].strip()
+        topics = ", ".join(source.get("topics") or [])
+        lines.append(
+            f"{index}. {source.get('title')}\n"
+            f"Tipo: {source.get('source_type')} · Origem: {source.get('source_name') or 'manual'}\n"
+            f"Tópicos: {topics or 'não detectados'}\n"
+            f"Resumo: {source.get('summary')}\n"
+            f"Trecho útil: {excerpt}"
+        )
+    return "\n\n".join(lines)
 
 # Inicializa o banco ao rodar o script diretamente
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 export type AiState = 'idle' | 'listening' | 'transcribing' | 'thinking' | 'speaking' | 'error'
 export type ThemeMode = 'dark' | 'light'
 export type DensityMode = 'compact' | 'comfortable'
+export type AccentColor = 'white' | 'amber'
 
 export interface Session {
   id: string
@@ -18,6 +19,18 @@ export interface Message {
   audio_url?: string | null
   created_at?: string
   streaming?: boolean
+}
+
+export interface KnowledgeSource {
+  id: number
+  session_id: string
+  title: string
+  source_type: 'pdf' | 'arquivo' | 'url' | 'pesquisa' | 'texto'
+  source_name?: string | null
+  summary: string
+  content?: string
+  topics: string[]
+  created_at: string
 }
 
 export interface ChatStreamEvent {
@@ -68,6 +81,7 @@ export interface InterfaceSettings {
   showQuickPrompts: boolean
   autoPlayAudio: boolean
   webSearchEnabled: boolean
+  accentColor: AccentColor
 }
 
 export interface BackendConfig {

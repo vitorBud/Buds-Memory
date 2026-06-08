@@ -280,7 +280,7 @@ def format_web_context(results) -> str:
     return "\n\n".join(lines)
 
 
-def build_prompt(user_text: str, history=None, web_context: Optional[str] = None) -> str:
+def build_prompt(user_text: str, history=None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None) -> str:
     history = history or []
     lines = [
         SYSTEM_STYLE,
@@ -309,6 +309,16 @@ def build_prompt(user_text: str, history=None, web_context: Optional[str] = None
             "Use a busca apenas quando ela ajudar a responder. Se os resultados forem insuficientes, diga isso claramente.",
         ])
 
+    if knowledge_context:
+        lines.extend([
+            "",
+            "Base de conhecimento importada:",
+            knowledge_context,
+            "",
+            "Quando usar a base importada, deixe claro que a resposta foi baseada no material importado pelo usuário. "
+            "Não invente detalhes fora desse material; se o material não cobrir algo, diga que não encontrou ali.",
+        ])
+
     lines.extend([
         "",
         f"Usuário: {user_text}",
@@ -321,8 +331,8 @@ def resolve_ollama_model(model: Optional[str] = None) -> str:
     return model if model in OLLAMA_MODELS else OLLAMA_MODEL
 
 
-def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None) -> str:
-    prompt = build_prompt(user_text, history, web_context)
+def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None) -> str:
+    prompt = build_prompt(user_text, history, web_context, knowledge_context)
     selected_model = resolve_ollama_model(model)
 
     r = requests.post(
@@ -345,8 +355,8 @@ def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_co
     return r.json().get("response", "").strip()
 
 
-def llm_ollama_stream(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None):
-    prompt = build_prompt(user_text, history, web_context)
+def llm_ollama_stream(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None):
+    prompt = build_prompt(user_text, history, web_context, knowledge_context)
     selected_model = resolve_ollama_model(model)
 
     r = requests.post(

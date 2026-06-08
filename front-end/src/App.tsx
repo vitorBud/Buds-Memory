@@ -1,13 +1,18 @@
-import { useState, useEffect, useCallback, useRef, type MouseEvent } from 'react'
+import { useState, useEffect, useCallback, useRef, type MouseEvent, type PointerEvent } from 'react'
 import {
+  BrainCircuit,
   Check,
   ChevronDown,
   Database,
   FileCode2,
   ListChecks,
+  MessageSquare,
   Pencil,
+  Settings as SettingsIcon,
   Trash2,
+  Upload,
   X,
+  House,
 } from 'lucide-react'
 import { TopBar } from './components/TopBar'
 import { Sidebar } from './components/Sidebar'
@@ -17,16 +22,18 @@ import { StatusPanel } from './components/StatusPanel'
 import { ParticleNetwork } from './components/ParticleNetwork'
 import { AiOrb } from './components/AiOrb'
 import { BrainMap } from './components/BrainMap'
+import { JarvisCore } from './components/JarvisCore'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
-import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle } from './services/api'
-import type { AiState, Session, ActivityItem, InterfaceSettings, Message } from './types'
+import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge } from './services/api'
+import type { AiState, Session, ActivityItem, InterfaceSettings, Message, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
 
 const SETTINGS_KEY = 'nexus-interface-settings'
 const FALLBACK_MODEL = 'qwen2.5-coder:7b'
 const DEFAULT_MODELS = ['qwen2.5-coder:3b', FALLBACK_MODEL, 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
+type AppView = 'home' | 'chat' | 'obsidian'
 
 const DEFAULT_SETTINGS: InterfaceSettings = {
   theme: 'dark',
@@ -36,12 +43,15 @@ const DEFAULT_SETTINGS: InterfaceSettings = {
   showQuickPrompts: true,
   autoPlayAudio: true,
   webSearchEnabled: false,
+  accentColor: 'white',
 }
 
 function getInitialSettings(): InterfaceSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS
+    const parsed = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS
+    if (!['white', 'amber'].includes(parsed.accentColor)) parsed.accentColor = 'white'
+    return parsed
   } catch {
     return DEFAULT_SETTINGS
   }
@@ -95,6 +105,74 @@ function getDetectedFiles(messages: Message[]) {
 
 function getFirstUserMessage(messages: Message[]) {
   return messages.find(message => message.sender === 'user' && message.text !== '__thinking__')?.text ?? ''
+}
+
+function KnowledgeImportPanel({
+  sources,
+  value,
+  isImporting,
+  onValueChange,
+  onImportText,
+  onImportFile,
+}: {
+  sources: KnowledgeSource[]
+  value: string
+  isImporting: boolean
+  onValueChange: (value: string) => void
+  onImportText: () => void
+  onImportFile: (file: File) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  return (
+    <div className="knowledge-import-panel">
+      <div className="knowledge-import-main">
+        <button
+          type="button"
+          className="knowledge-file-button"
+          onClick={() => fileRef.current?.click()}
+          disabled={isImporting}
+          title="Importar PDF, TXT ou Markdown"
+        >
+          <Upload size={14} />
+          <span>Importar</span>
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,application/pdf"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file) onImportFile(file)
+          }}
+        />
+        <input
+          value={value}
+          onChange={(event) => onValueChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') onImportText()
+          }}
+          placeholder="Cole uma URL, pesquisa ou texto para a IA aprender"
+          disabled={isImporting}
+        />
+        <button type="button" onClick={onImportText} disabled={isImporting || !value.trim()}>
+          {isImporting ? 'Lendo...' : 'Aprender'}
+        </button>
+      </div>
+      <div className="knowledge-learned-row">
+        <span>Aprendido</span>
+        {sources.length ? sources.slice(0, 3).map(source => (
+          <strong key={source.id} title={source.summary}>
+            {source.title}
+          </strong>
+        )) : (
+          <em>Nenhum material importado ainda</em>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // Painel lateral que resume conceitos recentes e memória curta da conversa.
@@ -249,6 +327,15 @@ export default function App() {
   const [draftTitle, setDraftTitle] = useState('')
   const [focusMode, setFocusMode] = useState(false)
   const [railTab, setRailTab] = useState<RailTab>('memory')
+  const [chatRevealActive, setChatRevealActive] = useState(false)
+  const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([])
+  const [knowledgeInput, setKnowledgeInput] = useState('')
+  const [isImportingKnowledge, setIsImportingKnowledge] = useState(false)
+  const [activeView, setActiveView] = useState<AppView>(() => {
+    if (window.location.hash === '#chat') return 'chat'
+    if (window.location.hash === '#obsidian') return 'obsidian'
+    return 'home'
+  })
 
   useEffect(() => {
     const t = setInterval(() => setUptimeSeconds(s => s + 1), 1000)
@@ -257,6 +344,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme
+    document.documentElement.dataset.accent = settings.accentColor
     document.documentElement.dataset.density = 'compact'
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
   }, [settings])
@@ -334,6 +422,12 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const target = window.location.hash
+    if (target === '#chat') setActiveView('chat')
+    if (target === '#obsidian') setActiveView('obsidian')
+  }, [])
+
+  useEffect(() => {
     const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
     const updateScrollProgress = () => {
@@ -369,6 +463,8 @@ export default function App() {
     setCurrentSessionCreatedAt(session.created_at)
     setDraftTitle(session.title)
     setIsEditingTitle(false)
+    setKnowledgeSources([])
+    setKnowledgeInput('')
     clearMessages()
     setMsgCount(0)
     setLatency('')
@@ -385,7 +481,9 @@ export default function App() {
     clearMessages()
     try {
       const msgs = await getSessionMessages(session.id)
+      const sources = await getSessionKnowledge(session.id)
       loadMessages(msgs)
+      setKnowledgeSources(sources)
       pushActivity(`Conversa carregada: ${session.title}`, 'violet')
     } catch (err) {
       console.error(err)
@@ -402,6 +500,8 @@ export default function App() {
       setCurrentSessionCreatedAt(null)
       setDraftTitle('')
       setIsEditingTitle(false)
+      setKnowledgeSources([])
+      setKnowledgeInput('')
       clearMessages()
     }
     pushActivity('Conversa deletada', 'rose')
@@ -439,9 +539,68 @@ export default function App() {
     await handleDeleteSession(currentSessionId)
   }
 
+  const handleImportKnowledgeFile = async (file: File) => {
+    setIsImportingKnowledge(true)
+    try {
+      const sessionId = await ensureSession()
+      const source = await importKnowledge(sessionId, { file })
+      setKnowledgeSources(prev => [source, ...prev])
+      pushActivity(`Conhecimento importado: ${source.title}`, 'emerald')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Falha ao importar conhecimento.')
+    } finally {
+      setIsImportingKnowledge(false)
+    }
+  }
+
+  const handleImportKnowledgeText = async () => {
+    const value = knowledgeInput.trim()
+    if (!value) return
+
+    setIsImportingKnowledge(true)
+    try {
+      const sessionId = await ensureSession()
+      const payload = value.startsWith('http://') || value.startsWith('https://')
+        ? { url: value }
+        : value.length > 180
+          ? { text: value }
+          : { query: value }
+      const source = await importKnowledge(sessionId, payload)
+      setKnowledgeSources(prev => [source, ...prev])
+      setKnowledgeInput('')
+      pushActivity(`IA aprendeu: ${source.title}`, 'emerald')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Falha ao importar conhecimento.')
+    } finally {
+      setIsImportingKnowledge(false)
+    }
+  }
+
+  const handleOpenHome = () => {
+    setActiveView('home')
+    window.history.replaceState(null, '', window.location.pathname)
+    window.scrollTo({ top: 0 })
+  }
+
+  const handleSmoothScrollToChat = () => {
+    setActiveView('chat')
+    setChatRevealActive(true)
+    window.history.replaceState(null, '', '#chat')
+    window.scrollTo({ top: 0 })
+    window.setTimeout(() => setChatRevealActive(false), 1900)
+  }
+
   const handleSmoothScrollToObsidian = (event: MouseEvent<HTMLAnchorElement>) => {
     event.preventDefault()
-    obsidianSceneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setActiveView('obsidian')
+    window.history.replaceState(null, '', '#obsidian')
+    window.scrollTo({ top: 0 })
+  }
+
+  const handleOpenObsidian = () => {
+    setActiveView('obsidian')
+    window.history.replaceState(null, '', '#obsidian')
+    window.scrollTo({ top: 0 })
   }
 
   const hasMessages = messages.length > 0
@@ -451,9 +610,104 @@ export default function App() {
     { id: 'summary', label: 'Resumo', icon: ListChecks },
   ]
 
+  const renderViewNav = (variant: 'floating' | 'inline') => (
+    <nav className={`view-nav view-nav-${variant}`} aria-label="Trocar seção">
+      <button type="button" className={activeView === 'home' ? 'is-active' : ''} onClick={handleOpenHome}>
+        <House size={14} />
+        <span>Início</span>
+      </button>
+      <button type="button" className={activeView === 'chat' ? 'is-active' : ''} onClick={handleSmoothScrollToChat}>
+        <MessageSquare size={14} />
+        <span>Chat</span>
+      </button>
+      <button type="button" className={activeView === 'obsidian' ? 'is-active' : ''} onClick={handleOpenObsidian}>
+        <BrainCircuit size={14} />
+        <span>Obsidian</span>
+      </button>
+      <button type="button" onClick={() => setSettingsOpen(true)}>
+        <SettingsIcon size={14} />
+        <span>Config</span>
+      </button>
+    </nav>
+  )
+
+  const handleLandingPointerMove = (event: PointerEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    const x = ((event.clientX - rect.left) / rect.width) * 100
+    const y = ((event.clientY - rect.top) / rect.height) * 100
+    const relativeX = (event.clientX - rect.left) / rect.width - 0.5
+    const relativeY = (event.clientY - rect.top) / rect.height - 0.5
+    const tiltX = relativeY * -10
+    const tiltY = relativeX * 10
+
+    event.currentTarget.style.setProperty('--mouse-x', `${x.toFixed(2)}%`)
+    event.currentTarget.style.setProperty('--mouse-y', `${y.toFixed(2)}%`)
+    event.currentTarget.style.setProperty('--tilt-x', `${tiltX.toFixed(2)}deg`)
+    event.currentTarget.style.setProperty('--tilt-y', `${tiltY.toFixed(2)}deg`)
+    event.currentTarget.style.setProperty('--parallax-x', `${(relativeX * 28).toFixed(2)}px`)
+    event.currentTarget.style.setProperty('--parallax-y', `${(relativeY * 28).toFixed(2)}px`)
+  }
+
+  const handleLandingPointerLeave = (event: PointerEvent<HTMLElement>) => {
+    event.currentTarget.style.setProperty('--mouse-x', '50%')
+    event.currentTarget.style.setProperty('--mouse-y', '50%')
+    event.currentTarget.style.setProperty('--tilt-x', '0deg')
+    event.currentTarget.style.setProperty('--tilt-y', '0deg')
+    event.currentTarget.style.setProperty('--parallax-x', '0px')
+    event.currentTarget.style.setProperty('--parallax-y', '0px')
+  }
+
   return (
     <div className="scroll-experience" ref={pageRef}>
-      <section className="chat-scroll-scene" ref={chatSceneRef}>
+      {activeView === 'home' && (
+      <section
+        className="jarvis-landing"
+        id="inicio"
+        aria-label="Tela inicial Jarvis"
+        onPointerMove={handleLandingPointerMove}
+        onPointerLeave={handleLandingPointerLeave}
+      >
+        <div className="jarvis-cursor-aura" />
+        <div className="jarvis-scanline" />
+        <div className="jarvis-frame">
+          <div className="jarvis-top-strip">
+            <span>NEXUS_ASSISTANT</span>
+            <strong>{aiState === 'idle' ? 'ONLINE' : aiState.toUpperCase()}</strong>
+          </div>
+
+          <div className="jarvis-visual-stage">
+            <JarvisCore key={settings.accentColor} />
+            <div className="jarvis-reticle jarvis-reticle-a" />
+            <div className="jarvis-reticle jarvis-reticle-b" />
+            <div className="jarvis-data-stack">
+              <span>MODELO</span>
+              <strong>{selectedModel}</strong>
+              <span>WEB</span>
+              <strong>{googleSearchAvailable ? 'PRONTO' : 'OFFLINE'}</strong>
+            </div>
+          </div>
+
+          <div className="jarvis-command-bar" aria-label="Navegação principal">
+            <button type="button" onClick={handleSmoothScrollToChat} title="Abrir chat">
+              <MessageSquare size={15} />
+              <span>Chat</span>
+            </button>
+            <button type="button" onClick={handleOpenObsidian} title="Abrir Obsidian">
+              <BrainCircuit size={15} />
+              <span>Obsidian</span>
+            </button>
+            <button type="button" onClick={() => setSettingsOpen(true)} title="Abrir configurações">
+              <SettingsIcon size={15} />
+              <span>Config</span>
+            </button>
+          </div>
+        </div>
+      </section>
+      )}
+
+      {activeView === 'chat' && (
+      <section className={`chat-scroll-scene ${chatRevealActive ? 'is-revealing' : ''}`} id="chat" ref={chatSceneRef}>
+        {renderViewNav('floating')}
         <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
           {!focusMode && (
             <Sidebar
@@ -527,6 +781,15 @@ export default function App() {
                   </div>
                 </div>
 
+                <KnowledgeImportPanel
+                  sources={knowledgeSources}
+                  value={knowledgeInput}
+                  isImporting={isImportingKnowledge}
+                  onValueChange={setKnowledgeInput}
+                  onImportText={handleImportKnowledgeText}
+                  onImportFile={handleImportKnowledgeFile}
+                />
+
                 {!hasMessages ? (
                   <div className="empty-state">
                     <div className="orb-station">
@@ -541,7 +804,7 @@ export default function App() {
                       <p>Envie uma pergunta, cole um erro ou peça uma análise do seu código.</p>
                       <a className="scroll-note" href="#obsidian" onClick={handleSmoothScrollToObsidian}>
                         <ChevronDown size={15} />
-                        <span>Esta página continua: role para o cérebro IA</span>
+                        <span>Abrir cérebro IA</span>
                       </a>
                     </div>
                   </div>
@@ -568,7 +831,9 @@ export default function App() {
         </div>
 
       </section>
+      )}
 
+      {activeView === 'obsidian' && (
       <section className="obsidian-scroll-scene" id="obsidian" ref={obsidianSceneRef}>
         <div className="obsidian-sticky-stage">
           <div className="obsidian-copy-panel">
@@ -580,13 +845,15 @@ export default function App() {
             <div className="obsidian-progress-meter">
               <span />
             </div>
+            {renderViewNav('inline')}
           </div>
 
           <div className="obsidian-stage-graph">
-            <BrainMap messages={messages} />
+            <BrainMap key={settings.accentColor} messages={messages} knowledgeSources={knowledgeSources} />
           </div>
         </div>
       </section>
+      )}
 
       {settingsOpen && (
         <>

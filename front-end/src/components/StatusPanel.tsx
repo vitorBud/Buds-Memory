@@ -1,6 +1,6 @@
 import { Activity, Cpu, Gauge, Moon, SlidersHorizontal, Sun, Volume2, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { AiState, InterfaceSettings } from '../types'
+import type { AccentColor, AiState, InterfaceSettings } from '../types'
 
 interface StatusPanelProps {
   aiState: AiState
@@ -45,6 +45,11 @@ function StatusLine({ label, value }: { label: string; value: string }) {
     </div>
   )
 }
+
+const ACCENT_OPTIONS: Array<{ value: AccentColor; label: string }> = [
+  { value: 'white', label: 'Branco' },
+  { value: 'amber', label: 'Amarelo' },
+]
 
 // Gaveta de configurações da interface, voz, tema e status técnico da sessão.
 export function StatusPanel({
@@ -94,6 +99,21 @@ export function StatusPanel({
             <Sun size={14} />
             Claro
           </button>
+        </div>
+
+        <div className="accent-picker" aria-label="Cor do sistema">
+          {ACCENT_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              className={`accent-swatch accent-${option.value} ${settings.accentColor === option.value ? 'is-active' : ''}`}
+              onClick={() => onSettingChange('accentColor', option.value)}
+              title={`Tema ${option.label}`}
+            >
+              <span />
+              {option.label}
+            </button>
+          ))}
         </div>
 
         <div className="toggle-stack">

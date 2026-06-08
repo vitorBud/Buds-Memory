@@ -5,6 +5,7 @@ import time
 import re
 from pathlib import Path
 from typing import Optional
+from html import unescape
 
 # Importações de agenty.py (reaproveitando lógica já existente)
 from agenty import (
@@ -50,12 +51,87 @@ def gerar_audio_url(texto: str, filename: str) -> Optional[str]:
         return None
 
 
+def clean_imported_text(text: str) -> str:
+    """Normaliza textos importados antes de salvar como conhecimento."""
+    text = unescape(text or "")
+    text = re.sub(r"<script[\s\S]*?</script>", " ", text, flags=re.I)
+    text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def extract_topics(text: str, limit: int = 10):
+    """Extrai palavras-chave simples para mostrar no cérebro/Obsidian."""
+    stop_words = {
+        "para", "como", "uma", "com", "que", "por", "mais", "menos", "isso", "esse", "essa",
+        "esta", "está", "das", "dos", "nas", "nos", "não", "nao", "seu", "sua", "sobre",
+        "entre", "quando", "onde", "porque", "qual", "quais", "todo", "toda", "the", "and",
+        "from", "with", "this", "that", "http", "https", "www",
+    }
+    normalized = (text or "").lower()
+    normalized = re.sub(r"https?://\S+", " ", normalized)
+    words = re.findall(r"[a-zA-ZÀ-ÿ0-9_-]{4,}", normalized)
+    counts = {}
+    for word in words:
+        plain = word.strip("_-")
+        if plain in stop_words or plain.isnumeric():
+            continue
+        counts[plain] = counts.get(plain, 0) + 1
+    return [word for word, _count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]]
+
+
+def make_knowledge_title(text: str, fallback: str = "Conhecimento importado") -> str:
+    """Cria título legível a partir do nome do arquivo ou primeira frase do conteúdo."""
+    candidate = clean_imported_text(text) or fallback
+    candidate = re.sub(r"\.[a-zA-Z0-9]{2,5}$", "", candidate)
+    first_sentence = re.split(r"(?<=[.!?])\s+", candidate)[0].strip()
+    title = first_sentence if 8 <= len(first_sentence) <= 72 else candidate[:72]
+    title = title.strip(" .,:;!?-_")
+    return (title[:69].rstrip() + "...") if len(title) > 72 else title or fallback
+
+
+def summarize_imported_text(text: str) -> str:
+    """Gera resumo curto determinístico, sem chamar LLM para não travar upload."""
+    text = clean_imported_text(text)
+    if len(text) <= 520:
+        return text
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
+    summary = " ".join(sentences[:3]).strip()
+    return summary[:700].rstrip() + ("..." if len(summary) > 700 else "")
+
+
+def extract_pdf_text(file_storage) -> str:
+    """Extrai texto de PDF usando PyPDF2 quando disponível."""
+    try:
+        from PyPDF2 import PdfReader
+    except ImportError as exc:
+        raise RuntimeError("Leitura de PDF precisa do pacote PyPDF2. Rode: pip install PyPDF2") from exc
+
+    reader = PdfReader(file_storage.stream)
+    pages = []
+    for page in reader.pages[:80]:
+        pages.append(page.extract_text() or "")
+    return clean_imported_text("\n".join(pages))
+
+
+def fetch_url_text(url: str) -> str:
+    """Baixa uma página pública e extrai texto bruto suficiente para contexto."""
+    if not re.match(r"^https?://", url or ""):
+        raise ValueError("Informe uma URL começando com http:// ou https://.")
+    import requests
+
+    response = requests.get(url, timeout=15, headers={"User-Agent": "NexusAssistant/1.0"})
+    response.raise_for_status()
+    return clean_imported_text(response.text)
+
+
 def prepare_session_context(session_id: Optional[str], user_text: str):
     history = []
     title_update = None
 
     if not session_id:
-        return history, title_update
+        return history, title_update, ""
 
     history = database.get_recent_session_messages(session_id, limit=12)
     if not history:
@@ -63,7 +139,8 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
         title_update = database.update_session_title(session_id, title)
 
     database.add_message(session_id, "user", user_text)
-    return history, title_update
+    knowledge_context = database.build_knowledge_context(session_id)
+    return history, title_update, knowledge_context
 
 
 # ====== ROTA PRINCIPAL - SERVE O FRONT-END ======
@@ -178,6 +255,84 @@ def get_session_messages(session_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/sessions/<session_id>/knowledge', methods=['GET'])
+def get_session_knowledge(session_id):
+    """Lista PDFs, páginas e textos importados para a sessão."""
+    try:
+        return jsonify(database.get_session_knowledge(session_id)), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sessions/<session_id>/knowledge', methods=['POST'])
+def import_session_knowledge(session_id):
+    """Importa arquivo, texto, URL ou busca Google como conhecimento da conversa."""
+    try:
+        if not database.get_session(session_id):
+            return jsonify({"error": "Sessão não encontrada."}), 404
+
+        title = request.form.get("title", "").strip()
+        source_type = "texto"
+        source_name = "manual"
+        content = ""
+
+        if "file" in request.files:
+            uploaded = request.files["file"]
+            source_name = uploaded.filename or "arquivo"
+            suffix = Path(source_name).suffix.lower()
+            source_type = "pdf" if suffix == ".pdf" else "arquivo"
+            if suffix == ".pdf":
+                content = extract_pdf_text(uploaded)
+            else:
+                raw = uploaded.read()
+                content = clean_imported_text(raw.decode("utf-8", errors="ignore"))
+            title = title or make_knowledge_title(source_name)
+        else:
+            payload = request.get_json(silent=True) if request.is_json else {}
+            payload = payload or request.form
+            url = (payload.get("url") or "").strip()
+            query = (payload.get("query") or "").strip()
+            text = (payload.get("text") or "").strip()
+            title = title or (payload.get("title") or "").strip()
+
+            if url:
+                source_type = "url"
+                source_name = url
+                content = fetch_url_text(url)
+                title = title or make_knowledge_title(content, fallback=url)
+            elif query:
+                source_type = "pesquisa"
+                source_name = query
+                results = search_google(query)
+                content = format_web_context(results)
+                title = title or make_knowledge_title(query, fallback="Pesquisa importada")
+            else:
+                source_type = "texto"
+                source_name = "texto colado"
+                content = clean_imported_text(text)
+                title = title or make_knowledge_title(content)
+
+        if len(content) < 40:
+            return jsonify({"error": "Não consegui extrair texto suficiente dessa fonte."}), 400
+
+        content = content[:30000]
+        topics = extract_topics(content)
+        summary = summarize_imported_text(content)
+        item = database.add_knowledge_source(
+            session_id=session_id,
+            title=title or make_knowledge_title(content),
+            source_type=source_type,
+            source_name=source_name,
+            summary=summary,
+            content=content,
+            topics=topics,
+        )
+        return jsonify(item), 201
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ====== ENDPOINTS DE CHAT E MULTIMÍDIA ======
 
 @app.route('/api/chat', methods=['POST'])
@@ -219,7 +374,7 @@ def chat():
         return jsonify({"error": "Nenhum texto ou áudio fornecido"}), 400
 
     try:
-        history, title_update = prepare_session_context(session_id, user_text)
+        history, title_update, knowledge_context = prepare_session_context(session_id, user_text)
 
         web_results = []
         web_context = None
@@ -228,7 +383,7 @@ def chat():
             web_context = format_web_context(web_results)
 
         # 1. Envia o texto para a IA (Ollama)
-        reply = llm_ollama(user_text, history, selected_model, web_context)
+        reply = llm_ollama(user_text, history, selected_model, web_context, knowledge_context)
         if not reply:
             return jsonify({"error": "Nenhuma resposta foi obtida da IA."}), 500
 
@@ -279,7 +434,7 @@ def chat_stream():
     if not user_text:
         return jsonify({"error": "Nenhum texto ou áudio fornecido"}), 400
 
-    history, title_update = prepare_session_context(session_id, user_text)
+    history, title_update, knowledge_context = prepare_session_context(session_id, user_text)
 
     def generate():
         # Envia a transcrição do áudio do usuário primeiro
@@ -301,7 +456,7 @@ def chat_stream():
         sentence_idx = 0
         
         try:
-            for token in llm_ollama_stream(user_text, history, selected_model, web_context):
+            for token in llm_ollama_stream(user_text, history, selected_model, web_context, knowledge_context):
                 # Envia o token de texto gerado para o Front-end imprimir na tela
                 yield sse_event({'type': 'token', 'content': token})
                 buffer += token

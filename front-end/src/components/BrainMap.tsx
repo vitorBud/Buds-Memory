@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { BrainCircuit, GitBranch, Layers3, MousePointer2, Rotate3D, ScanSearch, ZoomIn } from 'lucide-react'
+import { Activity, BrainCircuit, GitBranch, Layers3, MousePointer2, Network, Radio, Rotate3D, ScanSearch, ZoomIn } from 'lucide-react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import type { Message } from '../types'
+import type { KnowledgeSource, Message } from '../types'
 
 interface BrainMapProps {
   messages: Message[]
+  knowledgeSources?: KnowledgeSource[]
 }
 
 interface ConceptNode {
@@ -72,6 +73,33 @@ function getConcepts(messages: Message[]): ConceptNode[] {
     .map((node, index) => ({ ...node, index }))
 }
 
+function getKnowledgeConcepts(sources: KnowledgeSource[]): ConceptNode[] {
+  const nodes: ConceptNode[] = []
+
+  sources.slice(0, 6).forEach((source, sourceIndex) => {
+    const title = source.title || 'Material importado'
+    nodes.push({
+      id: `fonte-${source.id}`,
+      label: title,
+      count: 6 + Math.min(source.topics?.length ?? 0, 6),
+      index: nodes.length,
+      senderMix: { user: 1, ia: 5 },
+    })
+
+    ;(source.topics ?? []).slice(0, 4).forEach(topic => {
+      nodes.push({
+        id: `topico-${source.id}-${topic}`,
+        label: topic,
+        count: 3 + sourceIndex,
+        index: nodes.length,
+        senderMix: { user: 1, ia: 3 },
+      })
+    })
+  })
+
+  return nodes.slice(0, 14).map((node, index) => ({ ...node, index }))
+}
+
 function makeLabelSprite(label: string, color: string, selected: boolean) {
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
@@ -123,10 +151,18 @@ function getNodePosition(node: ConceptNode, total: number) {
 }
 
 // Mapa 3D estilo Obsidian que transforma conceitos da conversa em nós e conexões.
-export function BrainMap({ messages }: BrainMapProps) {
+export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
   const mountRef = useRef<HTMLDivElement>(null)
-  const [selectedConcept, setSelectedConcept] = useState('Nexus')
-  const concepts = useMemo(() => getConcepts(messages), [messages])
+  const learnedNodes = useMemo(() => getKnowledgeConcepts(knowledgeSources), [knowledgeSources])
+  const [selectedConcept, setSelectedConcept] = useState(() => learnedNodes[0]?.label ?? 'Nexus')
+  const concepts = useMemo(() => {
+    const conversationNodes = getConcepts(messages)
+    const merged = new Map<string, ConceptNode>()
+    ;[...learnedNodes, ...conversationNodes].forEach(node => {
+      if (!merged.has(node.label)) merged.set(node.label, node)
+    })
+    return [...merged.values()].slice(0, 14).map((node, index) => ({ ...node, index }))
+  }, [messages, learnedNodes])
   const nodes = concepts.length
     ? concepts
     : [
@@ -139,6 +175,11 @@ export function BrainMap({ messages }: BrainMapProps) {
         { id: 'frontend', label: 'frontend', count: 1, index: 6, senderMix: { user: 0, ia: 1 } },
         { id: 'sessao', label: 'sessao', count: 1, index: 7, senderMix: { user: 0, ia: 1 } },
       ]
+
+  useEffect(() => {
+    if (learnedNodes[0]?.label) setSelectedConcept(learnedNodes[0].label)
+  }, [learnedNodes])
+
   const selectedNode = nodes.find(node => node.label === selectedConcept)
   const conceptSignature = nodes.map(node => `${node.id}:${node.count}:${node.senderMix.user}:${node.senderMix.ia}`).join('|')
   const activeMessages = messages.filter(message => message.text !== '__thinking__')
@@ -146,6 +187,7 @@ export function BrainMap({ messages }: BrainMapProps) {
   const aiMessages = activeMessages.filter(message => message.sender === 'ia').length
   const totalMentions = nodes.reduce((sum, node) => sum + node.count, 0)
   const memoryLoad = Math.min(100, Math.round((activeMessages.length / 12) * 100))
+  const learnedLoad = Math.min(100, Math.round((knowledgeSources.length / 8) * 100))
   const totalMentionsLabel = totalMentions === 1 ? '1 menção mapeada' : `${totalMentions} menções mapeadas`
   const selectedUserLabel = selectedNode?.senderMix.user === 1 ? '1 citação sua' : `${selectedNode?.senderMix.user ?? 0} citações suas`
   const selectedIaLabel = selectedNode?.senderMix.ia === 1 ? '1 citação da IA' : `${selectedNode?.senderMix.ia ?? 0} citações da IA`
@@ -158,10 +200,10 @@ export function BrainMap({ messages }: BrainMapProps) {
     const colors = {
       surface: style.getPropertyValue('--surface-2').trim() || '#151b27',
       text: style.getPropertyValue('--text').trim() || '#edf3fb',
-      cyan: style.getPropertyValue('--cyan').trim() || '#06b6d4',
-      violet: style.getPropertyValue('--violet').trim() || '#8b5cf6',
+      cyan: style.getPropertyValue('--accent').trim() || '#06b6d4',
+      violet: style.getPropertyValue('--accent-hot').trim() || '#8b5cf6',
       emerald: style.getPropertyValue('--emerald').trim() || '#22c55e',
-      amber: style.getPropertyValue('--amber').trim() || '#f59e0b',
+      amber: style.getPropertyValue('--accent').trim() || '#f59e0b',
       rose: style.getPropertyValue('--rose').trim() || '#f43f5e',
     }
 
@@ -530,6 +572,7 @@ export function BrainMap({ messages }: BrainMapProps) {
           <strong>Cérebro IA</strong>
         </div>
         <div className="brain-header-actions">
+          <span><Radio size={12} /> ao vivo</span>
           <span><GitBranch size={12} /> {Math.max(0, nodes.length - 1)}</span>
           <BrainCircuit size={15} />
         </div>
@@ -540,12 +583,12 @@ export function BrainMap({ messages }: BrainMapProps) {
         <div className="brain-hud">
           <span>Selecionado</span>
           <strong>{selectedNode?.label ?? selectedConcept}</strong>
-          <em>{selectedNode ? `${selectedNode.count} menções` : `${nodes.length} nós ativos`}</em>
+          <em>{selectedNode ? `${selectedNode.count} conexões` : `${nodes.length} nós ativos`}</em>
         </div>
         <div className="brain-vault-status">
           <Layers3 size={13} />
-          <span>Memória</span>
-          <strong>{memoryLoad}%</strong>
+          <span>Aprendizado</span>
+          <strong>{Math.max(memoryLoad, learnedLoad)}%</strong>
         </div>
       </div>
 
@@ -567,9 +610,9 @@ export function BrainMap({ messages }: BrainMapProps) {
           <small>respostas na conversa atual</small>
         </div>
         <div className="brain-stat-card">
-          <span>Conceitos ligados</span>
-          <strong>{nodes.length}</strong>
-          <small>nós ativos no cérebro 3D</small>
+          <span>Fontes aprendidas</span>
+          <strong>{knowledgeSources.length}</strong>
+          <small>PDFs, páginas ou pesquisas importadas</small>
         </div>
         <div className="brain-stat-card">
           <span>Carga da memória</span>
@@ -584,8 +627,30 @@ export function BrainMap({ messages }: BrainMapProps) {
         <p>
           {selectedNode
             ? `Aparece ${selectedNode.count} ${selectedNode.count === 1 ? 'vez' : 'vezes'}, com ${selectedUserLabel} e ${selectedIaLabel}.`
-            : 'Núcleo da conversa atual, conectando contexto, memória e respostas do modelo.'}
+            : knowledgeSources[0]
+              ? `Assunto aprendido: ${knowledgeSources[0].title}.`
+              : 'Núcleo da conversa atual, conectando contexto, memória e respostas do modelo.'}
         </p>
+      </div>
+
+      <div className="brain-signal-panel">
+        <div>
+          <Activity size={13} />
+          <span>Sinapses</span>
+          <strong>{Math.max(nodes.length * 3, totalMentions)}</strong>
+        </div>
+        <div>
+          <Network size={13} />
+          <span>Fontes</span>
+          <strong>{knowledgeSources.length}</strong>
+        </div>
+        <div className="brain-signal-bars" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
       </div>
 
       <div className="concept-list">

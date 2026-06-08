@@ -1,7 +1,7 @@
 // ─── API Service Layer ───────────────────────────────────────────────────────
 // All calls go through the Vite proxy → http://127.0.0.1:5050
 
-import type { Session, Message, BackendConfig, ChatStreamEvent } from '../types'
+import type { Session, Message, BackendConfig, ChatStreamEvent, KnowledgeSource } from '../types'
 
 const BASE = '/api'
 
@@ -50,6 +50,48 @@ export async function getSessionMessages(id: string): Promise<Message[]> {
   const res = await fetch(`${BASE}/sessions/${id}/messages`)
   if (!res.ok) throw new Error(`getSessionMessages: ${res.status}`)
   return res.json()
+}
+
+// ── Knowledge Sources ──────────────────────────────────────────────────────
+
+export async function getSessionKnowledge(id: string): Promise<KnowledgeSource[]> {
+  const res = await fetch(`${BASE}/sessions/${id}/knowledge`)
+  if (!res.ok) throw new Error(`getSessionKnowledge: ${res.status}`)
+  return res.json()
+}
+
+export async function importKnowledge(
+  sessionId: string,
+  payload: { file?: File; text?: string; url?: string; query?: string; title?: string },
+): Promise<KnowledgeSource> {
+  let response: Response
+
+  if (payload.file) {
+    const body = new FormData()
+    body.append('file', payload.file)
+    if (payload.title) body.append('title', payload.title)
+    response = await fetch(`${BASE}/sessions/${sessionId}/knowledge`, {
+      method: 'POST',
+      body,
+    })
+  } else {
+    response = await fetch(`${BASE}/sessions/${sessionId}/knowledge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: payload.text,
+        url: payload.url,
+        query: payload.query,
+        title: payload.title,
+      }),
+    })
+  }
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    throw new Error(data.error || `importKnowledge: ${response.status}`)
+  }
+  return response.json()
 }
 
 // ── Chat Streaming (SSE via ReadableStream) ─────────────────────────────────

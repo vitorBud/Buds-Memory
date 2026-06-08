@@ -23,8 +23,21 @@
   --emerald: #22c55e;
   --amber: #f59e0b;
   --rose: #f43f5e;
+  --accent: #e5e7eb;
+  --accent-hot: #ffffff;
+  --accent-deep: #64748b;
+  --accent-rgb: 229 231 235;
+  --accent-hot-rgb: 255 255 255;
   --shadow: 0 18px 60px rgba(0, 0, 0, 0.34);
   --radius: 8px;
+}
+
+:root[data-accent='amber'] {
+  --accent: #f59e0b;
+  --accent-hot: #ffd166;
+  --accent-deep: #7c2d12;
+  --accent-rgb: 245 158 11;
+  --accent-hot-rgb: 255 209 102;
 }
 
 :root[data-theme='light'] {
@@ -126,6 +139,292 @@ input:focus-visible {
     transform: translateY(-4px);
     opacity: 1;
   }
+}
+
+@keyframes jarvis-scan {
+  0% {
+    transform: translateY(-120%);
+  }
+  100% {
+    transform: translateY(120%);
+  }
+}
+
+@keyframes jarvis-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scale(0.985);
+  }
+  50% {
+    opacity: 0.86;
+    transform: scale(1);
+  }
+}
+
+@keyframes chat-materialize {
+  0% {
+    filter: blur(16px);
+    opacity: 0;
+    transform: translateY(46px) scale(0.94);
+  }
+  48% {
+    filter: blur(4px);
+    opacity: 1;
+    transform: translateY(-4px) scale(1.01);
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes chat-panel-scan {
+  0% {
+    transform: translateX(-110%) skewX(-18deg);
+  }
+  100% {
+    transform: translateX(110%) skewX(-18deg);
+  }
+}
+
+@keyframes hud-border-fire {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.18), 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.52), 0 0 44px rgba(245, 158, 11, 0.2);
+  }
+}
+
+.jarvis-landing {
+  --jarvis: #f59e0b;
+  --jarvis-hot: #ffd166;
+  --jarvis-deep: #7c2d12;
+  --mouse-x: 50%;
+  --mouse-y: 50%;
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --parallax-x: 0px;
+  --parallax-y: 0px;
+  background:
+    radial-gradient(circle at var(--mouse-x) var(--mouse-y), rgba(255, 255, 255, 0.16), transparent 9%),
+    linear-gradient(90deg, rgba(245, 158, 11, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(245, 158, 11, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.18), transparent 34%),
+    radial-gradient(circle at 72% 58%, rgba(124, 45, 18, 0.34), transparent 30%),
+    #030303;
+  background-size: 42px 42px, 42px 42px, auto, auto, auto;
+  color: #fff7ed;
+  min-height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.jarvis-cursor-aura {
+  background:
+    radial-gradient(circle, rgb(var(--accent-hot-rgb) / 0.28), rgb(var(--accent-rgb) / 0.12) 22%, transparent 58%);
+  filter: blur(10px);
+  height: min(34vw, 380px);
+  left: var(--mouse-x);
+  mix-blend-mode: screen;
+  opacity: 0.72;
+  pointer-events: none;
+  position: absolute;
+  top: var(--mouse-y);
+  transform: translate(-50%, -50%);
+  transition: opacity 180ms ease;
+  width: min(34vw, 380px);
+  z-index: 1;
+}
+
+.jarvis-landing::before,
+.jarvis-landing::after {
+  border: 1px solid rgba(245, 158, 11, 0.16);
+  content: '';
+  inset: clamp(14px, 2vw, 28px);
+  pointer-events: none;
+  position: absolute;
+}
+
+.jarvis-landing::after {
+  border-color: rgba(245, 158, 11, 0.1);
+  inset: clamp(42px, 6vw, 92px);
+}
+
+.jarvis-scanline {
+  animation: jarvis-scan 5.4s linear infinite;
+  background: linear-gradient(180deg, transparent, rgba(255, 209, 102, 0.18), transparent);
+  height: 42%;
+  inset-inline: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  z-index: 1;
+}
+
+.jarvis-frame {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 100vh;
+  padding: clamp(18px, 3vw, 42px);
+  position: relative;
+  transform:
+    perspective(1200px)
+    rotateX(var(--tilt-x))
+    rotateY(var(--tilt-y));
+  transform-style: preserve-3d;
+  transition: transform 90ms ease-out;
+  z-index: 2;
+}
+
+.jarvis-top-strip {
+  align-items: center;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  color: rgba(255, 247, 237, 0.72);
+  display: flex;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  justify-content: space-between;
+  letter-spacing: 0;
+  margin-inline: auto;
+  max-width: 780px;
+  min-height: 34px;
+  padding: 0 12px;
+  width: min(64vw, 780px);
+  transform: translateZ(28px);
+}
+
+.jarvis-top-strip strong {
+  color: var(--jarvis-hot);
+  font-size: 11px;
+}
+
+.jarvis-visual-stage {
+  align-items: center;
+  display: grid;
+  justify-items: center;
+  min-height: 0;
+  position: relative;
+  transform: translateZ(58px);
+}
+
+.jarvis-core-canvas {
+  aspect-ratio: 1;
+  filter:
+    drop-shadow(0 0 30px rgb(var(--accent-rgb) / 0.42))
+    drop-shadow(0 0 78px rgb(var(--accent-rgb) / 0.2));
+  height: min(70vh, 760px);
+  max-width: min(86vw, 860px);
+  position: relative;
+  width: min(70vh, 760px);
+  z-index: 2;
+}
+
+.jarvis-core-canvas canvas {
+  display: block;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.jarvis-reticle {
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  pointer-events: none;
+  position: absolute;
+  transform: translate3d(var(--parallax-x), var(--parallax-y), 34px);
+}
+
+.jarvis-reticle::before,
+.jarvis-reticle::after {
+  background: rgba(245, 158, 11, 0.3);
+  content: '';
+  position: absolute;
+}
+
+.jarvis-reticle::before {
+  height: 1px;
+  left: 10%;
+  right: 10%;
+  top: 50%;
+}
+
+.jarvis-reticle::after {
+  bottom: 10%;
+  left: 50%;
+  top: 10%;
+  width: 1px;
+}
+
+.jarvis-reticle-a {
+  animation: jarvis-pulse 3.8s ease-in-out infinite;
+  height: min(56vh, 620px);
+  width: min(56vh, 620px);
+}
+
+.jarvis-reticle-b {
+  border-radius: 999px;
+  height: min(40vh, 440px);
+  opacity: 0.54;
+  width: min(40vh, 440px);
+}
+
+.jarvis-data-stack {
+  border-left: 1px solid rgba(245, 158, 11, 0.28);
+  bottom: clamp(72px, 9vh, 112px);
+  color: rgba(255, 247, 237, 0.58);
+  display: grid;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  gap: 4px;
+  left: clamp(20px, 5vw, 88px);
+  max-width: min(260px, 34vw);
+  padding-left: 10px;
+  position: absolute;
+  transform: translateZ(78px);
+  z-index: 3;
+}
+
+.jarvis-data-stack strong {
+  color: var(--jarvis-hot);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jarvis-command-bar {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding-bottom: clamp(8px, 2vh, 18px);
+  position: relative;
+  transform: translateZ(44px);
+  z-index: 4;
+}
+
+.jarvis-command-bar button {
+  align-items: center;
+  background: rgba(12, 8, 4, 0.72);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 999px;
+  color: #fed7aa;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 13px;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.jarvis-command-bar button:hover {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(255, 209, 102, 0.58);
+  color: #fff7ed;
+  transform: translateY(-1px);
 }
 
 .app-shell {
@@ -270,8 +569,8 @@ input:focus-visible {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 72%, transparent);
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
   height: 100%;
   max-height: none;
   overflow: hidden;
@@ -280,7 +579,7 @@ input:focus-visible {
 
 .obsidian-stage-graph .brain-graph {
   grid-column: 1;
-  grid-row: 1 / 5;
+  grid-row: 1 / 6;
   height: auto;
   min-height: 0;
   z-index: 0;
@@ -301,6 +600,7 @@ input:focus-visible {
 .obsidian-stage-graph .brain-controls,
 .obsidian-stage-graph .brain-stats,
 .obsidian-stage-graph .brain-detail,
+.obsidian-stage-graph .brain-signal-panel,
 .obsidian-stage-graph .concept-list {
   align-self: stretch;
   backdrop-filter: blur(16px);
@@ -313,7 +613,8 @@ input:focus-visible {
 
 .obsidian-stage-graph .brain-controls {
   grid-column: 1;
-  grid-row: 5;
+  grid-row: 6;
+  align-self: end;
   justify-self: stretch;
   width: 100%;
 }
@@ -331,9 +632,14 @@ input:focus-visible {
   grid-row: 3;
 }
 
+.obsidian-stage-graph .brain-signal-panel {
+  grid-column: 2;
+  grid-row: 4;
+}
+
 .obsidian-stage-graph .concept-list {
   grid-column: 2;
-  grid-row: 4 / 6;
+  grid-row: 5 / 7;
   max-height: none;
 }
 
@@ -349,6 +655,232 @@ input:focus-visible {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+
+.obsidian-scroll-scene {
+  --jarvis: #f59e0b;
+  --jarvis-hot: #ffd166;
+  --jarvis-panel: rgba(8, 6, 4, 0.86);
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(245, 158, 11, 0.03) 1px, transparent 1px),
+    radial-gradient(circle at 28% 28%, rgba(245, 158, 11, 0.15), transparent 28%),
+    radial-gradient(circle at 72% 70%, rgba(124, 45, 18, 0.3), transparent 32%),
+    #030303;
+  background-size: 42px 42px, 42px 42px, auto, auto, auto;
+  overflow: hidden;
+}
+
+.obsidian-scroll-scene::before,
+.obsidian-scroll-scene::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.obsidian-scroll-scene::before {
+  border: 1px solid rgba(245, 158, 11, 0.14);
+  inset: clamp(14px, 2vw, 28px);
+}
+
+.obsidian-scroll-scene::after {
+  background: conic-gradient(from 90deg, transparent, rgba(255, 209, 102, 0.12), transparent 34%);
+  border-radius: 999px;
+  height: min(72vw, 780px);
+  left: 50%;
+  opacity: calc(0.22 + (var(--obsidian-scroll) * 0.26));
+  top: 52%;
+  transform: translate(-50%, -50%) rotate(calc(var(--obsidian-scroll) * 120deg));
+  width: min(72vw, 780px);
+}
+
+.obsidian-sticky-stage {
+  z-index: 1;
+}
+
+.obsidian-copy-panel {
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.08), transparent 40%),
+    rgba(8, 6, 4, 0.78);
+  border-color: rgba(245, 158, 11, 0.22);
+  color: #fff7ed;
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.04);
+}
+
+.obsidian-copy-panel h2 {
+  color: #fff7ed;
+  text-shadow: 0 0 30px rgba(245, 158, 11, 0.22);
+}
+
+.obsidian-copy-panel p {
+  color: rgba(255, 237, 213, 0.66);
+}
+
+.obsidian-progress-meter {
+  background: rgba(12, 8, 4, 0.9);
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+.obsidian-progress-meter span {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.34), #ffd166, rgba(245, 158, 11, 0.8));
+  box-shadow: 0 0 18px rgba(255, 209, 102, 0.4);
+}
+
+.obsidian-stage-graph .brain-card {
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(245, 158, 11, 0.03) 1px, transparent 1px),
+    radial-gradient(circle at 36% 42%, rgba(245, 158, 11, 0.13), transparent 34%),
+    rgba(5, 4, 3, 0.88);
+  background-size: 30px 30px, 30px 30px, auto, auto;
+  border-color: rgba(245, 158, 11, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(245, 158, 11, 0.1),
+    0 24px 90px rgba(0, 0, 0, 0.38);
+}
+
+.obsidian-stage-graph .brain-card-header,
+.obsidian-stage-graph .brain-controls,
+.obsidian-stage-graph .brain-stats,
+.obsidian-stage-graph .brain-detail,
+.obsidian-stage-graph .brain-signal-panel,
+.obsidian-stage-graph .concept-list {
+  background:
+    linear-gradient(135deg, rgba(245, 158, 11, 0.06), transparent 48%),
+    rgba(10, 7, 4, 0.88);
+  border-color: rgba(245, 158, 11, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.04);
+}
+
+.obsidian-stage-graph .brain-card-header strong,
+.obsidian-stage-graph .brain-detail strong,
+.obsidian-stage-graph .brain-stats strong,
+.obsidian-stage-graph .concept-list strong,
+.obsidian-stage-graph .brain-signal-panel strong {
+  color: #ffd166;
+}
+
+.obsidian-stage-graph .eyebrow,
+.obsidian-stage-graph .brain-detail span,
+.obsidian-stage-graph .brain-stats span,
+.obsidian-stage-graph .brain-stats small,
+.obsidian-stage-graph .brain-signal-panel span,
+.obsidian-stage-graph .brain-detail p {
+  color: rgba(255, 237, 213, 0.58);
+}
+
+.obsidian-stage-graph .brain-header-actions span {
+  background: rgba(245, 158, 11, 0.09);
+  border-color: rgba(245, 158, 11, 0.24);
+  color: rgba(255, 237, 213, 0.72);
+}
+
+.obsidian-stage-graph .brain-graph {
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.07) 1px, transparent 1px),
+    linear-gradient(rgba(245, 158, 11, 0.06) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, rgba(245, 158, 11, 0.1), transparent 38%),
+    rgba(5, 4, 3, 0.72);
+  background-size: 22px 22px, 22px 22px, auto, auto;
+  border-color: rgba(245, 158, 11, 0.24);
+  box-shadow: inset 0 0 70px rgba(245, 158, 11, 0.06);
+}
+
+.obsidian-stage-graph .brain-graph::before,
+.obsidian-stage-graph .brain-graph::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+
+.obsidian-stage-graph .brain-graph::before {
+  border: 1px solid rgba(255, 209, 102, 0.16);
+  inset: 18px;
+}
+
+.obsidian-stage-graph .brain-graph::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 209, 102, 0.22), transparent);
+  height: 1px;
+  left: 0;
+  right: 0;
+  top: calc(20% + (var(--obsidian-scroll) * 56%));
+}
+
+.obsidian-stage-graph .brain-hud,
+.obsidian-stage-graph .brain-vault-status {
+  background: rgba(10, 7, 4, 0.82);
+  border-color: rgba(245, 158, 11, 0.24);
+  color: rgba(255, 237, 213, 0.68);
+}
+
+.obsidian-stage-graph .brain-hud strong,
+.obsidian-stage-graph .brain-vault-status strong {
+  color: #ffd166;
+}
+
+.obsidian-stage-graph .brain-controls span,
+.obsidian-stage-graph .concept-list button,
+.obsidian-stage-graph .brain-stat-card {
+  background: rgba(12, 8, 4, 0.76);
+  border-color: rgba(245, 158, 11, 0.18);
+  color: rgba(255, 237, 213, 0.65);
+}
+
+.obsidian-stage-graph .brain-controls span {
+  min-height: 34px;
+  padding-block: 0;
+}
+
+.obsidian-stage-graph .brain-controls span:hover,
+.obsidian-stage-graph .concept-list button:hover,
+.obsidian-stage-graph .concept-list button.is-active {
+  background: rgba(245, 158, 11, 0.11);
+  border-color: rgba(255, 209, 102, 0.48);
+  color: #fff7ed;
+}
+
+.brain-signal-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.brain-signal-panel > div:not(.brain-signal-bars) {
+  align-items: center;
+  background: rgba(12, 8, 4, 0.68);
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 30px;
+  padding: 0 9px;
+}
+
+.brain-signal-panel svg {
+  color: #ffd166;
+}
+
+.brain-signal-bars {
+  align-items: end;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  height: 32px;
+}
+
+.brain-signal-bars span {
+  animation: thinking 1.2s ease-in-out infinite;
+  background: linear-gradient(180deg, #ffd166, rgba(245, 158, 11, 0.2));
+  border-radius: 999px 999px 2px 2px;
+  min-height: 8px;
+}
+
+.brain-signal-bars span:nth-child(1) { height: 34%; }
+.brain-signal-bars span:nth-child(2) { animation-delay: 0.12s; height: 68%; }
+.brain-signal-bars span:nth-child(3) { animation-delay: 0.24s; height: 48%; }
+.brain-signal-bars span:nth-child(4) { animation-delay: 0.36s; height: 88%; }
+.brain-signal-bars span:nth-child(5) { animation-delay: 0.48s; height: 56%; }
 
 .app-shell.is-focus-mode {
   grid-template-columns: minmax(0, 1fr);
@@ -2223,6 +2755,39 @@ input:focus-visible {
     overflow: auto;
   }
 
+  .jarvis-frame {
+    padding: 16px;
+  }
+
+  .jarvis-top-strip {
+    width: min(100%, 560px);
+  }
+
+  .jarvis-core-canvas {
+    height: min(58vh, 520px);
+    width: min(88vw, 520px);
+  }
+
+  .jarvis-reticle-a {
+    height: min(48vh, 460px);
+    width: min(78vw, 460px);
+  }
+
+  .jarvis-reticle-b {
+    height: min(34vh, 340px);
+    width: min(58vw, 340px);
+  }
+
+  .jarvis-data-stack {
+    bottom: 84px;
+    left: 18px;
+    max-width: min(250px, 48vw);
+  }
+
+  .jarvis-command-bar {
+    flex-wrap: wrap;
+  }
+
   .chat-scroll-scene {
     min-height: auto;
   }
@@ -2363,6 +2928,7 @@ input:focus-visible {
   .obsidian-stage-graph .brain-controls,
   .obsidian-stage-graph .brain-stats,
   .obsidian-stage-graph .brain-detail,
+  .obsidian-stage-graph .brain-signal-panel,
   .obsidian-stage-graph .concept-list {
     grid-column: auto;
     grid-row: auto;
@@ -2372,6 +2938,37 @@ input:focus-visible {
 }
 
 @media (max-width: 560px) {
+  .jarvis-frame {
+    padding: 12px;
+  }
+
+  .jarvis-top-strip {
+    font-size: 10px;
+    min-height: 30px;
+  }
+
+  .jarvis-core-canvas {
+    height: min(52vh, 390px);
+    width: min(92vw, 390px);
+  }
+
+  .jarvis-data-stack {
+    bottom: 78px;
+    font-size: 9px;
+    left: 14px;
+    max-width: 46vw;
+  }
+
+  .jarvis-command-bar {
+    gap: 6px;
+  }
+
+  .jarvis-command-bar button {
+    font-size: 11px;
+    min-height: 32px;
+    padding-inline: 10px;
+  }
+
   .topbar-left {
     gap: 8px;
   }
@@ -2483,6 +3080,1016 @@ input:focus-visible {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* Tema Jarvis para o chat: mesma linguagem visual da tela inicial. */
+.chat-scroll-scene {
+  --jarvis: #f59e0b;
+  --jarvis-hot: #ffd166;
+  --jarvis-muted: rgba(255, 237, 213, 0.64);
+  --jarvis-panel: rgba(8, 6, 4, 0.82);
+  --jarvis-panel-2: rgba(18, 11, 5, 0.88);
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(245, 158, 11, 0.03) 1px, transparent 1px),
+    radial-gradient(circle at 48% 36%, rgba(245, 158, 11, 0.14), transparent 32%),
+    radial-gradient(circle at 84% 80%, rgba(124, 45, 18, 0.26), transparent 28%),
+    #030303;
+  background-size: 38px 38px, 38px 38px, auto, auto, auto;
+  overflow: hidden;
+}
+
+.chat-scroll-scene::before,
+.chat-scroll-scene::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.chat-scroll-scene::before {
+  border: 1px solid rgba(245, 158, 11, 0.13);
+  inset: clamp(12px, 2vw, 28px);
+}
+
+.chat-scroll-scene::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 209, 102, 0.16), transparent);
+  inset-block: 0;
+  opacity: 0;
+  width: 42%;
+}
+
+.chat-scroll-scene.is-revealing::after {
+  animation: chat-panel-scan 1100ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  opacity: 1;
+}
+
+.chat-scroll-scene .app-shell {
+  background: transparent;
+  padding: clamp(14px, 2vw, 26px);
+  position: sticky;
+  z-index: 2;
+}
+
+.chat-scroll-scene.is-revealing .app-shell {
+  animation: chat-materialize 980ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.chat-scroll-scene .sidebar,
+.chat-scroll-scene .workspace,
+.chat-scroll-scene .topbar,
+.chat-scroll-scene .chat-panel {
+  backdrop-filter: blur(18px);
+  background: var(--jarvis-panel);
+  border-color: rgba(245, 158, 11, 0.18);
+}
+
+.chat-scroll-scene .sidebar {
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.chat-scroll-scene .workspace {
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  border-left: 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.chat-scroll-scene.is-revealing .sidebar,
+.chat-scroll-scene.is-revealing .workspace,
+.chat-scroll-scene.is-revealing .chat-panel {
+  animation: hud-border-fire 1300ms ease both;
+}
+
+.chat-scroll-scene .topbar {
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.08), transparent 38%),
+    rgba(8, 6, 4, 0.72);
+  border-bottom-color: rgba(245, 158, 11, 0.2);
+}
+
+.chat-scroll-scene .brand-mark,
+.chat-scroll-scene .nexus-glyph {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.34);
+  color: var(--jarvis-hot);
+}
+
+.chat-scroll-scene .brand-mark span {
+  background: var(--jarvis-hot);
+  box-shadow: 0 0 18px rgba(255, 209, 102, 0.84);
+}
+
+.chat-scroll-scene .brand-copy strong,
+.chat-scroll-scene .chat-title-editor strong,
+.chat-scroll-scene .chat-title-editor input {
+  color: #fff7ed;
+}
+
+.chat-scroll-scene .brand-copy span,
+.chat-scroll-scene .session-chip,
+.chat-scroll-scene .latency-pill,
+.chat-scroll-scene .chat-title-editor span,
+.chat-scroll-scene .composer-meta,
+.chat-scroll-scene .section-title,
+.chat-scroll-scene .empty-sessions,
+.chat-scroll-scene .session-date,
+.chat-scroll-scene .eyebrow {
+  color: rgba(255, 237, 213, 0.52);
+}
+
+.chat-scroll-scene .state-pill,
+.chat-scroll-scene .session-chip,
+.chat-scroll-scene .latency-pill,
+.chat-scroll-scene .new-chat-button,
+.chat-scroll-scene .sidebar-search,
+.chat-scroll-scene .topbar-text-button,
+.chat-scroll-scene .icon-button,
+.chat-scroll-scene .quick-prompt,
+.chat-scroll-scene .model-button,
+.chat-scroll-scene .chat-session-actions button,
+.chat-scroll-scene .message-avatar,
+.chat-scroll-scene .message-meta button {
+  background: rgba(12, 8, 4, 0.78);
+  border-color: rgba(245, 158, 11, 0.2);
+  color: var(--jarvis-muted);
+}
+
+.chat-scroll-scene .new-chat-button:hover,
+.chat-scroll-scene .quick-prompt:hover,
+.chat-scroll-scene .model-button:hover,
+.chat-scroll-scene .icon-button:hover,
+.chat-scroll-scene .topbar-text-button:hover,
+.chat-scroll-scene .chat-session-actions button:hover:not(:disabled),
+.chat-scroll-scene .message-meta button:hover {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(255, 209, 102, 0.46);
+  color: var(--jarvis-hot);
+}
+
+.chat-scroll-scene .state-pill span,
+.chat-scroll-scene .model-button > span {
+  background: var(--jarvis-hot);
+  box-shadow: 0 0 12px rgba(255, 209, 102, 0.64);
+}
+
+.chat-scroll-scene .session-item:hover,
+.chat-scroll-scene .session-item.is-active {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+.chat-scroll-scene .session-item.is-active {
+  border-color: rgba(255, 209, 102, 0.5);
+}
+
+.chat-scroll-scene .chat-panel {
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.04) 1px, transparent 1px),
+    linear-gradient(rgba(245, 158, 11, 0.03) 1px, transparent 1px),
+    rgba(7, 5, 3, 0.82);
+  background-size: 32px 32px, 32px 32px, auto;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34), inset 0 0 0 1px rgba(245, 158, 11, 0.08);
+  position: relative;
+}
+
+.chat-scroll-scene .chat-panel::before {
+  background: linear-gradient(90deg, transparent, rgba(255, 209, 102, 0.26), transparent);
+  content: '';
+  height: 1px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 46px;
+  z-index: 2;
+}
+
+.chat-scroll-scene .chat-session-bar,
+.chat-scroll-scene .chat-input-shell,
+.chat-scroll-scene .sidebar-head,
+.chat-scroll-scene .sidebar-footer {
+  border-color: rgba(245, 158, 11, 0.18);
+}
+
+.chat-scroll-scene .chat-window {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(245, 158, 11, 0.07), transparent 34%),
+    transparent;
+}
+
+.chat-scroll-scene .empty-state h2 {
+  color: #fff7ed;
+  text-shadow: 0 0 28px rgba(245, 158, 11, 0.18);
+}
+
+.chat-scroll-scene .empty-state p {
+  color: rgba(255, 237, 213, 0.62);
+}
+
+.chat-scroll-scene .orb-station {
+  background:
+    linear-gradient(90deg, rgba(245, 158, 11, 0.14) 1px, transparent 1px),
+    linear-gradient(rgba(245, 158, 11, 0.1) 1px, transparent 1px),
+    rgba(12, 8, 4, 0.82);
+  background-size: 22px 22px;
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+.chat-scroll-scene .scroll-note {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.24);
+  color: #fed7aa;
+}
+
+.chat-scroll-scene .scroll-note svg {
+  color: var(--jarvis-hot);
+}
+
+.chat-scroll-scene .composer {
+  background: rgba(12, 8, 4, 0.86);
+  border-color: rgba(245, 158, 11, 0.24);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.04);
+}
+
+.chat-scroll-scene .composer:focus-within {
+  border-color: rgba(255, 209, 102, 0.6);
+  box-shadow: 0 0 30px rgba(245, 158, 11, 0.08), inset 0 0 0 1px rgba(255, 209, 102, 0.18);
+}
+
+.chat-scroll-scene .composer textarea,
+.chat-scroll-scene .sidebar-search input {
+  color: #fff7ed;
+}
+
+.chat-scroll-scene .composer textarea::placeholder,
+.chat-scroll-scene .sidebar-search input::placeholder {
+  color: rgba(255, 237, 213, 0.4);
+}
+
+.chat-scroll-scene .send-action {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(255, 209, 102, 0.5);
+  color: var(--jarvis-hot);
+}
+
+.chat-scroll-scene .round-action {
+  background: rgba(12, 8, 4, 0.82);
+  border-color: rgba(245, 158, 11, 0.22);
+  color: var(--jarvis-muted);
+}
+
+.chat-scroll-scene .model-menu {
+  background: rgba(8, 6, 4, 0.96);
+  border-color: rgba(245, 158, 11, 0.24);
+}
+
+.chat-scroll-scene .model-menu button:hover,
+.chat-scroll-scene .model-menu button.is-active {
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.chat-scroll-scene .model-menu button:hover span,
+.chat-scroll-scene .model-menu button.is-active span {
+  color: var(--jarvis-hot);
+}
+
+.chat-scroll-scene .message-row.is-ai .message-avatar {
+  border-color: rgba(255, 209, 102, 0.42);
+  color: var(--jarvis-hot);
+}
+
+.chat-scroll-scene .message-bubble {
+  background: rgba(14, 10, 6, 0.88);
+  border-color: rgba(245, 158, 11, 0.18);
+}
+
+.chat-scroll-scene .message-row.is-user .message-bubble {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.34);
+}
+
+.chat-scroll-scene .message-row.is-ai .message-bubble {
+  background: rgba(255, 237, 213, 0.055);
+  border-color: rgba(255, 209, 102, 0.22);
+}
+
+@media (max-width: 900px) {
+  .chat-scroll-scene {
+    overflow: visible;
+  }
+
+  .chat-scroll-scene .app-shell {
+    height: auto;
+    min-height: 100vh;
+    padding: 12px;
+    position: relative;
+    top: auto;
+    transform: none;
+  }
+
+  .chat-scroll-scene .workspace {
+    border-left: 1px solid rgba(245, 158, 11, 0.18);
+    border-radius: var(--radius);
+  }
+}
+
+@media (max-width: 560px) {
+  .chat-scroll-scene .app-shell {
+    padding: 8px;
+  }
+}
+
 .settings-rail-tabs button span {
   display: inline;
+}
+
+/* Views internas: só a tela ativa ocupa o viewport, sem revelar chat/Obsidian por scroll. */
+.scroll-experience {
+  background:
+    radial-gradient(circle at 50% 42%, rgb(var(--accent-rgb) / 0.12), transparent 34%),
+    #030303;
+  min-height: 100vh;
+}
+
+.jarvis-landing,
+.chat-scroll-scene,
+.obsidian-scroll-scene {
+  min-height: 100vh;
+}
+
+.chat-scroll-scene,
+.obsidian-scroll-scene {
+  overflow: hidden;
+}
+
+.obsidian-sticky-stage {
+  height: 100vh;
+  position: relative;
+}
+
+/* Accent global aplicado em todas as telas Jarvis. */
+.jarvis-landing,
+.chat-scroll-scene,
+.obsidian-scroll-scene {
+  --jarvis: var(--accent);
+  --jarvis-hot: var(--accent-hot);
+  --jarvis-deep: var(--accent-deep);
+  background:
+    linear-gradient(90deg, rgb(var(--accent-rgb) / 0.04) 1px, transparent 1px),
+    linear-gradient(rgb(var(--accent-rgb) / 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, rgb(var(--accent-rgb) / 0.18), transparent 34%),
+    radial-gradient(circle at 72% 58%, color-mix(in srgb, var(--accent-deep) 38%, transparent), transparent 30%),
+    #030303;
+}
+
+.jarvis-landing::before,
+.jarvis-landing::after,
+.chat-scroll-scene::before,
+.obsidian-scroll-scene::before {
+  border-color: rgb(var(--accent-rgb) / 0.16);
+}
+
+.jarvis-top-strip,
+.jarvis-command-bar button,
+.chat-scroll-scene .sidebar,
+.chat-scroll-scene .workspace,
+.chat-scroll-scene .topbar,
+.chat-scroll-scene .chat-panel,
+.obsidian-copy-panel,
+.obsidian-stage-graph .brain-card,
+.settings-panel,
+.settings-drawer-head,
+.settings-panel .panel-block {
+  border-color: rgb(var(--accent-rgb) / 0.22);
+}
+
+.jarvis-top-strip strong,
+.jarvis-data-stack strong,
+.jarvis-command-bar button:hover,
+.chat-scroll-scene .brand-mark,
+.chat-scroll-scene .nexus-glyph,
+.chat-scroll-scene .topbar-text-button:hover,
+.chat-scroll-scene .send-action,
+.obsidian-copy-panel h2,
+.obsidian-stage-graph .brain-card-header strong,
+.obsidian-stage-graph .brain-detail strong,
+.obsidian-stage-graph .brain-stats strong,
+.obsidian-stage-graph .concept-list strong,
+.obsidian-stage-graph .brain-signal-panel strong,
+.settings-drawer-head strong,
+.settings-panel .panel-heading svg {
+  color: var(--accent-hot);
+}
+
+.jarvis-command-bar button,
+.chat-scroll-scene .state-pill,
+.chat-scroll-scene .session-chip,
+.chat-scroll-scene .new-chat-button,
+.chat-scroll-scene .sidebar-search,
+.chat-scroll-scene .topbar-text-button,
+.chat-scroll-scene .quick-prompt,
+.chat-scroll-scene .model-button,
+.settings-drawer-head button,
+.segmented,
+.segmented button,
+.toggle-row,
+.status-line,
+.pipeline-list div,
+.accent-swatch {
+  background: rgb(12 8 4 / 0.78);
+  border-color: rgb(var(--accent-rgb) / 0.22);
+}
+
+.jarvis-command-bar button:hover,
+.chat-scroll-scene .new-chat-button:hover,
+.chat-scroll-scene .quick-prompt:hover,
+.chat-scroll-scene .model-button:hover,
+.chat-scroll-scene .topbar-text-button:hover,
+.segmented button.is-active,
+.accent-swatch.is-active {
+  background: rgb(var(--accent-rgb) / 0.13);
+  border-color: rgb(var(--accent-hot-rgb) / 0.52);
+}
+
+.chat-scroll-scene .brand-mark span,
+.chat-scroll-scene .state-pill span,
+.chat-scroll-scene .model-button > span {
+  background: var(--accent-hot);
+  box-shadow: 0 0 18px rgb(var(--accent-hot-rgb) / 0.7);
+}
+
+.chat-scroll-scene .send-action,
+.chat-scroll-scene .composer:focus-within,
+.obsidian-progress-meter,
+.obsidian-stage-graph .brain-graph,
+.obsidian-stage-graph .concept-list button.is-active {
+  border-color: rgb(var(--accent-hot-rgb) / 0.5);
+}
+
+.obsidian-progress-meter span,
+.brain-signal-bars span {
+  background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.42), var(--accent-hot), rgb(var(--accent-rgb) / 0.82));
+}
+
+/* Configurações no mesmo padrão HUD. */
+.settings-backdrop {
+  background:
+    radial-gradient(circle at 72% 40%, rgb(var(--accent-rgb) / 0.14), transparent 34%),
+    rgba(0, 0, 0, 0.58);
+}
+
+.settings-panel {
+  background:
+    linear-gradient(90deg, rgb(var(--accent-rgb) / 0.035) 1px, transparent 1px),
+    linear-gradient(rgb(var(--accent-rgb) / 0.03) 1px, transparent 1px),
+    rgba(5, 4, 3, 0.92);
+  background-size: 28px 28px;
+  box-shadow: -28px 0 90px rgba(0, 0, 0, 0.42), inset 0 0 0 1px rgb(var(--accent-rgb) / 0.08);
+}
+
+.settings-drawer-head,
+.settings-panel .panel-block {
+  background:
+    linear-gradient(135deg, rgb(var(--accent-rgb) / 0.08), transparent 46%),
+    rgba(10, 7, 4, 0.86);
+}
+
+.settings-drawer-head button:hover {
+  background: rgb(var(--accent-rgb) / 0.13);
+  border-color: rgb(var(--accent-hot-rgb) / 0.52);
+  color: var(--accent-hot);
+}
+
+.segmented {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.segmented button {
+  justify-content: center;
+  min-height: 32px;
+}
+
+.accent-picker {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.accent-swatch {
+  align-items: center;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: var(--radius);
+  color: rgba(255, 237, 213, 0.68);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 9px;
+}
+
+.accent-swatch span {
+  border-radius: 999px;
+  box-shadow: 0 0 14px currentColor;
+  height: 9px;
+  width: 9px;
+}
+
+.accent-swatch.is-active {
+  color: #fff7ed;
+}
+
+.accent-white span { background: #f8fafc; color: #f8fafc; }
+.accent-amber span { background: #f59e0b; color: #f59e0b; }
+
+.toggle-row input:checked + i {
+  background: rgb(var(--accent-rgb) / 0.22);
+  border-color: rgb(var(--accent-hot-rgb) / 0.58);
+}
+
+.toggle-row input:checked + i::after {
+  background: var(--accent-hot);
+}
+
+@media (max-width: 900px) {
+  .chat-scroll-scene,
+  .obsidian-scroll-scene {
+    overflow: auto;
+  }
+
+  .obsidian-sticky-stage {
+    height: auto;
+    min-height: 100vh;
+  }
+}
+
+.view-nav {
+  align-items: center;
+  backdrop-filter: blur(18px);
+  background: rgba(8, 6, 4, 0.78);
+  border: 1px solid rgb(var(--accent-rgb) / 0.24);
+  border-radius: 999px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgb(var(--accent-rgb) / 0.05);
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  z-index: 40;
+}
+
+.view-nav-floating {
+  left: 50%;
+  position: absolute;
+  top: 32px;
+  transform: translateX(-50%);
+}
+
+.view-nav-inline {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: end;
+}
+
+.obsidian-copy-panel .obsidian-progress-meter {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.view-nav button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: rgba(255, 237, 213, 0.68);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.view-nav button:hover,
+.view-nav button.is-active {
+  background: rgb(var(--accent-rgb) / 0.12);
+  border-color: rgb(var(--accent-hot-rgb) / 0.48);
+  color: var(--accent-hot);
+}
+
+/* Modo claro restaurado para as telas HUD. */
+:root[data-theme='light'][data-accent='white'] {
+  --accent: #64748b;
+  --accent-hot: #0f172a;
+  --accent-deep: #cbd5e1;
+  --accent-rgb: 100 116 139;
+  --accent-hot-rgb: 15 23 42;
+}
+
+:root[data-theme='light'] .jarvis-landing,
+:root[data-theme='light'] .chat-scroll-scene,
+:root[data-theme='light'] .obsidian-scroll-scene {
+  background:
+    linear-gradient(90deg, rgb(var(--accent-rgb) / 0.08) 1px, transparent 1px),
+    linear-gradient(rgb(var(--accent-rgb) / 0.07) 1px, transparent 1px),
+    radial-gradient(circle at 50% 44%, rgb(var(--accent-rgb) / 0.16), transparent 34%),
+    #f8fafc;
+  color: #0f172a;
+}
+
+:root[data-theme='light'] .jarvis-landing::before,
+:root[data-theme='light'] .jarvis-landing::after,
+:root[data-theme='light'] .chat-scroll-scene::before,
+:root[data-theme='light'] .obsidian-scroll-scene::before {
+  border-color: rgb(var(--accent-rgb) / 0.18);
+}
+
+:root[data-theme='light'] .jarvis-top-strip,
+:root[data-theme='light'] .jarvis-command-bar button,
+:root[data-theme='light'] .view-nav,
+:root[data-theme='light'] .chat-scroll-scene .sidebar,
+:root[data-theme='light'] .chat-scroll-scene .workspace,
+:root[data-theme='light'] .chat-scroll-scene .topbar,
+:root[data-theme='light'] .chat-scroll-scene .chat-panel,
+:root[data-theme='light'] .obsidian-copy-panel,
+:root[data-theme='light'] .obsidian-stage-graph .brain-card,
+:root[data-theme='light'] .settings-panel,
+:root[data-theme='light'] .settings-drawer-head,
+:root[data-theme='light'] .settings-panel .panel-block {
+  background:
+    linear-gradient(135deg, rgb(var(--accent-rgb) / 0.07), transparent 48%),
+    rgba(255, 255, 255, 0.9);
+  border-color: rgb(var(--accent-rgb) / 0.22);
+  color: #0f172a;
+}
+
+:root[data-theme='light'] .chat-scroll-scene .chat-panel,
+:root[data-theme='light'] .obsidian-stage-graph .brain-card,
+:root[data-theme='light'] .settings-panel {
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.12), inset 0 0 0 1px rgb(var(--accent-rgb) / 0.08);
+}
+
+:root[data-theme='light'] .chat-scroll-scene .brand-copy strong,
+:root[data-theme='light'] .chat-scroll-scene .chat-title-editor strong,
+:root[data-theme='light'] .chat-scroll-scene .empty-state h2,
+:root[data-theme='light'] .obsidian-copy-panel h2,
+:root[data-theme='light'] .settings-drawer-head strong {
+  color: #0f172a;
+  text-shadow: none;
+}
+
+:root[data-theme='light'] .chat-scroll-scene .brand-copy span,
+:root[data-theme='light'] .chat-scroll-scene .session-chip,
+:root[data-theme='light'] .chat-scroll-scene .latency-pill,
+:root[data-theme='light'] .chat-scroll-scene .chat-title-editor span,
+:root[data-theme='light'] .chat-scroll-scene .composer-meta,
+:root[data-theme='light'] .chat-scroll-scene .section-title,
+:root[data-theme='light'] .chat-scroll-scene .empty-sessions,
+:root[data-theme='light'] .chat-scroll-scene .session-date,
+:root[data-theme='light'] .chat-scroll-scene .eyebrow,
+:root[data-theme='light'] .chat-scroll-scene .empty-state p,
+:root[data-theme='light'] .obsidian-copy-panel p,
+:root[data-theme='light'] .view-nav button,
+:root[data-theme='light'] .accent-swatch {
+  color: #475569;
+}
+
+:root[data-theme='light'] .chat-scroll-scene .state-pill,
+:root[data-theme='light'] .chat-scroll-scene .session-chip,
+:root[data-theme='light'] .chat-scroll-scene .new-chat-button,
+:root[data-theme='light'] .chat-scroll-scene .sidebar-search,
+:root[data-theme='light'] .chat-scroll-scene .topbar-text-button,
+:root[data-theme='light'] .chat-scroll-scene .quick-prompt,
+:root[data-theme='light'] .chat-scroll-scene .model-button,
+:root[data-theme='light'] .chat-scroll-scene .chat-session-actions button,
+:root[data-theme='light'] .chat-scroll-scene .message-avatar,
+:root[data-theme='light'] .chat-scroll-scene .message-meta button,
+:root[data-theme='light'] .settings-drawer-head button,
+:root[data-theme='light'] .segmented,
+:root[data-theme='light'] .segmented button,
+:root[data-theme='light'] .toggle-row,
+:root[data-theme='light'] .status-line,
+:root[data-theme='light'] .pipeline-list div,
+:root[data-theme='light'] .accent-swatch {
+  background: rgba(248, 250, 252, 0.92);
+  border-color: rgb(var(--accent-rgb) / 0.2);
+  color: #334155;
+}
+
+:root[data-theme='light'] .composer,
+:root[data-theme='light'] .chat-scroll-scene .composer,
+:root[data-theme='light'] .message-bubble,
+:root[data-theme='light'] .chat-scroll-scene .message-bubble,
+:root[data-theme='light'] .obsidian-stage-graph .brain-graph,
+:root[data-theme='light'] .obsidian-stage-graph .brain-controls span,
+:root[data-theme='light'] .obsidian-stage-graph .concept-list button,
+:root[data-theme='light'] .obsidian-stage-graph .brain-stat-card,
+:root[data-theme='light'] .brain-signal-panel > div:not(.brain-signal-bars) {
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgb(var(--accent-rgb) / 0.18);
+  color: #0f172a;
+}
+
+:root[data-theme='light'] .chat-scroll-scene .composer textarea,
+:root[data-theme='light'] .chat-scroll-scene .sidebar-search input {
+  color: #0f172a;
+}
+
+:root[data-theme='light'] .chat-scroll-scene .composer textarea::placeholder,
+:root[data-theme='light'] .chat-scroll-scene .sidebar-search input::placeholder {
+  color: #64748b;
+}
+
+@media (max-width: 900px) {
+  .view-nav-floating {
+    left: auto;
+    margin: 10px auto 0;
+    position: relative;
+    top: auto;
+    transform: none;
+    width: max-content;
+  }
+
+  .obsidian-copy-panel .eyebrow,
+  .obsidian-copy-panel h2,
+  .obsidian-copy-panel p,
+  .obsidian-copy-panel .obsidian-progress-meter,
+  .obsidian-copy-panel .view-nav-inline {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .obsidian-copy-panel .view-nav-inline {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    justify-self: stretch;
+    max-width: 100%;
+    overflow: visible;
+    width: 100%;
+  }
+
+  .obsidian-copy-panel .view-nav-inline button {
+    justify-content: center;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .view-nav {
+    max-width: calc(100vw - 18px);
+    overflow-x: auto;
+  }
+
+  .view-nav button {
+    font-size: 11px;
+    gap: 5px;
+    padding-inline: 8px;
+  }
+
+  .view-nav-floating {
+    width: calc(100vw - 28px);
+  }
+
+  .obsidian-copy-panel .view-nav-inline {
+    border-radius: 18px;
+    padding: 5px;
+  }
+
+  .obsidian-copy-panel .view-nav-inline button {
+    padding-inline: 5px;
+  }
+}
+
+/* Landing Jarvis livre: o 3D ocupa a página inteira e o HUD apenas flutua por cima. */
+.jarvis-landing {
+  background:
+    radial-gradient(circle at var(--mouse-x) var(--mouse-y), rgb(var(--accent-hot-rgb) / 0.18), transparent 14%),
+    radial-gradient(circle at 50% 50%, rgb(var(--accent-rgb) / 0.15), transparent 38%),
+    linear-gradient(90deg, rgb(var(--accent-rgb) / 0.04) 1px, transparent 1px),
+    linear-gradient(rgb(var(--accent-rgb) / 0.035) 1px, transparent 1px),
+    #030303;
+  background-size: auto, auto, 42px 42px, 42px 42px, auto;
+  cursor: default;
+}
+
+.jarvis-landing::after {
+  background:
+    radial-gradient(circle at var(--mouse-x) var(--mouse-y), rgb(var(--accent-rgb) / 0.16), transparent 22%),
+    radial-gradient(circle at 50% 54%, rgb(var(--accent-rgb) / 0.1), transparent 46%);
+  border: 0;
+  inset: 0;
+}
+
+.jarvis-cursor-aura {
+  height: min(62vmax, 860px);
+  opacity: 0.58;
+  width: min(62vmax, 860px);
+}
+
+.jarvis-frame {
+  display: block;
+  min-height: 100vh;
+  padding: 0;
+  transform: none;
+}
+
+.jarvis-top-strip {
+  left: 50%;
+  position: absolute;
+  top: clamp(18px, 3vh, 34px);
+  transform: translateX(-50%);
+  width: min(56vw, 800px);
+  z-index: 5;
+}
+
+.jarvis-visual-stage {
+  inset: 0;
+  min-height: 100vh;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  transform: none;
+  z-index: 2;
+}
+
+.jarvis-core-canvas {
+  aspect-ratio: auto;
+  height: 100%;
+  inset: 0;
+  max-width: none;
+  position: absolute;
+  width: 100%;
+}
+
+.jarvis-core-canvas canvas {
+  pointer-events: none;
+}
+
+.jarvis-reticle {
+  left: 50%;
+  top: 50%;
+  transform: translate3d(calc(-50% + var(--parallax-x)), calc(-50% + var(--parallax-y)), 0);
+  z-index: 3;
+}
+
+.jarvis-reticle-a {
+  height: min(76vmin, 820px);
+  width: min(76vmin, 820px);
+}
+
+.jarvis-reticle-b {
+  height: min(52vmin, 560px);
+  width: min(52vmin, 560px);
+}
+
+.jarvis-data-stack {
+  bottom: clamp(88px, 11vh, 132px);
+  left: clamp(18px, 5vw, 86px);
+  transform: none;
+  z-index: 5;
+}
+
+.jarvis-command-bar {
+  bottom: clamp(18px, 4vh, 36px);
+  left: 50%;
+  padding: 0;
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 6;
+}
+
+@media (max-width: 720px) {
+  .jarvis-top-strip {
+    width: calc(100vw - 36px);
+  }
+
+  .jarvis-data-stack {
+    bottom: 92px;
+    left: 18px;
+    max-width: calc(100vw - 36px);
+  }
+
+  .jarvis-command-bar {
+    bottom: 22px;
+    width: calc(100vw - 28px);
+  }
+
+.jarvis-command-bar button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+.knowledge-import-panel {
+  border-bottom: 1px solid rgb(var(--accent-rgb) / 0.18);
+  display: grid;
+  gap: 7px;
+  padding: 10px 12px;
+}
+
+.knowledge-import-main {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.knowledge-import-main input[type='text'],
+.knowledge-import-main > input:not([type]) {
+  background: rgba(12, 8, 4, 0.76);
+  border: 1px solid rgb(var(--accent-rgb) / 0.2);
+  border-radius: 999px;
+  color: #fff7ed;
+  font: inherit;
+  font-size: 12px;
+  min-height: 34px;
+  min-width: 0;
+  outline: none;
+  padding: 0 12px;
+}
+
+.knowledge-import-main input::placeholder {
+  color: rgba(255, 237, 213, 0.42);
+}
+
+.knowledge-import-main button {
+  align-items: center;
+  background: rgba(12, 8, 4, 0.78);
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  border-radius: 999px;
+  color: rgba(255, 237, 213, 0.72);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.knowledge-import-main button:hover:not(:disabled) {
+  background: rgb(var(--accent-rgb) / 0.13);
+  border-color: rgb(var(--accent-hot-rgb) / 0.52);
+  color: var(--accent-hot);
+}
+
+.knowledge-import-main button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.knowledge-learned-row {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.knowledge-learned-row span,
+.knowledge-learned-row em {
+  color: rgba(255, 237, 213, 0.48);
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.knowledge-learned-row strong {
+  background: rgb(var(--accent-rgb) / 0.1);
+  border: 1px solid rgb(var(--accent-rgb) / 0.2);
+  border-radius: 999px;
+  color: rgba(255, 237, 213, 0.78);
+  font-size: 11px;
+  font-weight: 600;
+  max-width: 190px;
+  overflow: hidden;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-theme='light'] .knowledge-import-panel {
+  border-color: rgb(var(--accent-rgb) / 0.18);
+}
+
+:root[data-theme='light'] .knowledge-import-main input,
+:root[data-theme='light'] .knowledge-import-main button,
+:root[data-theme='light'] .knowledge-learned-row strong {
+  background: rgba(248, 250, 252, 0.92);
+  border-color: rgb(var(--accent-rgb) / 0.2);
+  color: #334155;
+}
+
+:root[data-theme='light'] .knowledge-import-main input::placeholder,
+:root[data-theme='light'] .knowledge-learned-row span,
+:root[data-theme='light'] .knowledge-learned-row em {
+  color: #64748b;
+}
+
+@media (max-width: 720px) {
+  .knowledge-import-main {
+    grid-template-columns: 1fr auto;
+  }
+
+  .knowledge-file-button {
+    grid-column: 1 / -1;
+  }
 }
