@@ -3636,9 +3636,10 @@ input:focus-visible {
 
 .view-nav-floating {
   left: 50%;
-  position: absolute;
-  top: 32px;
+  position: fixed;
+  top: 14px;
   transform: translateX(-50%);
+  z-index: 120;
 }
 
 .view-nav-inline {
@@ -3799,11 +3800,11 @@ input:focus-visible {
 
 @media (max-width: 900px) {
   .view-nav-floating {
-    left: auto;
+    left: 50%;
     margin: 10px auto 0;
-    position: relative;
-    top: auto;
-    transform: none;
+    position: fixed;
+    top: 8px;
+    transform: translateX(-50%);
     width: max-content;
   }
 
@@ -4091,5 +4092,2042 @@ input:focus-visible {
 
   .knowledge-file-button {
     grid-column: 1 / -1;
+  }
+}
+
+.memory-brain-card .memory-radial-shell {
+  background:
+    radial-gradient(circle at 50% 50%, rgb(var(--accent-rgb) / 0.16), transparent 22%),
+    radial-gradient(circle at 50% 50%, rgba(20, 20, 24, 0.92), rgba(8, 8, 10, 0.96) 62%, #050505 100%);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.memory-radial-map {
+  display: block;
+  height: 100%;
+  min-height: 520px;
+  width: 100%;
+}
+
+.memory-links line {
+  stroke: #2b6da5;
+  stroke-linecap: round;
+  stroke-opacity: 0.52;
+  stroke-width: 1.35;
+}
+
+.memory-links line.is-active {
+  stroke: var(--accent-hot);
+  stroke-opacity: 0.9;
+  stroke-width: 2.2;
+}
+
+.memory-labels text {
+  fill: rgba(210, 214, 220, 0.3);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke: rgba(0, 0, 0, 0.75);
+  stroke-width: 4px;
+}
+
+.memory-labels text.is-active {
+  fill: rgba(255, 255, 255, 0.82);
+  font-size: 16px;
+}
+
+.memory-core-glow {
+  opacity: 0.85;
+}
+
+.memory-core {
+  fill: rgb(var(--accent-hot-rgb) / 0.92);
+  filter: drop-shadow(0 0 18px rgb(var(--accent-hot-rgb) / 0.58));
+}
+
+.memory-core-text {
+  fill: rgba(20, 20, 24, 0.75);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0;
+  pointer-events: none;
+}
+
+.memory-points g {
+  cursor: pointer;
+  outline: none;
+}
+
+.memory-node {
+  fill: rgba(220, 224, 230, 0.82);
+  stroke: rgba(255, 255, 255, 0.48);
+  stroke-width: 1.4;
+  transition: fill 160ms ease, r 160ms ease, stroke 160ms ease;
+}
+
+.memory-node.memory-fonte {
+  fill: rgb(var(--accent-hot-rgb) / 0.92);
+}
+
+.memory-node.memory-topico {
+  fill: rgba(190, 198, 208, 0.84);
+}
+
+.memory-node.memory-mensagem {
+  fill: rgba(230, 233, 238, 0.78);
+}
+
+.memory-node.is-active,
+.memory-points g:hover .memory-node {
+  fill: var(--accent-hot);
+  stroke: #fff;
+  stroke-width: 2.4;
+}
+
+.memory-hud {
+  max-width: min(360px, 48vw);
+}
+
+.memory-hud strong {
+  white-space: normal;
+}
+
+:root[data-theme='light'] .memory-brain-card .memory-radial-shell {
+  background:
+    radial-gradient(circle at 50% 50%, rgb(var(--accent-rgb) / 0.16), transparent 24%),
+    #f8fafc;
+}
+
+:root[data-theme='light'] .memory-labels text {
+  fill: rgba(15, 23, 42, 0.42);
+  stroke: rgba(248, 250, 252, 0.84);
+}
+
+:root[data-theme='light'] .memory-labels text.is-active {
+  fill: #0f172a;
+}
+
+:root[data-theme='light'] .memory-links line {
+  stroke: #2563eb;
+  stroke-opacity: 0.42;
+}
+
+@media (max-width: 760px) {
+  .memory-radial-map {
+    min-height: 420px;
+  }
+
+  .memory-labels text {
+    font-size: 11px;
+  }
+
+  .memory-hud {
+    max-width: calc(100% - 28px);
+  }
+
+  .memory-brain-card .brain-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-brain-card .brain-controls span {
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+  }
+}
+
+/* Liquid Glass Design System: camada visual final, mantendo componentes e lógica atuais. */
+:root,
+:root[data-theme='white'] {
+  color-scheme: light;
+  --bg: #f5f7fb;
+  --surface: rgba(255, 255, 255, 0.72);
+  --surface-2: rgba(255, 255, 255, 0.52);
+  --surface-3: rgba(226, 232, 240, 0.66);
+  --line: rgba(15, 23, 42, 0.1);
+  --line-strong: rgba(15, 23, 42, 0.2);
+  --text: #111827;
+  --muted: #526070;
+  --faint: #7a8797;
+  --accent: #e8edf4;
+  --accent-hot: #111827;
+  --accent-deep: #c8d1de;
+  --accent-rgb: 232 237 244;
+  --accent-hot-rgb: 17 24 39;
+  --liquid-bg-base: #f5f7fb;
+  --liquid-bg:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.92), transparent 30%),
+    radial-gradient(circle at 22% 28%, rgba(191, 219, 254, 0.34), transparent 28%),
+    radial-gradient(circle at 78% 70%, rgba(226, 232, 240, 0.74), transparent 34%),
+    linear-gradient(135deg, #fbfdff 0%, #eef2f7 48%, #f8fafc 100%);
+  --liquid-panel: rgba(255, 255, 255, 0.64);
+  --liquid-panel-strong: rgba(255, 255, 255, 0.78);
+  --liquid-panel-soft: rgba(255, 255, 255, 0.42);
+  --liquid-border: rgba(15, 23, 42, 0.12);
+  --liquid-border-strong: rgba(15, 23, 42, 0.22);
+  --liquid-highlight: rgba(255, 255, 255, 0.92);
+  --liquid-shadow: 0 28px 90px rgba(15, 23, 42, 0.14);
+  --liquid-shadow-soft: 0 14px 40px rgba(15, 23, 42, 0.1);
+  --liquid-glow: rgba(148, 163, 184, 0.28);
+  --radius: 22px;
+}
+
+:root[data-theme='black'] {
+  color-scheme: dark;
+  --bg: #030407;
+  --surface: rgba(15, 18, 24, 0.62);
+  --surface-2: rgba(22, 26, 34, 0.52);
+  --surface-3: rgba(34, 39, 51, 0.62);
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --text: #f8fafc;
+  --muted: #a4adbb;
+  --faint: #6f7a8b;
+  --accent: #272d38;
+  --accent-hot: #f8fafc;
+  --accent-deep: #111827;
+  --accent-rgb: 39 45 56;
+  --accent-hot-rgb: 248 250 252;
+  --liquid-bg-base: #030407;
+  --liquid-bg:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.1), transparent 28%),
+    radial-gradient(circle at 24% 26%, rgba(96, 165, 250, 0.12), transparent 30%),
+    radial-gradient(circle at 80% 72%, rgba(148, 163, 184, 0.1), transparent 34%),
+    linear-gradient(135deg, #030407 0%, #0b0d12 48%, #020305 100%);
+  --liquid-panel: rgba(15, 18, 24, 0.58);
+  --liquid-panel-strong: rgba(18, 22, 30, 0.76);
+  --liquid-panel-soft: rgba(255, 255, 255, 0.055);
+  --liquid-border: rgba(255, 255, 255, 0.12);
+  --liquid-border-strong: rgba(255, 255, 255, 0.24);
+  --liquid-highlight: rgba(255, 255, 255, 0.18);
+  --liquid-shadow: 0 34px 100px rgba(0, 0, 0, 0.48);
+  --liquid-shadow-soft: 0 18px 52px rgba(0, 0, 0, 0.34);
+  --liquid-glow: rgba(226, 232, 240, 0.22);
+}
+
+:root[data-theme='gold'] {
+  color-scheme: dark;
+  --bg: #090704;
+  --surface: rgba(23, 17, 9, 0.62);
+  --surface-2: rgba(36, 25, 10, 0.52);
+  --surface-3: rgba(60, 43, 18, 0.62);
+  --line: rgba(251, 191, 36, 0.16);
+  --line-strong: rgba(251, 191, 36, 0.38);
+  --text: #fff9ed;
+  --muted: #d7c6a8;
+  --faint: #a99774;
+  --accent: #d69a22;
+  --accent-hot: #ffe6a3;
+  --accent-deep: #7a4b0e;
+  --accent-rgb: 214 154 34;
+  --accent-hot-rgb: 255 230 163;
+  --liquid-bg-base: #090704;
+  --liquid-bg:
+    radial-gradient(circle at 50% 20%, rgba(255, 230, 163, 0.24), transparent 28%),
+    radial-gradient(circle at 24% 28%, rgba(245, 158, 11, 0.18), transparent 31%),
+    radial-gradient(circle at 78% 74%, rgba(120, 53, 15, 0.34), transparent 34%),
+    linear-gradient(135deg, #080604 0%, #151006 52%, #050403 100%);
+  --liquid-panel: rgba(22, 16, 8, 0.58);
+  --liquid-panel-strong: rgba(28, 20, 9, 0.78);
+  --liquid-panel-soft: rgba(255, 230, 163, 0.08);
+  --liquid-border: rgba(255, 214, 128, 0.16);
+  --liquid-border-strong: rgba(255, 214, 128, 0.36);
+  --liquid-highlight: rgba(255, 238, 188, 0.2);
+  --liquid-shadow: 0 34px 100px rgba(0, 0, 0, 0.48);
+  --liquid-shadow-soft: 0 18px 52px rgba(0, 0, 0, 0.34);
+  --liquid-glow: rgba(255, 214, 128, 0.34);
+}
+
+:root[data-theme='silver'] {
+  color-scheme: light;
+  --bg: #e5e8ee;
+  --surface: rgba(244, 247, 251, 0.66);
+  --surface-2: rgba(236, 240, 246, 0.54);
+  --surface-3: rgba(203, 213, 225, 0.66);
+  --line: rgba(51, 65, 85, 0.13);
+  --line-strong: rgba(51, 65, 85, 0.24);
+  --text: #18202c;
+  --muted: #566273;
+  --faint: #7d8795;
+  --accent: #c7d0dc;
+  --accent-hot: #293241;
+  --accent-deep: #9aa7b7;
+  --accent-rgb: 199 208 220;
+  --accent-hot-rgb: 41 50 65;
+  --liquid-bg-base: #e5e8ee;
+  --liquid-bg:
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.82), transparent 30%),
+    radial-gradient(circle at 24% 26%, rgba(203, 213, 225, 0.62), transparent 30%),
+    radial-gradient(circle at 80% 74%, rgba(148, 163, 184, 0.42), transparent 34%),
+    linear-gradient(135deg, #f7f9fc 0%, #e4e8ef 50%, #f1f5f9 100%);
+  --liquid-panel: rgba(247, 250, 252, 0.6);
+  --liquid-panel-strong: rgba(248, 250, 252, 0.78);
+  --liquid-panel-soft: rgba(255, 255, 255, 0.38);
+  --liquid-border: rgba(51, 65, 85, 0.13);
+  --liquid-border-strong: rgba(51, 65, 85, 0.24);
+  --liquid-highlight: rgba(255, 255, 255, 0.88);
+  --liquid-shadow: 0 28px 90px rgba(51, 65, 85, 0.16);
+  --liquid-shadow-soft: 0 14px 40px rgba(51, 65, 85, 0.11);
+  --liquid-glow: rgba(148, 163, 184, 0.34);
+}
+
+body {
+  background: var(--liquid-bg-base);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Outfit', system-ui, sans-serif;
+}
+
+button,
+textarea,
+input {
+  letter-spacing: 0;
+}
+
+.scroll-experience {
+  background: var(--liquid-bg);
+  min-height: 100vh;
+}
+
+.jarvis-landing,
+.chat-scroll-scene,
+.obsidian-scroll-scene {
+  background: var(--liquid-bg);
+  color: var(--text);
+  isolation: isolate;
+}
+
+.jarvis-landing::before,
+.chat-scroll-scene::before,
+.obsidian-scroll-scene::before {
+  background:
+    linear-gradient(90deg, rgba(var(--accent-hot-rgb) / 0.035) 1px, transparent 1px),
+    linear-gradient(rgba(var(--accent-hot-rgb) / 0.03) 1px, transparent 1px);
+  background-size: 42px 42px;
+  border-color: var(--liquid-border);
+  opacity: 0.7;
+}
+
+.jarvis-landing::after,
+.obsidian-scroll-scene::after {
+  background:
+    radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), var(--liquid-glow), transparent 18%),
+    conic-gradient(from 130deg, transparent, rgba(var(--accent-hot-rgb) / 0.12), transparent 42%);
+  filter: blur(1px);
+  opacity: 0.76;
+}
+
+.jarvis-frame {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-height: 100vh;
+  padding: clamp(16px, 2.5vw, 34px);
+}
+
+.jarvis-top-strip,
+.view-nav,
+.jarvis-command-bar button,
+.sidebar,
+.workspace,
+.topbar,
+.chat-panel,
+.obsidian-copy-panel,
+.obsidian-stage-graph .brain-card,
+.settings-panel,
+.settings-drawer-head,
+.settings-panel .panel-block,
+.knowledge-import-panel,
+.message-bubble,
+.composer,
+.brain-card-header,
+.brain-controls,
+.brain-stats,
+.brain-detail,
+.brain-signal-panel,
+.concept-list {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel);
+  border: 1px solid var(--liquid-border);
+  box-shadow: var(--liquid-shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  -webkit-backdrop-filter: blur(28px) saturate(1.45);
+  backdrop-filter: blur(28px) saturate(1.45);
+}
+
+.jarvis-top-strip {
+  border-radius: 999px;
+  margin-inline: auto;
+  max-width: min(1120px, calc(100vw - 28px));
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+.jarvis-top-strip strong,
+.jarvis-data-stack strong,
+.obsidian-copy-panel h2,
+.chat-title-editor strong,
+.settings-drawer-head strong {
+  color: var(--text);
+  text-shadow: 0 0 28px rgba(var(--accent-hot-rgb) / 0.14);
+}
+
+.jarvis-visual-stage {
+  min-height: min(78vh, 860px);
+}
+
+.jarvis-core-canvas {
+  filter:
+    drop-shadow(0 0 36px rgba(var(--accent-hot-rgb) / 0.24))
+    drop-shadow(0 0 96px rgba(var(--accent-rgb) / 0.28));
+  height: min(76vh, 880px);
+  max-width: min(92vw, 960px);
+  width: min(76vh, 880px);
+}
+
+.jarvis-reticle {
+  border-color: rgba(var(--accent-hot-rgb) / 0.16);
+  box-shadow: inset 0 0 40px rgba(var(--accent-hot-rgb) / 0.045);
+}
+
+.jarvis-reticle::before,
+.jarvis-reticle::after {
+  background: rgba(var(--accent-hot-rgb) / 0.2);
+}
+
+.jarvis-data-stack {
+  background: var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 18px;
+  box-shadow: var(--liquid-shadow-soft);
+  color: var(--muted);
+  padding: 12px 14px;
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+}
+
+.jarvis-command-bar {
+  bottom: clamp(18px, 4vh, 38px);
+  left: 50%;
+  padding: 6px;
+  position: fixed;
+  transform: translateX(-50%) translateZ(44px);
+}
+
+.jarvis-command-bar button,
+.view-nav button,
+.topbar-text-button,
+.new-chat-button,
+.chat-session-actions button,
+.knowledge-file-button,
+.knowledge-import-main button,
+.round-action,
+.send-action,
+.accent-swatch {
+  border-radius: 999px;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.jarvis-command-bar button:hover,
+.view-nav button:hover,
+.view-nav button.is-active,
+.topbar-text-button:hover,
+.new-chat-button:hover,
+.chat-session-actions button:hover:not(:disabled),
+.knowledge-import-main button:hover:not(:disabled),
+.round-action:hover:not(:disabled),
+.send-action:hover:not(:disabled),
+.accent-swatch:hover,
+.accent-swatch.is-active {
+  background: rgba(var(--accent-hot-rgb) / 0.11);
+  border-color: var(--liquid-border-strong);
+  box-shadow: 0 10px 34px rgba(var(--accent-hot-rgb) / 0.12);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.view-nav {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 44%),
+    var(--liquid-panel-strong);
+  border-radius: 999px;
+  box-shadow: var(--liquid-shadow);
+  padding: 5px;
+}
+
+.view-nav-floating {
+  top: 14px;
+}
+
+.view-nav button {
+  color: var(--muted);
+  min-height: 34px;
+  padding: 0 13px;
+}
+
+.view-nav button.is-active {
+  color: var(--text);
+}
+
+.chat-scroll-scene {
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.chat-scroll-scene .app-shell {
+  gap: 14px;
+  grid-template-columns: minmax(210px, 250px) minmax(0, 1fr);
+  height: 100vh;
+  padding: 64px 14px 14px;
+  position: relative;
+  top: auto;
+  transform: none;
+}
+
+.app-shell.is-focus-mode {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sidebar,
+.workspace {
+  border-radius: 26px;
+  overflow: hidden;
+}
+
+.sidebar {
+  border-right: 1px solid var(--liquid-border);
+}
+
+.workspace {
+  border-left: 0;
+  gap: 10px;
+}
+
+.topbar {
+  border-radius: 22px;
+  border-bottom: 1px solid var(--liquid-border);
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0 auto;
+  min-height: 50px;
+  padding: 8px 10px;
+  width: min(100%, 1120px);
+}
+
+.topbar .topbar-left {
+  grid-column: 1;
+}
+
+.topbar .topbar-actions {
+  grid-column: 2;
+}
+
+.content-grid,
+.content-grid.rail-collapsed,
+.is-focus-mode .content-grid,
+.is-focus-mode .content-grid.rail-collapsed {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  padding: 0;
+}
+
+.chat-panel {
+  border-radius: 28px;
+  display: flex;
+  flex-direction: column;
+  margin: 0 auto;
+  max-width: 1120px;
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px;
+  width: 100%;
+}
+
+.chat-session-bar,
+.chat-input-shell,
+.sidebar-head,
+.sidebar-footer {
+  background: transparent;
+  border-color: var(--liquid-border);
+}
+
+.chat-session-bar {
+  border-bottom: 1px solid var(--liquid-border);
+  min-height: 52px;
+  padding: 6px 4px 10px;
+}
+
+.chat-title-editor strong {
+  font-size: 15px;
+}
+
+.chat-title-editor span,
+.session-date,
+.section-title,
+.empty-sessions,
+.composer-meta,
+.eyebrow,
+.obsidian-copy-panel p {
+  color: var(--muted);
+}
+
+.chat-window {
+  background:
+    radial-gradient(circle at 50% 18%, rgba(var(--accent-hot-rgb) / 0.06), transparent 34%),
+    transparent;
+  border: 0;
+  border-radius: 22px;
+  min-height: 0;
+  padding: clamp(12px, 2vw, 22px);
+}
+
+.empty-state {
+  background: transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.empty-state h2 {
+  color: var(--text);
+  font-size: clamp(28px, 4vw, 48px);
+  letter-spacing: 0;
+}
+
+.message-row {
+  animation: msg-enter 220ms ease both;
+}
+
+.message-avatar {
+  background: rgba(var(--accent-hot-rgb) / 0.1);
+  border: 1px solid var(--liquid-border);
+  color: var(--text);
+}
+
+.message-bubble {
+  border-radius: 24px;
+  color: var(--text);
+  line-height: 1.62;
+  max-width: min(760px, 78vw);
+  padding: 13px 15px;
+}
+
+.message-row.is-user .message-bubble {
+  background:
+    linear-gradient(135deg, rgba(var(--accent-hot-rgb) / 0.18), transparent 52%),
+    rgba(var(--accent-hot-rgb) / 0.09);
+  border-color: rgba(var(--accent-hot-rgb) / 0.16);
+}
+
+.message-row.is-ai .message-bubble {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel-soft);
+}
+
+.message-meta,
+.message-meta button {
+  color: var(--muted);
+}
+
+.composer {
+  border-radius: 26px;
+  margin: 0 auto;
+  max-width: 920px;
+  min-height: 58px;
+  padding: 8px 8px 8px 16px;
+  width: 100%;
+}
+
+.composer:focus-within {
+  border-color: var(--liquid-border-strong);
+  box-shadow: 0 18px 58px rgba(var(--accent-hot-rgb) / 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.composer textarea {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.composer textarea::placeholder,
+.sidebar-search input::placeholder,
+.knowledge-import-main input::placeholder {
+  color: var(--faint);
+}
+
+.round-action,
+.send-action {
+  background: var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  color: var(--text);
+  height: 40px;
+  width: 40px;
+}
+
+.send-action {
+  background: rgba(var(--accent-hot-rgb) / 0.12);
+}
+
+.send-action:disabled,
+.round-action:disabled {
+  opacity: 0.42;
+}
+
+.sidebar-search,
+.session-item,
+.state-pill,
+.session-chip,
+.latency-pill,
+.status-line,
+.pipeline-list div,
+.toggle-row,
+.segmented,
+.segmented button,
+.brain-controls span,
+.concept-list button,
+.brain-stat-card,
+.knowledge-import-main input,
+.knowledge-learned-row strong {
+  background: var(--liquid-panel-soft);
+  border-color: var(--liquid-border);
+  color: var(--text);
+}
+
+.session-item {
+  border-radius: 18px;
+}
+
+.session-item:hover,
+.session-item.is-active {
+  background: rgba(var(--accent-hot-rgb) / 0.08);
+  border-color: var(--liquid-border-strong);
+}
+
+.settings-backdrop {
+  background: rgba(3, 6, 12, 0.28);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.settings-panel {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 38%),
+    var(--liquid-panel-strong);
+  border-radius: 30px 0 0 30px;
+  box-shadow: -30px 0 100px rgba(0, 0, 0, 0.2);
+  max-width: min(420px, calc(100vw - 18px));
+  padding: 14px;
+  width: 420px;
+  z-index: 130;
+}
+
+.settings-drawer-head,
+.settings-panel .panel-block {
+  border-radius: 22px;
+}
+
+.settings-drawer-head button {
+  background: var(--liquid-panel-soft);
+  border-color: var(--liquid-border);
+  border-radius: 999px;
+}
+
+.theme-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.theme-swatch {
+  justify-content: flex-start;
+  min-height: 42px;
+}
+
+.theme-swatch svg {
+  opacity: 0.54;
+}
+
+.theme-swatch span {
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  height: 16px;
+  width: 16px;
+}
+
+.theme-white span { background: linear-gradient(135deg, #ffffff, #dbe4ef); }
+.theme-black span { background: linear-gradient(135deg, #020305, #293241); }
+.theme-gold span { background: linear-gradient(135deg, #ffe6a3, #b7791f); }
+.theme-silver span { background: linear-gradient(135deg, #f8fafc, #94a3b8); }
+
+.toggle-row i {
+  background: var(--liquid-panel-soft);
+  border-color: var(--liquid-border);
+}
+
+.toggle-row input:checked + i {
+  background: rgba(var(--accent-hot-rgb) / 0.18);
+  border-color: var(--liquid-border-strong);
+}
+
+.toggle-row input:checked + i::after {
+  background: var(--accent-hot);
+}
+
+.obsidian-scroll-scene {
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.obsidian-sticky-stage {
+  gap: 14px;
+  height: 100vh;
+  padding: 64px 14px 14px;
+  position: relative;
+  top: auto;
+}
+
+.obsidian-copy-panel {
+  border-radius: 26px;
+  grid-template-columns: minmax(170px, 320px) minmax(0, 1fr) minmax(160px, 300px);
+  padding: 14px 16px;
+}
+
+.obsidian-copy-panel h2 {
+  font-size: clamp(24px, 2.8vw, 40px);
+}
+
+.obsidian-progress-meter {
+  background: var(--liquid-panel-soft);
+  border-color: var(--liquid-border);
+}
+
+.obsidian-progress-meter span {
+  background: linear-gradient(90deg, rgba(var(--accent-hot-rgb) / 0.26), var(--accent-hot), rgba(var(--accent-rgb) / 0.84));
+}
+
+.obsidian-stage-graph {
+  opacity: 1;
+  transform: none;
+}
+
+.obsidian-stage-graph .brain-card {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 36%),
+    var(--liquid-panel);
+  border-radius: 28px;
+  border-color: var(--liquid-border);
+  box-shadow: var(--liquid-shadow);
+}
+
+.obsidian-stage-graph .brain-graph,
+.memory-brain-card .memory-radial-shell {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(var(--accent-hot-rgb) / 0.12), transparent 26%),
+    radial-gradient(circle at 50% 50%, rgba(var(--accent-rgb) / 0.16), transparent 46%),
+    var(--liquid-panel-soft);
+  border-color: var(--liquid-border);
+  box-shadow: inset 0 0 90px rgba(var(--accent-hot-rgb) / 0.06);
+}
+
+.obsidian-stage-graph .brain-card-header,
+.obsidian-stage-graph .brain-controls,
+.obsidian-stage-graph .brain-stats,
+.obsidian-stage-graph .brain-detail,
+.obsidian-stage-graph .brain-signal-panel,
+.obsidian-stage-graph .concept-list {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 40%),
+    var(--liquid-panel-soft);
+  border-color: var(--liquid-border);
+  border-radius: 20px;
+  box-shadow: var(--liquid-shadow-soft);
+}
+
+.obsidian-stage-graph .brain-card-header strong,
+.obsidian-stage-graph .brain-detail strong,
+.obsidian-stage-graph .brain-stats strong,
+.obsidian-stage-graph .concept-list strong,
+.obsidian-stage-graph .brain-signal-panel strong {
+  color: var(--text);
+}
+
+.obsidian-stage-graph .eyebrow,
+.obsidian-stage-graph .brain-detail span,
+.obsidian-stage-graph .brain-stats span,
+.obsidian-stage-graph .brain-stats small,
+.obsidian-stage-graph .brain-signal-panel span,
+.obsidian-stage-graph .brain-detail p,
+.memory-labels text {
+  color: var(--muted);
+  fill: color-mix(in srgb, var(--muted) 68%, transparent);
+}
+
+.memory-links line {
+  stroke: var(--accent-hot);
+  stroke-opacity: 0.34;
+}
+
+.memory-node,
+.memory-node.memory-fonte,
+.memory-node.memory-topico,
+.memory-node.memory-mensagem {
+  fill: color-mix(in srgb, var(--accent-hot) 78%, white 18%);
+  stroke: rgba(255, 255, 255, 0.62);
+}
+
+.memory-node.is-active,
+.memory-points g:hover .memory-node {
+  fill: var(--accent-hot);
+}
+
+@media (max-width: 1100px) {
+  .chat-scroll-scene .app-shell {
+    grid-template-columns: minmax(190px, 220px) minmax(0, 1fr);
+  }
+
+  .obsidian-stage-graph .brain-card {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 310px);
+  }
+}
+
+@media (max-width: 900px) {
+  .chat-scroll-scene,
+  .obsidian-scroll-scene {
+    overflow: auto;
+  }
+
+  .chat-scroll-scene .app-shell {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    min-height: 100vh;
+    padding: 62px 10px 10px;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .topbar,
+  .chat-panel {
+    max-width: none;
+  }
+
+  .chat-scroll-scene .chat-panel {
+    flex: 0 0 auto;
+    height: clamp(540px, calc(100vh - 146px), 720px);
+    min-height: 0;
+  }
+
+  .obsidian-sticky-stage {
+    height: auto;
+    min-height: 100vh;
+    padding: 62px 10px 10px;
+  }
+
+  .obsidian-copy-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .obsidian-copy-panel p,
+  .obsidian-copy-panel .obsidian-progress-meter {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .obsidian-stage-graph .brain-card {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    min-height: 760px;
+  }
+
+  .obsidian-stage-graph .brain-graph,
+  .obsidian-stage-graph .brain-card-header,
+  .obsidian-stage-graph .brain-controls,
+  .obsidian-stage-graph .brain-stats,
+  .obsidian-stage-graph .brain-detail,
+  .obsidian-stage-graph .brain-signal-panel,
+  .obsidian-stage-graph .concept-list {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .view-nav {
+    border-radius: 22px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    width: calc(100vw - 18px);
+  }
+
+  .view-nav button {
+    gap: 4px;
+    justify-content: center;
+    min-width: 0;
+    padding: 0 6px;
+  }
+
+  .view-nav button span {
+    display: none;
+  }
+
+  .jarvis-command-bar {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: calc(100vw - 28px);
+  }
+
+  .jarvis-command-bar button {
+    justify-content: center;
+    min-width: 0;
+  }
+
+  .jarvis-data-stack {
+    bottom: 86px;
+    left: 14px;
+    max-width: calc(100vw - 28px);
+  }
+
+  .chat-panel,
+  .workspace,
+  .sidebar,
+  .settings-drawer-head,
+  .settings-panel .panel-block,
+  .obsidian-copy-panel,
+  .obsidian-stage-graph .brain-card {
+    border-radius: 22px;
+  }
+
+  .chat-session-bar {
+    align-items: start;
+    gap: 8px;
+  }
+
+  .message-avatar {
+    display: none;
+  }
+
+  .message-bubble {
+    max-width: calc(100vw - 42px);
+  }
+
+  .composer {
+    border-radius: 22px;
+  }
+
+  .theme-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Correção de especificidade: neutraliza estilos antigos hardcoded do HUD Gold nas telas internas. */
+.chat-scroll-scene .sidebar,
+.chat-scroll-scene .workspace,
+.chat-scroll-scene .topbar,
+.chat-scroll-scene .chat-panel,
+.chat-scroll-scene .chat-session-bar,
+.chat-scroll-scene .chat-input-shell,
+.chat-scroll-scene .sidebar-head,
+.chat-scroll-scene .sidebar-footer,
+.chat-scroll-scene .new-chat-button,
+.chat-scroll-scene .sidebar-search,
+.chat-scroll-scene .topbar-text-button,
+.chat-scroll-scene .chat-session-actions button,
+.chat-scroll-scene .message-avatar,
+.chat-scroll-scene .message-meta button,
+.chat-scroll-scene .composer,
+.chat-scroll-scene .message-bubble {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel);
+  border-color: var(--liquid-border);
+  color: var(--text);
+}
+
+.chat-scroll-scene .chat-panel {
+  background:
+    radial-gradient(circle at 50% 12%, rgba(var(--accent-hot-rgb) / 0.055), transparent 30%),
+    linear-gradient(135deg, var(--liquid-highlight), transparent 38%),
+    var(--liquid-panel);
+}
+
+.chat-scroll-scene .chat-window {
+  background:
+    radial-gradient(circle at 50% 18%, rgba(var(--accent-hot-rgb) / 0.06), transparent 34%),
+    transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.chat-scroll-scene .chat-input-shell {
+  flex: 0 0 auto;
+}
+
+.chat-scroll-scene .message-row.is-user .message-bubble {
+  background:
+    linear-gradient(135deg, rgba(var(--accent-hot-rgb) / 0.18), transparent 52%),
+    rgba(var(--accent-hot-rgb) / 0.09);
+  border-color: rgba(var(--accent-hot-rgb) / 0.16);
+}
+
+.chat-scroll-scene .message-row.is-ai .message-bubble {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel-soft);
+}
+
+.chat-scroll-scene .send-action,
+.chat-scroll-scene .state-pill span,
+.chat-scroll-scene .model-button > span {
+  background: var(--accent-hot);
+}
+
+.chat-scroll-scene .brand-copy strong,
+.chat-scroll-scene .chat-title-editor strong,
+.chat-scroll-scene .chat-title-editor input,
+.chat-scroll-scene .empty-state h2,
+.chat-scroll-scene .session-title {
+  color: var(--text);
+}
+
+.chat-scroll-scene .brand-copy span,
+.chat-scroll-scene .session-chip,
+.chat-scroll-scene .latency-pill,
+.chat-scroll-scene .chat-title-editor span,
+.chat-scroll-scene .composer-meta,
+.chat-scroll-scene .section-title,
+.chat-scroll-scene .empty-sessions,
+.chat-scroll-scene .session-date,
+.chat-scroll-scene .eyebrow,
+.chat-scroll-scene .empty-state p,
+.chat-scroll-scene .composer textarea,
+.chat-scroll-scene .sidebar-search input {
+  color: var(--muted);
+}
+
+.chat-scroll-scene .composer textarea {
+  color: var(--text);
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-card-header,
+.obsidian-stage-graph .memory-brain-card .brain-controls,
+.obsidian-stage-graph .memory-brain-card .brain-stats,
+.obsidian-stage-graph .memory-brain-card .brain-detail,
+.obsidian-stage-graph .memory-brain-card .brain-signal-panel,
+.obsidian-stage-graph .memory-brain-card .concept-list,
+.obsidian-stage-graph .memory-brain-card .brain-stat-card,
+.obsidian-stage-graph .memory-brain-card .brain-controls span,
+.obsidian-stage-graph .memory-brain-card .concept-list button,
+.obsidian-stage-graph .memory-brain-card .brain-signal-panel > div:not(.brain-signal-bars),
+.obsidian-stage-graph .memory-brain-card .brain-hud,
+.obsidian-stage-graph .memory-brain-card .brain-vault-status,
+.obsidian-stage-graph .memory-brain-card .brain-header-actions span {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel-soft);
+  border-color: var(--liquid-border);
+  color: var(--text);
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-stat-card small,
+.obsidian-stage-graph .memory-brain-card .brain-stat-card span,
+.obsidian-stage-graph .memory-brain-card .brain-detail p,
+.obsidian-stage-graph .memory-brain-card .brain-detail span,
+.obsidian-stage-graph .memory-brain-card .brain-signal-panel span,
+.obsidian-stage-graph .memory-brain-card .concept-list button {
+  color: var(--muted);
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-stat-card strong,
+.obsidian-stage-graph .memory-brain-card .brain-detail strong,
+.obsidian-stage-graph .memory-brain-card .brain-signal-panel strong,
+.obsidian-stage-graph .memory-brain-card .concept-list strong,
+.obsidian-stage-graph .memory-brain-card .brain-hud strong,
+.obsidian-stage-graph .memory-brain-card .brain-vault-status strong {
+  color: var(--text);
+}
+
+/* Obsidian 3D full-page: o mapa vira o protagonista e os dados viram HUD/popup. */
+.jarvis-frame {
+  padding-top: 76px;
+}
+
+.jarvis-top-strip {
+  margin-top: 0;
+}
+
+.obsidian-sticky-stage {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.obsidian-stage-graph .memory-brain-card {
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-radial-shell {
+  border-radius: 28px;
+  bottom: 0;
+  left: 0;
+  min-height: 0;
+  overflow: hidden;
+  perspective: 1180px;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transform-style: preserve-3d;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-radial-shell::before {
+  background:
+    linear-gradient(90deg, rgba(var(--accent-hot-rgb) / 0.055) 1px, transparent 1px),
+    linear-gradient(rgba(var(--accent-hot-rgb) / 0.045) 1px, transparent 1px);
+  background-size: 42px 42px;
+  content: '';
+  inset: 0;
+  opacity: 0.44;
+  pointer-events: none;
+  position: absolute;
+  transform: perspective(1100px) rotateX(62deg) scale(1.16) translateY(18%);
+  transform-origin: center 62%;
+  z-index: 0;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-radial-shell::after {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(var(--accent-hot-rgb) / 0.16), transparent 18%),
+    conic-gradient(from 180deg, transparent, rgba(var(--accent-hot-rgb) / 0.16), transparent 38%);
+  border-radius: 999px;
+  content: '';
+  height: min(76vw, 980px);
+  left: 50%;
+  opacity: 0.68;
+  pointer-events: none;
+  position: absolute;
+  top: 54%;
+  transform: translate(-50%, -50%) rotateX(62deg);
+  width: min(76vw, 980px);
+  z-index: 1;
+}
+
+.memory-radial-map {
+  filter:
+    drop-shadow(0 22px 34px rgba(0, 0, 0, 0.16))
+    drop-shadow(0 0 52px rgba(var(--accent-hot-rgb) / 0.1));
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  transform: perspective(1180px) rotateX(46deg) rotateZ(-5deg) scale(1.2) translateY(-1%);
+  transform-origin: center;
+  transform-style: preserve-3d;
+  width: 100%;
+  z-index: 2;
+}
+
+.memory-depth-rings ellipse {
+  fill: none;
+  stroke: var(--accent-hot);
+  stroke-dasharray: 8 14;
+  stroke-opacity: 0.13;
+  stroke-width: 1.2;
+}
+
+.memory-links line {
+  filter: drop-shadow(0 0 8px rgba(var(--accent-hot-rgb) / 0.18));
+  stroke-width: 1.7;
+}
+
+.memory-node {
+  filter:
+    drop-shadow(0 6px 8px rgba(0, 0, 0, 0.22))
+    drop-shadow(0 0 12px rgba(var(--accent-hot-rgb) / 0.24));
+}
+
+.memory-core {
+  filter:
+    drop-shadow(0 16px 20px rgba(0, 0, 0, 0.34))
+    drop-shadow(0 0 32px rgba(var(--accent-hot-rgb) / 0.5));
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-card-header,
+.obsidian-stage-graph .memory-brain-card .brain-controls {
+  position: absolute;
+  z-index: 5;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-card-header {
+  left: 18px;
+  max-width: min(420px, calc(100% - 36px));
+  right: auto;
+  top: 18px;
+}
+
+.brain-header-actions button,
+.brain-controls button,
+.brain-stats-popover-head button {
+  align-items: center;
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 9px;
+}
+
+.brain-header-actions button:hover,
+.brain-controls button:hover,
+.brain-stats-popover-head button:hover {
+  background: rgba(var(--accent-hot-rgb) / 0.11);
+  border-color: var(--liquid-border-strong);
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-hud {
+  left: 22px;
+  max-width: min(360px, calc(100% - 44px));
+  top: 96px;
+  z-index: 6;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-vault-status {
+  bottom: 82px;
+  left: 22px;
+  max-width: min(360px, calc(100% - 44px));
+  right: auto;
+  z-index: 6;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-controls {
+  bottom: 18px;
+  display: flex;
+  gap: 8px;
+  left: 50%;
+  max-width: calc(100% - 36px);
+  transform: translateX(-50%);
+  width: max-content;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-controls span,
+.obsidian-stage-graph .memory-brain-card .brain-controls button {
+  min-height: 36px;
+  padding: 0 13px;
+  white-space: nowrap;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.brain-stats-popover {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel-strong);
+  border: 1px solid var(--liquid-border);
+  border-radius: 26px;
+  box-shadow: var(--liquid-shadow);
+  display: grid;
+  gap: 14px;
+  max-height: min(680px, calc(100% - 40px));
+  overflow: auto;
+  padding: 14px;
+  position: absolute;
+  right: 22px;
+  top: 22px;
+  width: min(420px, calc(100% - 44px));
+  z-index: 30;
+  -webkit-backdrop-filter: blur(30px) saturate(1.45);
+  backdrop-filter: blur(30px) saturate(1.45);
+}
+
+.brain-stats-popover .brain-detail,
+.brain-stats-popover .brain-signal-panel,
+.brain-stats-popover .concept-list {
+  position: static;
+}
+
+.brain-stats-popover .concept-list {
+  max-height: none;
+  overflow: visible;
+  width: auto;
+}
+
+.brain-stats-popover-head {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.brain-stats-popover-head > div {
+  display: grid;
+  gap: 3px;
+}
+
+.brain-stats-popover-head strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.learned-source-list {
+  display: grid;
+  gap: 8px;
+}
+
+.learned-source-list p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.learned-source-list button {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 16px;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  text-align: left;
+}
+
+.learned-source-list button:hover {
+  border-color: var(--liquid-border-strong);
+}
+
+.learned-source-list small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-model-list {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-model-list button {
+  align-items: center;
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 48%),
+    var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 16px;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px;
+  text-align: left;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.settings-model-list button:hover {
+  border-color: var(--liquid-border-strong);
+  transform: translateY(-1px);
+}
+
+.settings-model-list button.is-active {
+  border-color: color-mix(in srgb, var(--accent-hot), transparent 18%);
+  box-shadow: 0 12px 36px color-mix(in srgb, var(--accent-hot), transparent 84%);
+}
+
+.settings-model-list strong {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.settings-model-list span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-model-list small {
+  color: var(--muted-strong);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (max-width: 900px) {
+  .jarvis-frame {
+    padding-top: 68px;
+  }
+
+  .obsidian-stage-graph .memory-brain-card {
+    min-height: 720px;
+  }
+
+  .memory-radial-map {
+    transform: perspective(1000px) rotateX(42deg) rotateZ(-4deg) scale(1.38) translateY(2%);
+  }
+
+  .obsidian-stage-graph .memory-brain-card .brain-card-header {
+    position: relative;
+    bottom: auto;
+    left: auto;
+    max-width: none;
+    right: auto;
+    top: auto;
+    width: auto;
+  }
+
+  .obsidian-stage-graph .memory-brain-card .memory-radial-shell {
+    height: 520px;
+    position: relative;
+  }
+
+  .obsidian-stage-graph .memory-brain-card .brain-controls {
+    bottom: 14px;
+    flex-wrap: wrap;
+    left: 14px;
+    right: 14px;
+    transform: none;
+    width: auto;
+  }
+
+  .brain-stats-popover {
+    left: 12px;
+    max-height: calc(100% - 24px);
+    right: 12px;
+    top: 12px;
+    width: auto;
+  }
+}
+
+.jarvis-landing .jarvis-frame {
+  padding-top: 78px;
+}
+
+.jarvis-landing .jarvis-top-strip {
+  margin-top: 0;
+}
+
+/* Obsidian Neural OS: cena Three.js viva com timeline, modo pensamento e painéis Apple Glass. */
+.obsidian-stage-graph .memory-brain-card {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(var(--accent-hot-rgb) / 0.08), transparent 26%),
+    linear-gradient(135deg, var(--liquid-highlight), transparent 36%),
+    var(--liquid-panel);
+  border-radius: 30px;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  position: relative;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(var(--accent-hot-rgb) / 0.16), transparent 22%),
+    radial-gradient(circle at 52% 58%, rgba(var(--accent-rgb) / 0.18), transparent 48%),
+    var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 30px;
+  inset: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: absolute;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::before {
+  background:
+    linear-gradient(90deg, rgba(var(--accent-hot-rgb) / 0.055) 1px, transparent 1px),
+    linear-gradient(rgba(var(--accent-hot-rgb) / 0.045) 1px, transparent 1px);
+  background-size: 46px 46px;
+  content: '';
+  inset: 0;
+  opacity: 0.5;
+  pointer-events: none;
+  position: absolute;
+  transform: perspective(1100px) rotateX(62deg) scale(1.18) translateY(18%);
+  transform-origin: center 62%;
+  z-index: 0;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::after {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(var(--accent-hot-rgb) / 0.16), transparent 17%),
+    conic-gradient(from 180deg, transparent, rgba(var(--accent-hot-rgb) / 0.13), transparent 38%);
+  border-radius: 999px;
+  content: '';
+  height: min(80vw, 1020px);
+  left: 50%;
+  opacity: 0.62;
+  pointer-events: none;
+  position: absolute;
+  top: 54%;
+  transform: translate(-50%, -50%) rotateX(64deg);
+  width: min(80vw, 1020px);
+  z-index: 1;
+}
+
+.memory-three-canvas {
+  cursor: grab;
+  height: 100%;
+  min-height: 620px;
+  position: relative;
+  width: 100%;
+  z-index: 2;
+}
+
+.memory-three-canvas canvas {
+  display: block;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.memory-three-canvas:active {
+  cursor: grabbing;
+}
+
+.obsidian-glass-hud,
+.nexus-core-readout,
+.brain-stats-popover {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel);
+  border: 1px solid var(--liquid-border);
+  box-shadow: var(--liquid-shadow-soft);
+  -webkit-backdrop-filter: blur(28px) saturate(1.45);
+  backdrop-filter: blur(28px) saturate(1.45);
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-card-header {
+  border-radius: 24px;
+  left: 18px;
+  max-width: min(420px, calc(100% - 36px));
+  padding: 12px;
+  position: absolute;
+  top: 18px;
+  z-index: 8;
+}
+
+.obsidian-timeline {
+  border-radius: 999px;
+  display: flex;
+  gap: 6px;
+  left: 50%;
+  padding: 5px;
+  position: absolute;
+  top: 18px;
+  transform: translateX(-50%);
+  z-index: 8;
+}
+
+.obsidian-timeline > div,
+.obsidian-timeline button {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 12px;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.obsidian-timeline button {
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.obsidian-timeline button:hover,
+.obsidian-timeline button.is-active {
+  background: rgba(var(--accent-hot-rgb) / 0.1);
+  border-color: var(--liquid-border-strong);
+  color: var(--text);
+}
+
+.brain-header-actions button.is-active {
+  background: rgba(var(--accent-hot-rgb) / 0.14);
+  border-color: var(--liquid-border-strong);
+}
+
+.nexus-core-readout {
+  border-radius: 24px;
+  display: grid;
+  gap: 2px;
+  left: 50%;
+  min-width: 160px;
+  padding: 12px 14px;
+  pointer-events: none;
+  position: absolute;
+  text-align: center;
+  top: 43%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+}
+
+.nexus-core-readout span,
+.nexus-core-readout em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.nexus-core-readout strong {
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.thought-path-panel {
+  border-radius: 22px;
+  bottom: 82px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  position: absolute;
+  right: 22px;
+  width: min(360px, calc(100% - 44px));
+  z-index: 7;
+}
+
+.thought-path-panel > span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.thought-path-panel ol {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.thought-path-panel li {
+  background: var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 7px 8px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thought-path-panel li.is-active {
+  background: rgba(var(--accent-hot-rgb) / 0.12);
+  color: var(--text);
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-controls {
+  border-radius: 999px;
+  bottom: 18px;
+  display: flex;
+  gap: 8px;
+  left: 50%;
+  max-width: calc(100% - 36px);
+  padding: 6px;
+  position: absolute;
+  transform: translateX(-50%);
+  width: max-content;
+  z-index: 8;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-controls span,
+.obsidian-stage-graph .memory-brain-card .brain-controls button {
+  min-height: 36px;
+  padding: 0 13px;
+  white-space: nowrap;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-hud {
+  left: 22px;
+  max-width: min(360px, calc(100% - 44px));
+  top: 96px;
+  z-index: 8;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-vault-status {
+  bottom: 82px;
+  left: 22px;
+  max-width: min(360px, calc(100% - 44px));
+  right: auto;
+  z-index: 8;
+}
+
+.brain-stats-popover {
+  border-radius: 28px;
+  display: grid;
+  gap: 14px;
+  max-height: min(760px, calc(100% - 40px));
+  overflow: auto;
+  padding: 14px;
+  position: absolute;
+  right: 22px;
+  top: 22px;
+  width: min(440px, calc(100% - 44px));
+  z-index: 40;
+}
+
+.memory-meta-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.memory-meta-grid small {
+  background: var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 12px;
+  color: var(--muted);
+  padding: 7px 8px;
+}
+
+.recent-learning-strip {
+  display: grid;
+  gap: 8px;
+}
+
+.recent-learning-strip > div {
+  align-items: center;
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 42%),
+    var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 16px;
+  display: grid;
+  gap: 2px 9px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 9px;
+}
+
+.recent-learning-strip svg {
+  color: var(--accent-hot);
+  grid-row: 1 / 3;
+}
+
+.recent-learning-strip strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.recent-learning-strip p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-learning-strip small {
+  color: var(--faint);
+  font-size: 11px;
+  grid-column: 3;
+  grid-row: 1 / 3;
+}
+
+.learned-source-list button {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.learned-source-list button > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+@media (max-width: 1160px) {
+  .obsidian-timeline {
+    left: auto;
+    right: 18px;
+    transform: none;
+  }
+
+  .obsidian-timeline > div {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .obsidian-stage-graph .memory-brain-card {
+    min-height: 760px;
+  }
+
+  .obsidian-stage-graph .memory-brain-card .memory-three-shell {
+    bottom: 0;
+    height: auto;
+    position: absolute;
+  }
+
+  .memory-three-canvas {
+    min-height: 760px;
+  }
+
+  .obsidian-timeline {
+    align-items: center;
+    border-radius: 22px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    left: 12px;
+    overflow: auto;
+    right: 12px;
+    top: 84px;
+    width: auto;
+  }
+
+  .obsidian-stage-graph .memory-brain-card .brain-card-header {
+    left: 12px;
+    right: 12px;
+    top: 12px;
+    width: auto;
+  }
+
+  .obsidian-stage-graph .memory-brain-card .brain-hud {
+    left: 14px;
+    top: 178px;
+  }
+
+  .thought-path-panel {
+    bottom: 86px;
+    left: 14px;
+    right: 14px;
+    width: auto;
+  }
+
+  .thought-path-panel ol {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .obsidian-stage-graph .memory-brain-card .brain-controls {
+    bottom: 14px;
+    flex-wrap: wrap;
+    left: 14px;
+    right: 14px;
+    transform: none;
+    width: auto;
+  }
+
+  .nexus-core-readout {
+    top: 46%;
+  }
+}
+
+/* Home: mantém o núcleo Jarvis centralizado e sem a faixa antiga competindo com a navegação global. */
+.jarvis-landing .jarvis-frame {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  padding: 70px clamp(14px, 2.4vw, 34px) clamp(18px, 3vh, 34px);
+}
+
+.jarvis-landing .jarvis-visual-stage {
+  align-items: center;
+  height: calc(100vh - 104px);
+  justify-items: center;
+  min-height: 560px;
+  overflow: visible;
+  place-self: center;
+  width: 100%;
+}
+
+.jarvis-landing .jarvis-core-canvas {
+  height: min(82vh, 900px);
+  max-height: calc(100vh - 118px);
+  max-width: min(92vw, 980px);
+  place-self: center;
+  transform: translateX(0);
+  width: min(82vh, 900px);
+}
+
+.jarvis-landing .jarvis-reticle {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) translate3d(var(--parallax-x), var(--parallax-y), 34px);
+}
+
+.jarvis-landing .jarvis-data-stack {
+  bottom: clamp(18px, 4vh, 48px);
+  left: clamp(18px, 5vw, 82px);
+}
+
+.jarvis-brand-lockup {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 48%),
+    var(--liquid-panel);
+  border: 1px solid var(--liquid-border);
+  border-radius: 24px;
+  box-shadow: var(--liquid-shadow-soft);
+  display: grid;
+  gap: 4px;
+  left: clamp(18px, 4vw, 72px);
+  max-width: min(340px, calc(100vw - 36px));
+  padding: 14px 16px;
+  position: absolute;
+  top: clamp(84px, 11vh, 120px);
+  z-index: 5;
+  -webkit-backdrop-filter: blur(24px) saturate(1.45);
+  backdrop-filter: blur(24px) saturate(1.45);
+}
+
+.jarvis-brand-lockup span {
+  color: var(--text);
+  font-size: clamp(30px, 4vw, 54px);
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 0.95;
+}
+
+.jarvis-brand-lockup strong {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .jarvis-landing .jarvis-frame {
+    padding-top: 66px;
+  }
+
+  .jarvis-landing .jarvis-visual-stage {
+    height: calc(100vh - 88px);
+    min-height: 480px;
+  }
+
+  .jarvis-landing .jarvis-core-canvas {
+    height: min(74vh, 620px);
+    width: min(92vw, 620px);
+  }
+
+  .jarvis-brand-lockup {
+    left: 14px;
+    right: 14px;
+    top: 76px;
+  }
+
+  .jarvis-brand-lockup span {
+    font-size: 34px;
   }
 }

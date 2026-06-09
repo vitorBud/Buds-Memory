@@ -1,9 +1,9 @@
 // ─── Type Definitions ───────────────────────────────────────────────────────
 
 export type AiState = 'idle' | 'listening' | 'transcribing' | 'thinking' | 'speaking' | 'error'
-export type ThemeMode = 'dark' | 'light'
+export type ThemeMode = 'white' | 'black' | 'gold' | 'silver'
 export type DensityMode = 'compact' | 'comfortable'
-export type AccentColor = 'white' | 'amber'
+export type AccentColor = 'white' | 'black' | 'gold' | 'silver' | 'amber'
 
 export interface Session {
   id: string

@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from typing import Optional
 from html import unescape
+from io import BytesIO
 
 # Importações de agenty.py (reaproveitando lógica já existente)
 from agenty import (
@@ -91,6 +92,42 @@ def make_knowledge_title(text: str, fallback: str = "Conhecimento importado") ->
     return (title[:69].rstrip() + "...") if len(title) > 72 else title or fallback
 
 
+def make_learning_title(topics, summary: str, fallback: str = "Conhecimento importado") -> str:
+    """Cria um título curto em português para um aprendizado importado."""
+    readable = []
+    aliases = {
+        "python": "Python",
+        "javascript": "JavaScript",
+        "react": "React",
+        "flask": "Flask",
+        "dados": "dados",
+        "database": "banco de dados",
+        "backend": "backend",
+        "frontend": "frontend",
+        "api": "APIs",
+        "programacao": "programação",
+        "programação": "programação",
+        "classe": "classes",
+        "função": "funções",
+        "funcao": "funções",
+    }
+
+    for topic in topics or []:
+        clean = re.sub(r"[_-]+", " ", str(topic)).strip().lower()
+        if len(clean) < 3 or clean.isnumeric():
+            continue
+        readable.append(aliases.get(clean, clean.capitalize()))
+        if len(readable) == 3:
+            break
+
+    if readable:
+        if len(readable) == 1:
+            return f"Aprendizado sobre {readable[0]}"
+        return f"Aprendizado: {', '.join(readable[:-1])} e {readable[-1]}"
+
+    return make_knowledge_title(summary, fallback=fallback)
+
+
 def summarize_imported_text(text: str) -> str:
     """Gera resumo curto determinístico, sem chamar LLM para não travar upload."""
     text = clean_imported_text(text)
@@ -101,28 +138,38 @@ def summarize_imported_text(text: str) -> str:
     return summary[:700].rstrip() + ("..." if len(summary) > 700 else "")
 
 
-def extract_pdf_text(file_storage) -> str:
-    """Extrai texto de PDF usando PyPDF2 quando disponível."""
+def extract_pdf_text_from_stream(stream) -> str:
+    """Extrai texto de um stream PDF usando PyPDF2 quando disponível."""
     try:
         from PyPDF2 import PdfReader
     except ImportError as exc:
         raise RuntimeError("Leitura de PDF precisa do pacote PyPDF2. Rode: pip install PyPDF2") from exc
 
-    reader = PdfReader(file_storage.stream)
+    reader = PdfReader(stream)
     pages = []
     for page in reader.pages[:80]:
         pages.append(page.extract_text() or "")
     return clean_imported_text("\n".join(pages))
 
 
+def extract_pdf_text(file_storage) -> str:
+    """Extrai texto de PDF enviado pelo navegador."""
+    return extract_pdf_text_from_stream(file_storage.stream)
+
+
 def fetch_url_text(url: str) -> str:
-    """Baixa uma página pública e extrai texto bruto suficiente para contexto."""
+    """Baixa uma página ou PDF público e extrai texto suficiente para contexto."""
     if not re.match(r"^https?://", url or ""):
         raise ValueError("Informe uma URL começando com http:// ou https://.")
     import requests
 
     response = requests.get(url, timeout=15, headers={"User-Agent": "NexusAssistant/1.0"})
     response.raise_for_status()
+    content_type = response.headers.get("content-type", "").lower()
+    looks_like_pdf = ".pdf" in url.lower() or "application/pdf" in content_type or response.content[:5] == b"%PDF-"
+    if looks_like_pdf:
+        return extract_pdf_text_from_stream(BytesIO(response.content))
+
     return clean_imported_text(response.text)
 
 
@@ -139,7 +186,7 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
         title_update = database.update_session_title(session_id, title)
 
     database.add_message(session_id, "user", user_text)
-    knowledge_context = database.build_knowledge_context(session_id)
+    knowledge_context = database.build_knowledge_context(session_id, query=user_text)
     return history, title_update, knowledge_context
 
 
@@ -272,6 +319,8 @@ def import_session_knowledge(session_id):
             return jsonify({"error": "Sessão não encontrada."}), 404
 
         title = request.form.get("title", "").strip()
+        has_custom_title = bool(title)
+        fallback_title = "Conhecimento importado"
         source_type = "texto"
         source_name = "manual"
         content = ""
@@ -279,6 +328,7 @@ def import_session_knowledge(session_id):
         if "file" in request.files:
             uploaded = request.files["file"]
             source_name = uploaded.filename or "arquivo"
+            fallback_title = make_knowledge_title(source_name)
             suffix = Path(source_name).suffix.lower()
             source_type = "pdf" if suffix == ".pdf" else "arquivo"
             if suffix == ".pdf":
@@ -286,31 +336,33 @@ def import_session_knowledge(session_id):
             else:
                 raw = uploaded.read()
                 content = clean_imported_text(raw.decode("utf-8", errors="ignore"))
-            title = title or make_knowledge_title(source_name)
         else:
             payload = request.get_json(silent=True) if request.is_json else {}
             payload = payload or request.form
             url = (payload.get("url") or "").strip()
             query = (payload.get("query") or "").strip()
             text = (payload.get("text") or "").strip()
-            title = title or (payload.get("title") or "").strip()
+            payload_title = (payload.get("title") or "").strip()
+            if payload_title and not title:
+                title = payload_title
+                has_custom_title = True
 
             if url:
                 source_type = "url"
                 source_name = url
                 content = fetch_url_text(url)
-                title = title or make_knowledge_title(content, fallback=url)
+                fallback_title = make_knowledge_title(content, fallback=url)
             elif query:
                 source_type = "pesquisa"
                 source_name = query
                 results = search_google(query)
                 content = format_web_context(results)
-                title = title or make_knowledge_title(query, fallback="Pesquisa importada")
+                fallback_title = make_knowledge_title(query, fallback="Pesquisa importada")
             else:
                 source_type = "texto"
                 source_name = "texto colado"
                 content = clean_imported_text(text)
-                title = title or make_knowledge_title(content)
+                fallback_title = make_knowledge_title(content)
 
         if len(content) < 40:
             return jsonify({"error": "Não consegui extrair texto suficiente dessa fonte."}), 400
@@ -318,9 +370,11 @@ def import_session_knowledge(session_id):
         content = content[:30000]
         topics = extract_topics(content)
         summary = summarize_imported_text(content)
+        if not has_custom_title:
+            title = make_learning_title(topics, summary, fallback=fallback_title or make_knowledge_title(source_name))
         item = database.add_knowledge_source(
             session_id=session_id,
-            title=title or make_knowledge_title(content),
+            title=title,
             source_type=source_type,
             source_name=source_name,
             summary=summary,

@@ -23,11 +23,11 @@ const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
   error: { label: 'Erro', tone: 'rose' },
 }
 
-// Barra superior com busca, estado da IA, foco, parada da resposta e configurações.
+// Barra superior mínima do chat, mantendo só estado, histórico, parar e configurações.
 export function TopBar({
   aiState,
-  sessionTitle,
-  latency,
+  sessionTitle: _sessionTitle,
+  latency: _latency,
   historyHidden,
   onToggleHistory,
   settingsOpen,
@@ -53,26 +53,13 @@ export function TopBar({
   return (
     <header className="topbar">
       <div className="topbar-left">
-        <div className="brand-mark" aria-hidden="true">
-          <span />
-        </div>
-        <div className="brand-copy">
-          <strong>Nexus</strong>
-          <span>Assistente v1</span>
-        </div>
-        <div className="session-chip">
-          {sessionTitle || 'Sem sessao ativa'}
-        </div>
-      </div>
-
-      <div className="topbar-actions">
         <div className={`state-pill tone-${stateInfo.tone}`}>
           <span />
           {stateInfo.label}
         </div>
+      </div>
 
-        {latency && <span className="latency-pill">{latency}</span>}
-
+      <div className="topbar-actions">
         {canStopOutput && (
           <button
             className="topbar-text-button stop-output-button"
@@ -94,7 +81,6 @@ export function TopBar({
           title={historyHidden ? 'Mostrar histórico' : 'Ocultar histórico'}
         >
           {historyHidden ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-          <span>{historyHidden ? 'Histórico' : 'Ocultar'}</span>
         </button>
 
         <button
@@ -106,7 +92,6 @@ export function TopBar({
           title="Configuracoes"
         >
           <Settings size={16} />
-          <span>Configurações</span>
         </button>
       </div>
     </header>

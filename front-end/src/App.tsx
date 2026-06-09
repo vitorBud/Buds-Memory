@@ -1,15 +1,13 @@
-import { useState, useEffect, useCallback, useRef, type MouseEvent, type PointerEvent } from 'react'
+import { useState, useEffect, useCallback, useRef, type PointerEvent } from 'react'
 import {
   BrainCircuit,
   Check,
-  ChevronDown,
   Database,
   FileCode2,
   ListChecks,
   MessageSquare,
   Pencil,
   Settings as SettingsIcon,
-  Trash2,
   Upload,
   X,
   House,
@@ -19,8 +17,6 @@ import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { ChatInput } from './components/ChatInput'
 import { StatusPanel } from './components/StatusPanel'
-import { ParticleNetwork } from './components/ParticleNetwork'
-import { AiOrb } from './components/AiOrb'
 import { BrainMap } from './components/BrainMap'
 import { JarvisCore } from './components/JarvisCore'
 import { useChat } from './hooks/useChat'
@@ -36,7 +32,7 @@ type RailTab = 'memory' | 'files' | 'summary'
 type AppView = 'home' | 'chat' | 'obsidian'
 
 const DEFAULT_SETTINGS: InterfaceSettings = {
-  theme: 'dark',
+  theme: 'white',
   density: 'compact',
   showInsights: true,
   showBrainMap: true,
@@ -46,11 +42,16 @@ const DEFAULT_SETTINGS: InterfaceSettings = {
   accentColor: 'white',
 }
 
+const OFFICIAL_THEMES = ['white', 'black', 'gold', 'silver'] as const
+
 function getInitialSettings(): InterfaceSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     const parsed = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS
-    if (!['white', 'amber'].includes(parsed.accentColor)) parsed.accentColor = 'white'
+    if (parsed.theme === 'light') parsed.theme = 'white'
+    if (parsed.theme === 'dark') parsed.theme = parsed.accentColor === 'amber' ? 'gold' : 'black'
+    if (!OFFICIAL_THEMES.includes(parsed.theme)) parsed.theme = DEFAULT_SETTINGS.theme
+    if (!OFFICIAL_THEMES.includes(parsed.accentColor)) parsed.accentColor = parsed.theme
     return parsed
   } catch {
     return DEFAULT_SETTINGS
@@ -331,6 +332,7 @@ export default function App() {
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([])
   const [knowledgeInput, setKnowledgeInput] = useState('')
   const [isImportingKnowledge, setIsImportingKnowledge] = useState(false)
+  const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false)
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (window.location.hash === '#chat') return 'chat'
     if (window.location.hash === '#obsidian') return 'obsidian'
@@ -344,7 +346,7 @@ export default function App() {
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme
-    document.documentElement.dataset.accent = settings.accentColor
+    document.documentElement.dataset.accent = settings.theme
     document.documentElement.dataset.density = 'compact'
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
   }, [settings])
@@ -362,7 +364,11 @@ export default function App() {
   }, [])
 
   const updateSetting = <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => {
-    setSettings(prev => ({ ...prev, [key]: value }))
+    setSettings(prev => {
+      const next = { ...prev, [key]: value }
+      if (key === 'theme') next.accentColor = value as InterfaceSettings['accentColor']
+      return next
+    })
   }
 
   const ensureSession = useCallback(async (): Promise<string> => {
@@ -534,11 +540,6 @@ export default function App() {
     pushActivity('Título da conversa atualizado', 'emerald')
   }
 
-  const handleDeleteCurrentChat = async () => {
-    if (!currentSessionId) return
-    await handleDeleteSession(currentSessionId)
-  }
-
   const handleImportKnowledgeFile = async (file: File) => {
     setIsImportingKnowledge(true)
     try {
@@ -588,13 +589,6 @@ export default function App() {
     window.history.replaceState(null, '', '#chat')
     window.scrollTo({ top: 0 })
     window.setTimeout(() => setChatRevealActive(false), 1900)
-  }
-
-  const handleSmoothScrollToObsidian = (event: MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault()
-    setActiveView('obsidian')
-    window.history.replaceState(null, '', '#obsidian')
-    window.scrollTo({ top: 0 })
   }
 
   const handleOpenObsidian = () => {
@@ -659,6 +653,8 @@ export default function App() {
 
   return (
     <div className="scroll-experience" ref={pageRef}>
+      {renderViewNav('floating')}
+
       {activeView === 'home' && (
       <section
         className="jarvis-landing"
@@ -670,13 +666,13 @@ export default function App() {
         <div className="jarvis-cursor-aura" />
         <div className="jarvis-scanline" />
         <div className="jarvis-frame">
-          <div className="jarvis-top-strip">
-            <span>NEXUS_ASSISTANT</span>
-            <strong>{aiState === 'idle' ? 'ONLINE' : aiState.toUpperCase()}</strong>
+          <div className="jarvis-brand-lockup">
+            <span>Nexus IA</span>
+            <strong>Assistente local inteligente</strong>
           </div>
 
           <div className="jarvis-visual-stage">
-            <JarvisCore key={settings.accentColor} />
+            <JarvisCore key={settings.theme} />
             <div className="jarvis-reticle jarvis-reticle-a" />
             <div className="jarvis-reticle jarvis-reticle-b" />
             <div className="jarvis-data-stack">
@@ -687,27 +683,12 @@ export default function App() {
             </div>
           </div>
 
-          <div className="jarvis-command-bar" aria-label="Navegação principal">
-            <button type="button" onClick={handleSmoothScrollToChat} title="Abrir chat">
-              <MessageSquare size={15} />
-              <span>Chat</span>
-            </button>
-            <button type="button" onClick={handleOpenObsidian} title="Abrir Obsidian">
-              <BrainCircuit size={15} />
-              <span>Obsidian</span>
-            </button>
-            <button type="button" onClick={() => setSettingsOpen(true)} title="Abrir configurações">
-              <SettingsIcon size={15} />
-              <span>Config</span>
-            </button>
-          </div>
         </div>
       </section>
       )}
 
       {activeView === 'chat' && (
       <section className={`chat-scroll-scene ${chatRevealActive ? 'is-revealing' : ''}`} id="chat" ref={chatSceneRef}>
-        {renderViewNav('floating')}
         <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
           {!focusMode && (
             <Sidebar
@@ -775,12 +756,18 @@ export default function App() {
                         <Pencil size={15} />
                       </button>
                     )}
-                    <button type="button" onClick={handleDeleteCurrentChat} disabled={!currentSessionId} title="Remover conversa atual">
-                      <Trash2 size={15} />
+                    <button
+                      type="button"
+                      onClick={() => setKnowledgePanelOpen(value => !value)}
+                      className={knowledgePanelOpen ? 'is-active' : ''}
+                      title="Importar conhecimento"
+                    >
+                      <Upload size={15} />
                     </button>
                   </div>
                 </div>
 
+                {knowledgePanelOpen && (
                 <KnowledgeImportPanel
                   sources={knowledgeSources}
                   value={knowledgeInput}
@@ -789,23 +776,14 @@ export default function App() {
                   onImportText={handleImportKnowledgeText}
                   onImportFile={handleImportKnowledgeFile}
                 />
+                )}
 
                 {!hasMessages ? (
                   <div className="empty-state">
-                    <div className="orb-station">
-                      <ParticleNetwork count={28} maxDist={76} />
-                      <div className="orb-layer">
-                        <AiOrb state={aiState} size={96} />
-                      </div>
-                    </div>
                     <div>
                       <span className="eyebrow">Pronto para operar</span>
                       <h2>Como posso ajudar hoje?</h2>
                       <p>Envie uma pergunta, cole um erro ou peça uma análise do seu código.</p>
-                      <a className="scroll-note" href="#obsidian" onClick={handleSmoothScrollToObsidian}>
-                        <ChevronDown size={15} />
-                        <span>Abrir cérebro IA</span>
-                      </a>
                     </div>
                   </div>
                 ) : (
@@ -821,7 +799,9 @@ export default function App() {
                   selectedModel={selectedModel}
                   models={availableModels}
                   onModelChange={setSelectedModel}
-                  showQuickPrompts={settings.showQuickPrompts}
+                  showQuickPrompts={false}
+                  showModelSelect={false}
+                  showMeta={false}
                   density="compact"
                 />
               </div>
@@ -845,11 +825,10 @@ export default function App() {
             <div className="obsidian-progress-meter">
               <span />
             </div>
-            {renderViewNav('inline')}
           </div>
 
           <div className="obsidian-stage-graph">
-            <BrainMap key={settings.accentColor} messages={messages} knowledgeSources={knowledgeSources} />
+            <BrainMap key={settings.theme} messages={messages} knowledgeSources={knowledgeSources} />
           </div>
         </div>
       </section>
@@ -869,8 +848,10 @@ export default function App() {
             msgCount={msgCount}
             latency={latency}
             model={selectedModel}
+            models={availableModels}
             googleSearchAvailable={googleSearchAvailable}
             settings={settings}
+            onModelChange={setSelectedModel}
             onSettingChange={updateSetting}
             onClose={() => setSettingsOpen(false)}
           >

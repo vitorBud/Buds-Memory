@@ -315,8 +315,11 @@ def build_prompt(user_text: str, history=None, web_context: Optional[str] = None
             "Base de conhecimento importada:",
             knowledge_context,
             "",
-            "Quando usar a base importada, deixe claro que a resposta foi baseada no material importado pelo usuário. "
-            "Não invente detalhes fora desse material; se o material não cobrir algo, diga que não encontrou ali.",
+            "Regra para PDFs e conhecimento importado: se o usuário perguntar de forma vaga, como 'o que você aprendeu do PDF', "
+            "'resuma o PDF', 'e sobre Python?' ou mencionar um assunto presente nos títulos/tópicos/trechos, use primeiro a base importada. "
+            "Responda com o que foi possível aprender a partir dos trechos disponíveis, citando o nome da fonte quando fizer sentido. "
+            "Só diga que não encontrou informação se nenhum título, tópico, resumo ou trecho útil tiver relação com a pergunta. "
+            "Não invente detalhes fora desse material; se o material for parcial, avise que a resposta está limitada ao conteúdo importado.",
         ])
 
     lines.extend([

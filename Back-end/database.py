@@ -7,6 +7,61 @@ import re
 BASE = Path(__file__).resolve().parent
 DB_PATH = BASE / "chat_history.db"
 
+SEARCH_STOP_WORDS = {
+    "a", "o", "os", "as", "um", "uma", "uns", "umas", "de", "do", "da", "dos", "das",
+    "em", "no", "na", "nos", "nas", "para", "por", "com", "sem", "que", "qual", "quais",
+    "como", "quando", "onde", "isso", "esse", "essa", "isto", "voce", "você", "me", "te",
+    "ele", "ela", "eles", "elas", "se", "sua", "seu", "minha", "meu", "sobre", "pdf",
+    "arquivo", "documento", "aprendeu", "aprendi", "aprendido", "conteudo", "conteúdo",
+}
+
+
+def normalize_search_text(text):
+    text = (text or "").lower()
+    text = re.sub(r"https?://\S+", " ", text)
+    text = re.sub(r"[^a-zà-ÿ0-9_\-\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def get_search_terms(text, limit=10):
+    terms = []
+    for word in normalize_search_text(text).split():
+        plain = word.strip("_-")
+        if len(plain) < 3 or plain.isnumeric() or plain in SEARCH_STOP_WORDS:
+            continue
+        if plain not in terms:
+            terms.append(plain)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def split_content_chunks(content, chunk_size=1200, overlap=160):
+    content = re.sub(r"\s+", " ", content or "").strip()
+    if not content:
+        return []
+
+    chunks = []
+    step = max(400, chunk_size - overlap)
+    for start in range(0, len(content), step):
+        chunk = content[start:start + chunk_size].strip()
+        if chunk:
+            chunks.append(chunk)
+        if start + chunk_size >= len(content):
+            break
+    return chunks
+
+
+def score_text(text, terms):
+    searchable = normalize_search_text(text)
+    if not searchable:
+        return 0
+    score = 0
+    for term in terms:
+        if term in searchable:
+            score += searchable.count(term)
+    return score
+
 def get_db_connection():
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
@@ -212,23 +267,52 @@ def get_session_knowledge(session_id, limit=20):
         items.append(item)
     return items
 
-def build_knowledge_context(session_id, limit=5):
+def build_knowledge_context(session_id, limit=5, query=None):
     sources = get_session_knowledge(session_id, limit=limit)
     if not sources:
         return ""
 
+    query_terms = get_search_terms(query or "")
     lines = [
-        "Conhecimento importado pelo usuário para esta conversa. Use este material como fonte prioritária quando a pergunta tocar nesses assuntos:",
+        "Conhecimento importado pelo usuário para esta conversa. Use este material como fonte prioritária quando a pergunta tocar nesses assuntos.",
+        f"Pergunta atual do usuário: {query or 'não informada'}",
     ]
-    for index, source in enumerate(sources, start=1):
-        excerpt = (source.get("content") or "")[:1800].strip()
+    ranked_sources = []
+    for source in sources:
+        source_signal = " ".join([
+            str(source.get("title") or ""),
+            str(source.get("source_type") or ""),
+            str(source.get("source_name") or ""),
+            str(source.get("summary") or ""),
+            " ".join(source.get("topics") or []),
+        ])
+        ranked_sources.append((score_text(source_signal, query_terms), source))
+
+    ranked_sources.sort(key=lambda item: item[0], reverse=True)
+
+    for index, (_source_score, source) in enumerate(ranked_sources, start=1):
+        content = source.get("content") or ""
+        chunks = split_content_chunks(content)
+        ranked_chunks = sorted(
+            ((score_text(chunk, query_terms), chunk) for chunk in chunks),
+            key=lambda item: item[0],
+            reverse=True,
+        )
+        selected_chunks = [chunk for score, chunk in ranked_chunks if score > 0][:3]
+        if not selected_chunks:
+            selected_chunks = chunks[:2]
+
         topics = ", ".join(source.get("topics") or [])
+        excerpts = "\n".join(
+            f"Trecho {chunk_index}: {chunk}"
+            for chunk_index, chunk in enumerate(selected_chunks, start=1)
+        )
         lines.append(
             f"{index}. {source.get('title')}\n"
             f"Tipo: {source.get('source_type')} · Origem: {source.get('source_name') or 'manual'}\n"
             f"Tópicos: {topics or 'não detectados'}\n"
             f"Resumo: {source.get('summary')}\n"
-            f"Trecho útil: {excerpt}"
+            f"Trechos úteis para a pergunta:\n{excerpts}"
         )
     return "\n\n".join(lines)
 

@@ -1,7 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, BrainCircuit, GitBranch, Layers3, MousePointer2, Network, Radio, Rotate3D, ScanSearch, ZoomIn } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import {
+  Activity,
+  BarChart3,
+  BrainCircuit,
+  CalendarDays,
+  Database,
+  FileText,
+  GitBranch,
+  Layers3,
+  MousePointer2,
+  Network,
+  Radio,
+  ScanSearch,
+  Sparkles,
+  X,
+  ZoomIn,
+} from 'lucide-react'
 import type { KnowledgeSource, Message } from '../types'
 
 interface BrainMapProps {
@@ -9,24 +25,83 @@ interface BrainMapProps {
   knowledgeSources?: KnowledgeSource[]
 }
 
-interface ConceptNode {
+type MemoryKind = 'fonte' | 'mensagem' | 'topico' | 'sistema'
+type MemoryPeriod = 'today' | 'yesterday' | 'week' | 'month' | 'all'
+
+interface MemoryNode {
   id: string
   label: string
-  count: number
-  index: number
-  senderMix: {
-    user: number
-    ia: number
-  }
+  summary: string
+  kind: MemoryKind
+  weight: number
+  angle: number
+  radius: number
+  x: number
+  y: number
+  z: number
+  createdAt: Date
+  source: string
+  tags: string[]
+}
+
+type SelectableNodeMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshPhysicalMaterial> & {
+  userData: { nodeId: string }
 }
 
 const STOP_WORDS = new Set([
   'para', 'como', 'uma', 'com', 'que', 'por', 'mais', 'menos', 'isso', 'esse',
-  'essa', 'aqui', 'voce', 'você', 'esta', 'está', 'ser', 'ter', 'das', 'dos',
-  'nas', 'nos', 'sim', 'não', 'nao', 'meu', 'minha', 'seu', 'sua', 'ele',
-  'ela', 'tem', 'vai', 'fazer', 'sobre', 'apenas', 'agora', 'entao', 'então',
-  'quando', 'onde', 'porque', 'qual', 'quais', 'cada', 'toda', 'todo', 'isso',
+  'essa', 'esta', 'está', 'ser', 'ter', 'das', 'dos', 'nas', 'nos', 'não',
+  'nao', 'meu', 'minha', 'seu', 'sua', 'sobre', 'apenas', 'agora', 'quando',
+  'onde', 'porque', 'qual', 'quais', 'cada', 'toda', 'todo', 'voce', 'você',
+  'texto', 'documento', 'arquivo', 'pagina', 'página', 'conteudo', 'conteúdo',
+  'trechos', 'material', 'fornecido', 'informacoes', 'informações', 'especificas',
+  'específicas', 'parte', 'partir', 'fonte', 'fontes', 'resumo', 'contexto',
 ])
+
+const TOPIC_ALIASES: Record<string, string> = {
+  api: 'APIs',
+  apis: 'APIs',
+  backend: 'backend',
+  banco: 'banco de dados',
+  classe: 'classes',
+  classes: 'classes',
+  codigo: 'código',
+  dados: 'dados',
+  database: 'banco de dados',
+  desenvolvimento: 'desenvolvimento',
+  frontend: 'frontend',
+  funcao: 'funções',
+  funcoes: 'funções',
+  flask: 'Flask',
+  javascript: 'JavaScript',
+  modelo: 'modelo de IA',
+  modelos: 'modelos de IA',
+  programacao: 'programação',
+  python: 'Python',
+  react: 'React',
+}
+
+const PERIODS: Array<{ id: MemoryPeriod; label: string }> = [
+  { id: 'today', label: 'Hoje' },
+  { id: 'yesterday', label: 'Ontem' },
+  { id: 'week', label: 'Última semana' },
+  { id: 'month', label: 'Último mês' },
+  { id: 'all', label: 'Histórico' },
+]
+
+const KIND_LABEL: Record<MemoryKind, string> = {
+  fonte: 'Documento',
+  mensagem: 'Conversa',
+  topico: 'Conceito',
+  sistema: 'Sistema',
+}
+
+const KIND_COLOR: Record<MemoryKind, string> = {
+  fonte: '#d6a63d',
+  mensagem: '#62c77b',
+  topico: '#7da7ff',
+  sistema: '#cfd7e6',
+}
 
 function normalize(text: string) {
   return text
@@ -36,513 +111,465 @@ function normalize(text: string) {
     .replace(/[^a-z0-9\s-]/g, ' ')
 }
 
-function hashString(value: string) {
-  let hash = 0
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0
+function compactLabel(text: string, fallback: string, limit = 72) {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (!clean) return fallback
+  return clean.length > limit ? `${clean.slice(0, limit - 3).trim()}...` : clean
+}
+
+function getTopics(text: string, limit = 5) {
+  const counts = new Map<string, number>()
+  normalize(text)
+    .split(/\s+/)
+    .filter(word => word.length > 3 && !STOP_WORDS.has(word) && !word.includes('-'))
+    .forEach(word => counts.set(word, (counts.get(word) ?? 0) + 1))
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([word]) => word)
+}
+
+function prettifyTopic(topic: string) {
+  const clean = normalize(topic).replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!clean || clean.length < 3 || STOP_WORDS.has(clean)) return ''
+  return TOPIC_ALIASES[clean] ?? clean.replace(/\b\w/g, char => char.toUpperCase())
+}
+
+function getLearningTitle(source: KnowledgeSource) {
+  const candidates = [
+    ...(source.topics ?? []),
+    ...getTopics(`${source.summary} ${source.title}`, 6),
+  ]
+  const topics = [...new Set(candidates.map(prettifyTopic).filter(Boolean))].slice(0, 3)
+
+  if (topics.length === 1) return `Aprendizado sobre ${topics[0]}`
+  if (topics.length > 1) {
+    return `Aprendizado: ${topics.slice(0, -1).join(', ')} e ${topics[topics.length - 1]}`
   }
-  return Math.abs(hash)
+
+  return compactLabel(source.title || source.summary, 'Conhecimento importado', 58)
 }
 
-function getConcepts(messages: Message[]): ConceptNode[] {
-  const counts = new Map<string, ConceptNode>()
+function parseDate(value?: string | null, fallbackOffset = 0) {
+  const parsed = value ? new Date(value) : null
+  if (parsed && !Number.isNaN(parsed.getTime())) return parsed
+  return new Date(Date.now() - fallbackOffset)
+}
 
-  messages.forEach(message => {
-    if (message.text === '__thinking__') return
+function positionNodes(nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[]): MemoryNode[] {
+  const total = Math.max(nodes.length, 1)
 
-    normalize(message.text)
-      .split(/\s+/)
-      .filter(word => word.length > 3 && !STOP_WORDS.has(word))
-      .forEach(word => {
-        const previous = counts.get(word) ?? {
-          id: word,
-          label: word,
-          count: 0,
-          index: 0,
-          senderMix: { user: 0, ia: 0 },
-        }
-        previous.count += 1
-        previous.senderMix[message.sender === 'user' ? 'user' : 'ia'] += 1
-        counts.set(word, previous)
-      })
+  return nodes.map((node, index) => {
+    const ring = index % 5
+    const angle = index * 2.399963 + ring * 0.2
+    const radius = 1.35 + ring * 0.42 + Math.floor(index / 5) * 0.045 + Math.min(node.weight, 12) * 0.04
+    const vertical = Math.sin(index * 1.71) * (0.45 + ring * 0.06)
+
+    return {
+      ...node,
+      angle,
+      radius,
+      x: Math.cos(angle) * radius,
+      y: vertical,
+      z: Math.sin(angle) * radius * 0.78,
+      weight: node.weight + Math.round((index / total) * 2),
+    }
   })
-
-  return [...counts.values()]
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
-    .slice(0, 10)
-    .map((node, index) => ({ ...node, index }))
 }
 
-function getKnowledgeConcepts(sources: KnowledgeSource[]): ConceptNode[] {
-  const nodes: ConceptNode[] = []
+function buildMemoryNodes(messages: Message[], sources: KnowledgeSource[]): MemoryNode[] {
+  const nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[] = []
 
-  sources.slice(0, 6).forEach((source, sourceIndex) => {
-    const title = source.title || 'Material importado'
+  sources.forEach((source, sourceIndex) => {
+    const createdAt = parseDate(source.created_at, sourceIndex * 86_400_000)
+    const sourceText = `${source.title} ${source.summary} ${(source.topics ?? []).join(' ')}`
+    const learnedTitle = getLearningTitle(source)
+    const topicTags = [...new Set([...(source.topics ?? []), ...getTopics(sourceText, 4)])]
+      .map(prettifyTopic)
+      .filter(Boolean)
+      .slice(0, 7)
+    const tags = [...new Set([source.source_type, ...topicTags])].slice(0, 8)
+
     nodes.push({
       id: `fonte-${source.id}`,
-      label: title,
-      count: 6 + Math.min(source.topics?.length ?? 0, 6),
-      index: nodes.length,
-      senderMix: { user: 1, ia: 5 },
+      label: learnedTitle,
+      summary: source.summary || `A IA aprendeu conteúdos relacionados a ${learnedTitle}.`,
+      kind: 'fonte',
+      weight: 12 + Math.min(source.topics?.length ?? 0, 10),
+      createdAt,
+      source: source.source_name || source.source_type,
+      tags,
     })
 
-    ;(source.topics ?? []).slice(0, 4).forEach(topic => {
+    topicTags.slice(0, 7).forEach((topic, topicIndex) => {
       nodes.push({
         id: `topico-${source.id}-${topic}`,
-        label: topic,
-        count: 3 + sourceIndex,
-        index: nodes.length,
-        senderMix: { user: 1, ia: 3 },
+        label: compactLabel(topic, 'Tópico aprendido', 48),
+        summary: `Tópico aprendido em ${learnedTitle}.`,
+        kind: 'topico',
+        weight: 6 + (topicIndex % 3),
+        createdAt,
+        source: learnedTitle,
+        tags: [source.source_type, topic],
       })
     })
   })
 
-  return nodes.slice(0, 14).map((node, index) => ({ ...node, index }))
-}
+  messages
+    .filter(message => message.text !== '__thinking__')
+    .slice(-36)
+    .forEach((message, index) => {
+      const topics = getTopics(message.text, 5)
+      nodes.push({
+        id: `msg-${message.id ?? index}-${message.sender}`,
+        label: compactLabel(topics.join(' · ') || message.text, message.sender === 'user' ? 'Memória do usuário' : 'Memória da IA', 58),
+        summary: compactLabel(message.text, 'Registro de conversa', 180),
+        kind: 'mensagem',
+        weight: message.sender === 'user' ? 8 : 7,
+        createdAt: parseDate(message.created_at, index * 7_200_000),
+        source: message.sender === 'user' ? 'Usuário' : 'Nexus IA',
+        tags: topics,
+      })
+    })
 
-function makeLabelSprite(label: string, color: string, selected: boolean) {
-  const canvas = document.createElement('canvas')
-  const context = canvas.getContext('2d')
-  canvas.width = 256
-  canvas.height = 72
-
-  if (context) {
-    context.clearRect(0, 0, canvas.width, canvas.height)
-    context.fillStyle = selected ? 'rgba(10, 18, 30, 0.88)' : 'rgba(10, 18, 30, 0.68)'
-    context.strokeStyle = color
-    context.lineWidth = selected ? 3 : 1.5
-    context.beginPath()
-    context.roundRect(8, 8, 240, 48, 10)
-    context.fill()
-    context.stroke()
-
-    context.fillStyle = '#edf3fb'
-    context.font = '600 22px Outfit, system-ui, sans-serif'
-    context.textAlign = 'center'
-    context.textBaseline = 'middle'
-    context.fillText(label.slice(0, 18), 128, 32)
+  if (!nodes.length) {
+    return positionNodes([
+      {
+        id: 'sistema-contexto',
+        label: 'Contexto da conversa',
+        summary: 'Memória inicial aguardando mensagens e arquivos.',
+        kind: 'sistema',
+        weight: 8,
+        createdAt: new Date(),
+        source: 'Nexus Core',
+        tags: ['contexto', 'sessão'],
+      },
+      {
+        id: 'sistema-pdfs',
+        label: 'PDFs importados',
+        summary: 'Quando você importar PDFs, cada um vira um ponto vivo no grafo.',
+        kind: 'sistema',
+        weight: 7,
+        createdAt: new Date(),
+        source: 'Vault',
+        tags: ['pdf', 'documentos'],
+      },
+      {
+        id: 'sistema-pesquisas',
+        label: 'Pesquisas salvas',
+        summary: 'Pesquisas e páginas entram como conhecimento navegável.',
+        kind: 'sistema',
+        weight: 7,
+        createdAt: new Date(),
+        source: 'Web',
+        tags: ['google', 'web'],
+      },
+      {
+        id: 'sistema-topicos',
+        label: 'Tópicos aprendidos',
+        summary: 'Os principais tópicos aparecem como ramificações do núcleo.',
+        kind: 'sistema',
+        weight: 7,
+        createdAt: new Date(),
+        source: 'Nexus Core',
+        tags: ['aprendizado', 'conceitos'],
+      },
+    ])
   }
 
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    opacity: selected ? 1 : 0.82,
-    depthTest: false,
+  return positionNodes(nodes.slice(0, 140))
+}
+
+function filterNodesByPeriod(nodes: MemoryNode[], period: MemoryPeriod) {
+  if (period === 'all') return nodes
+  const now = new Date()
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startYesterday = startToday - 86_400_000
+
+  return nodes.filter(node => {
+    const time = node.createdAt.getTime()
+    if (period === 'today') return time >= startToday
+    if (period === 'yesterday') return time >= startYesterday && time < startToday
+    if (period === 'week') return time >= now.getTime() - 7 * 86_400_000
+    if (period === 'month') return time >= now.getTime() - 30 * 86_400_000
+    return true
   })
-  const sprite = new THREE.Sprite(material)
-  sprite.scale.set(selected ? 1.42 : 1.18, selected ? 0.4 : 0.34, 1)
-  sprite.userData = { texture, material }
-  return sprite
 }
 
-function getNodePosition(node: ConceptNode, total: number) {
-  const hash = hashString(node.label)
-  const angle = node.index * 2.399963 + (hash % 64) * 0.012
-  const radius = 2.35 + (hash % 4) * 0.28 + Math.min(node.count, 5) * 0.08
-  const y = (((hash >> 4) % 9) - 4) * 0.18
-
-  return new THREE.Vector3(
-    Math.cos(angle) * radius,
-    y + Math.sin((node.index / Math.max(total, 1)) * Math.PI * 2) * 0.34,
-    Math.sin(angle) * radius,
-  )
+function formatShortDate(date: Date) {
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
-// Mapa 3D estilo Obsidian que transforma conceitos da conversa em nós e conexões.
-export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
+function ThreeMemoryGraph({
+  nodes,
+  selectedId,
+  thoughtMode,
+  onSelect,
+}: {
+  nodes: MemoryNode[]
+  selectedId: string
+  thoughtMode: boolean
+  onSelect: (id: string) => void
+}) {
   const mountRef = useRef<HTMLDivElement>(null)
-  const learnedNodes = useMemo(() => getKnowledgeConcepts(knowledgeSources), [knowledgeSources])
-  const [selectedConcept, setSelectedConcept] = useState(() => learnedNodes[0]?.label ?? 'Nexus')
-  const concepts = useMemo(() => {
-    const conversationNodes = getConcepts(messages)
-    const merged = new Map<string, ConceptNode>()
-    ;[...learnedNodes, ...conversationNodes].forEach(node => {
-      if (!merged.has(node.label)) merged.set(node.label, node)
-    })
-    return [...merged.values()].slice(0, 14).map((node, index) => ({ ...node, index }))
-  }, [messages, learnedNodes])
-  const nodes = concepts.length
-    ? concepts
-    : [
-        { id: 'memoria', label: 'memoria', count: 1, index: 0, senderMix: { user: 0, ia: 1 } },
-        { id: 'voz', label: 'voz', count: 1, index: 1, senderMix: { user: 0, ia: 1 } },
-        { id: 'modelo', label: 'modelo', count: 1, index: 2, senderMix: { user: 0, ia: 1 } },
-        { id: 'contexto', label: 'contexto', count: 1, index: 3, senderMix: { user: 0, ia: 1 } },
-        { id: 'codigo', label: 'codigo', count: 1, index: 4, senderMix: { user: 0, ia: 1 } },
-        { id: 'resposta', label: 'resposta', count: 1, index: 5, senderMix: { user: 0, ia: 1 } },
-        { id: 'frontend', label: 'frontend', count: 1, index: 6, senderMix: { user: 0, ia: 1 } },
-        { id: 'sessao', label: 'sessao', count: 1, index: 7, senderMix: { user: 0, ia: 1 } },
-      ]
-
-  useEffect(() => {
-    if (learnedNodes[0]?.label) setSelectedConcept(learnedNodes[0].label)
-  }, [learnedNodes])
-
-  const selectedNode = nodes.find(node => node.label === selectedConcept)
-  const conceptSignature = nodes.map(node => `${node.id}:${node.count}:${node.senderMix.user}:${node.senderMix.ia}`).join('|')
-  const activeMessages = messages.filter(message => message.text !== '__thinking__')
-  const userMessages = activeMessages.filter(message => message.sender === 'user').length
-  const aiMessages = activeMessages.filter(message => message.sender === 'ia').length
-  const totalMentions = nodes.reduce((sum, node) => sum + node.count, 0)
-  const memoryLoad = Math.min(100, Math.round((activeMessages.length / 12) * 100))
-  const learnedLoad = Math.min(100, Math.round((knowledgeSources.length / 8) * 100))
-  const totalMentionsLabel = totalMentions === 1 ? '1 menção mapeada' : `${totalMentions} menções mapeadas`
-  const selectedUserLabel = selectedNode?.senderMix.user === 1 ? '1 citação sua' : `${selectedNode?.senderMix.user ?? 0} citações suas`
-  const selectedIaLabel = selectedNode?.senderMix.ia === 1 ? '1 citação da IA' : `${selectedNode?.senderMix.ia ?? 0} citações da IA`
 
   useEffect(() => {
     const mount = mountRef.current
     if (!mount) return
 
-    const style = getComputedStyle(document.documentElement)
-    const colors = {
-      surface: style.getPropertyValue('--surface-2').trim() || '#151b27',
-      text: style.getPropertyValue('--text').trim() || '#edf3fb',
-      cyan: style.getPropertyValue('--accent').trim() || '#06b6d4',
-      violet: style.getPropertyValue('--accent-hot').trim() || '#8b5cf6',
-      emerald: style.getPropertyValue('--emerald').trim() || '#22c55e',
-      amber: style.getPropertyValue('--accent').trim() || '#f59e0b',
-      rose: style.getPropertyValue('--rose').trim() || '#f43f5e',
-    }
-
-    const width = Math.max(mount.clientWidth, 260)
-    const height = Math.max(mount.clientHeight, 260)
     const scene = new THREE.Scene()
-    scene.fog = new THREE.Fog(colors.surface, 8, 17)
-
-    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100)
-    camera.position.set(0, 1.35, 8.6)
+    const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100)
+    camera.position.set(0, 0.65, 7.2)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    renderer.setSize(width, height)
+    renderer.setClearColor(0x000000, 0)
     mount.appendChild(renderer.domElement)
 
-    const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
-    controls.dampingFactor = 0.08
-    controls.minDistance = 4.6
-    controls.maxDistance = 13
-    controls.rotateSpeed = 0.62
-    controls.autoRotate = activeMessages.length > 0
-    controls.autoRotateSpeed = 0.45
-
     const root = new THREE.Group()
+    const nodesGroup = new THREE.Group()
+    const flowGroup = new THREE.Group()
+    const ambientParticles = new THREE.Group()
+    root.rotation.x = -0.18
+    root.position.y = 0.45
     scene.add(root)
+    root.add(flowGroup, nodesGroup, ambientParticles)
 
-    const ambient = new THREE.AmbientLight(colors.text, 0.58)
-    const key = new THREE.PointLight(colors.cyan, 1.5, 18)
-    key.position.set(4.5, 5, 5)
-    const fill = new THREE.PointLight(colors.violet, 1.05, 14)
-    fill.position.set(-4, -2, 4)
-    scene.add(ambient, key, fill)
+    const style = getComputedStyle(document.documentElement)
+    const accentHot = new THREE.Color(style.getPropertyValue('--accent-hot').trim() || '#ffffff')
+    const accent = new THREE.Color(style.getPropertyValue('--accent').trim() || '#dbe4ef')
+    const textColor = new THREE.Color(style.getPropertyValue('--text').trim() || '#111827')
 
     const disposables: Array<{ dispose: () => void }> = []
-    const selectable: THREE.Mesh[] = []
-    const labelSprites: THREE.Sprite[] = []
-    const pulseSignals: Array<{
-      mesh: THREE.Mesh
-      curve: THREE.CatmullRomCurve3
-      offset: number
-      speed: number
-    }> = []
-    const positionMap = new Map<string, THREE.Vector3>()
-    const selectedLabel = selectedNode?.label
+    const selectableMeshes: SelectableNodeMesh[] = []
 
-    const coreGeometry = new THREE.IcosahedronGeometry(0.38, 4)
-    const coreMaterial = new THREE.MeshStandardMaterial({
-      color: colors.cyan,
-      emissive: colors.cyan,
-      emissiveIntensity: 0.38,
-      metalness: 0.42,
-      roughness: 0.24,
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2))
+    const keyLight = new THREE.PointLight(accentHot, 5.6, 24)
+    keyLight.position.set(0, 2.8, 4.6)
+    scene.add(keyLight)
+    const sideLight = new THREE.PointLight(accent, 2.4, 18)
+    sideLight.position.set(-4, -1, 3)
+    scene.add(sideLight)
+
+    const coreGeometry = new THREE.SphereGeometry(0.42, 64, 64)
+    const coreMaterial = new THREE.MeshPhysicalMaterial({
+      color: accentHot,
+      emissive: accentHot,
+      emissiveIntensity: 0.28,
+      metalness: 0.08,
+      roughness: 0.12,
+      transmission: 0.58,
       transparent: true,
-      opacity: 0.88,
+      opacity: 0.68,
+      clearcoat: 1,
+      clearcoatRoughness: 0.08,
     })
     disposables.push(coreGeometry, coreMaterial)
     const core = new THREE.Mesh(coreGeometry, coreMaterial)
-    core.name = 'Nexus core'
     root.add(core)
 
-    const neuronCluster = new THREE.Group()
-    const microGeometry = new THREE.SphereGeometry(0.045, 16, 16)
-    const microMaterial = new THREE.MeshStandardMaterial({
-      color: colors.cyan,
-      emissive: colors.cyan,
-      emissiveIntensity: 0.45,
-      metalness: 0.2,
-      roughness: 0.28,
-    })
-    disposables.push(microGeometry, microMaterial)
-    const microLinkMaterial = new THREE.LineBasicMaterial({
-      color: colors.cyan,
+    const haloGeometry = new THREE.SphereGeometry(0.88, 64, 64)
+    const haloMaterial = new THREE.MeshBasicMaterial({
+      color: accentHot,
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.08,
+      wireframe: true,
+      blending: THREE.AdditiveBlending,
     })
-    disposables.push(microLinkMaterial)
+    disposables.push(haloGeometry, haloMaterial)
+    root.add(new THREE.Mesh(haloGeometry, haloMaterial))
 
-    for (let index = 0; index < 44; index += 1) {
-      const angle = index * 2.399963
-      const radius = 0.58 + (index % 5) * 0.065
-      const neuron = new THREE.Mesh(microGeometry, microMaterial)
-      neuron.position.set(
-        Math.cos(angle) * radius,
-        Math.sin(index * 1.41) * 0.46,
-        Math.sin(angle) * radius,
-      )
-      neuron.userData = { basePosition: neuron.position.clone(), index }
-      neuronCluster.add(neuron)
-
-      const linkGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), neuron.position])
-      disposables.push(linkGeometry)
-      neuronCluster.add(new THREE.Line(linkGeometry, microLinkMaterial))
+    const ringMaterial = new THREE.LineBasicMaterial({
+      color: accentHot,
+      transparent: true,
+      opacity: 0.13,
+      blending: THREE.AdditiveBlending,
+    })
+    disposables.push(ringMaterial)
+    for (let index = 0; index < 7; index += 1) {
+      const geometry = new THREE.TorusGeometry(1.1 + index * 0.42, 0.003, 6, 170)
+      disposables.push(geometry)
+      const ring = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+        color: index % 2 ? accent : accentHot,
+        transparent: true,
+        opacity: 0.11,
+        blending: THREE.AdditiveBlending,
+      }))
+      disposables.push(ring.material)
+      ring.rotation.x = Math.PI / 2 + index * 0.035
+      ring.rotation.y = index * 0.16
+      ring.userData = { speed: 0.001 + index * 0.0002 }
+      root.add(ring)
     }
-    root.add(neuronCluster)
 
-    const coreHaloMaterial = new THREE.MeshBasicMaterial({
-      color: colors.cyan,
+    const pointCount = Math.max(1200, nodes.length * 18)
+    const particlePositions = new Float32Array(pointCount * 3)
+    for (let index = 0; index < pointCount; index += 1) {
+      const angle = index * 2.399963
+      const radius = 1.2 + Math.random() * 4.4
+      particlePositions[index * 3] = Math.cos(angle) * radius
+      particlePositions[index * 3 + 1] = (Math.random() - 0.5) * 2.5
+      particlePositions[index * 3 + 2] = Math.sin(angle) * radius
+    }
+    const particleGeometry = new THREE.BufferGeometry()
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3))
+    const particleMaterial = new THREE.PointsMaterial({
+      color: accentHot,
+      size: 0.012,
+      sizeAttenuation: true,
       transparent: true,
-      opacity: 0.12,
-      side: THREE.DoubleSide,
+      opacity: 0.32,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
     })
-    disposables.push(coreHaloMaterial)
-    const haloA = new THREE.Mesh(new THREE.TorusGeometry(1.34, 0.008, 10, 120), coreHaloMaterial)
-    const haloB = new THREE.Mesh(new THREE.TorusGeometry(1.75, 0.006, 10, 120), coreHaloMaterial.clone())
-    disposables.push(haloA.geometry, haloB.geometry, haloB.material as THREE.Material)
-    haloA.rotation.x = Math.PI / 2.35
-    haloB.rotation.y = Math.PI / 2.9
-    root.add(haloA, haloB)
+    disposables.push(particleGeometry, particleMaterial)
+    ambientParticles.add(new THREE.Points(particleGeometry, particleMaterial))
 
-    const nodeGeometry = new THREE.SphereGeometry(0.15, 32, 32)
-    const pulseGeometry = new THREE.SphereGeometry(0.045, 18, 18)
-    disposables.push(nodeGeometry)
-    disposables.push(pulseGeometry)
-
-    const regions = [
-      { label: 'memoria', color: colors.cyan, position: new THREE.Vector3(-2.9, 1.35, -1.4) },
-      { label: 'codigo', color: colors.amber, position: new THREE.Vector3(2.9, 1.05, -1.1) },
-      { label: 'contexto', color: colors.emerald, position: new THREE.Vector3(-2.65, -1.2, 1.2) },
-      { label: 'resposta', color: colors.violet, position: new THREE.Vector3(2.65, -1.15, 1.35) },
-    ]
-
-    regions.forEach(region => {
-      const sprite = makeLabelSprite(region.label, region.color, false)
-      sprite.position.copy(region.position)
-      sprite.scale.multiplyScalar(0.78)
-      labelSprites.push(sprite)
-      root.add(sprite)
-    })
-
+    const linePositions: number[] = []
+    const thoughtPositions: number[] = []
     nodes.forEach((node, index) => {
-      const position = getNodePosition(node, nodes.length)
-      positionMap.set(node.label, position)
-      const isSelected = node.label === selectedLabel
-      const color = node.senderMix.user > node.senderMix.ia
-        ? colors.amber
-        : index % 3 === 0 ? colors.emerald : index % 3 === 1 ? colors.violet : colors.cyan
-      const nodeMaterial = new THREE.MeshStandardMaterial({
+      const color = new THREE.Color(KIND_COLOR[node.kind])
+      const size = 0.055 + Math.min(node.weight, 16) * 0.008
+      const geometry = new THREE.SphereGeometry(size, 28, 28)
+      const material = new THREE.MeshPhysicalMaterial({
         color,
         emissive: color,
-        emissiveIntensity: isSelected ? 0.52 : 0.18 + Math.min(node.count, 5) * 0.035,
-        metalness: 0.22,
-        roughness: 0.3,
-      })
-      disposables.push(nodeMaterial)
-
-      const sphere = new THREE.Mesh(nodeGeometry, nodeMaterial)
-      sphere.position.copy(position)
-      sphere.scale.setScalar((isSelected ? 1.34 : 0.92) + Math.min(node.count, 5) * 0.11)
-      sphere.userData = {
-        label: node.label,
-        count: node.count,
-        baseScale: sphere.scale.x,
-        material: nodeMaterial,
-      }
-      selectable.push(sphere)
-      root.add(sphere)
-
-      for (let satelliteIndex = 0; satelliteIndex < 4; satelliteIndex += 1) {
-        const satelliteAngle = index * 1.17 + satelliteIndex * 2.08
-        const satelliteOffset = new THREE.Vector3(
-          Math.cos(satelliteAngle) * (0.36 + satelliteIndex * 0.05),
-          Math.sin(satelliteAngle * 1.3) * 0.2,
-          Math.sin(satelliteAngle) * (0.36 + satelliteIndex * 0.05),
-        )
-        const satellite = new THREE.Mesh(microGeometry, nodeMaterial)
-        satellite.position.copy(position).add(satelliteOffset)
-        satellite.userData = {
-          basePosition: satellite.position.clone(),
-          index: index + satelliteIndex,
-        }
-        root.add(satellite)
-
-        const satelliteCurve = new THREE.CatmullRomCurve3([
-          position,
-          position.clone().lerp(satellite.position, 0.5).add(new THREE.Vector3(0, 0.12, 0)),
-          satellite.position,
-        ])
-        const satelliteLinkGeometry = new THREE.BufferGeometry().setFromPoints(satelliteCurve.getPoints(18))
-        const satelliteLinkMaterial = new THREE.LineBasicMaterial({
-          color,
-          transparent: true,
-          opacity: 0.18,
-        })
-        disposables.push(satelliteLinkGeometry, satelliteLinkMaterial)
-        root.add(new THREE.Line(satelliteLinkGeometry, satelliteLinkMaterial))
-      }
-
-      const labelSprite = makeLabelSprite(node.label, color, isSelected)
-      labelSprite.position.copy(position).add(new THREE.Vector3(0, 0.45 + Math.min(node.count, 4) * 0.05, 0))
-      labelSprites.push(labelSprite)
-      root.add(labelSprite)
-
-      const linkMaterial = new THREE.LineBasicMaterial({
-        color: isSelected ? colors.violet : colors.cyan,
+        emissiveIntensity: node.id === selectedId ? 0.72 : 0.22,
+        metalness: 0.05,
+        roughness: 0.16,
+        transmission: 0.28,
         transparent: true,
-        opacity: isSelected ? 0.56 : 0.28,
+        opacity: node.id === selectedId ? 0.96 : 0.72,
+        clearcoat: 1,
       })
-      const curve = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(0, 0, 0),
-        position.clone().multiplyScalar(0.42).add(new THREE.Vector3(0, Math.sin(index + 1) * 0.7, 0)),
-        position,
-      ])
-      const linkGeometry = new THREE.BufferGeometry().setFromPoints(curve.getPoints(34))
-      disposables.push(linkMaterial, linkGeometry)
-      root.add(new THREE.Line(linkGeometry, linkMaterial))
+      disposables.push(geometry, material)
+      const mesh = new THREE.Mesh(geometry, material) as unknown as SelectableNodeMesh
+      mesh.position.set(node.x, node.y, node.z)
+      mesh.userData = { nodeId: node.id }
+      nodesGroup.add(mesh)
+      selectableMeshes.push(mesh)
 
-      const pulseMaterial = new THREE.MeshBasicMaterial({
-        color: isSelected ? colors.violet : color,
-        transparent: true,
-        opacity: isSelected ? 0.95 : 0.72,
-      })
-      disposables.push(pulseMaterial)
-      const pulse = new THREE.Mesh(pulseGeometry, pulseMaterial)
-      pulseSignals.push({
-        mesh: pulse,
-        curve,
-        offset: index / Math.max(nodes.length, 1),
-        speed: 0.18 + (index % 4) * 0.035,
-      })
-      root.add(pulse)
+      linePositions.push(0, 0, 0, node.x, node.y, node.z)
+
+      if (thoughtMode && index < Math.min(8, nodes.length)) {
+        const previous = index === 0 ? { x: 0, y: 0, z: 0 } : nodes[index - 1]
+        thoughtPositions.push(previous.x, previous.y, previous.z, node.x, node.y, node.z)
+      }
     })
 
-    nodes.forEach((node, index) => {
-      if (index >= nodes.length - 1) return
-      const from = positionMap.get(node.label)
-      const to = positionMap.get(nodes[index + 1].label)
-      if (!from || !to) return
-
-      const relationMaterial = new THREE.LineBasicMaterial({
-        color: colors.violet,
-        transparent: true,
-        opacity: 0.14 + Math.min(node.count, 4) * 0.025,
-      })
-      const relationCurve = new THREE.CatmullRomCurve3([
-        from,
-        from.clone().lerp(to, 0.5).add(new THREE.Vector3(0, 0.5 + (index % 2) * 0.2, 0)),
-        to,
-      ])
-      const relationGeometry = new THREE.BufferGeometry().setFromPoints(relationCurve.getPoints(26))
-      disposables.push(relationMaterial, relationGeometry)
-      root.add(new THREE.Line(relationGeometry, relationMaterial))
-    })
-
-    const starGeometry = new THREE.BufferGeometry()
-    const starPositions = new Float32Array(420 * 3)
-    for (let index = 0; index < starPositions.length; index += 3) {
-      const seed = index + nodes.length * 17
-      starPositions[index] = (((seed * 37) % 100) / 100 - 0.5) * 9
-      starPositions[index + 1] = (((seed * 53) % 100) / 100 - 0.5) * 5.4
-      starPositions[index + 2] = (((seed * 71) % 100) / 100 - 0.5) * 9
-    }
-    starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3))
-    const starsMaterial = new THREE.PointsMaterial({
-      color: colors.cyan,
-      size: 0.018,
+    const lineGeometry = new THREE.BufferGeometry()
+    lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3))
+    const lineMaterial = new THREE.LineBasicMaterial({
+      color: textColor,
       transparent: true,
-      opacity: 0.44,
+      opacity: 0.2,
+      blending: THREE.AdditiveBlending,
     })
-    disposables.push(starGeometry, starsMaterial)
-    const stars = new THREE.Points(starGeometry, starsMaterial)
-    scene.add(stars)
+    disposables.push(lineGeometry, lineMaterial)
+    flowGroup.add(new THREE.LineSegments(lineGeometry, lineMaterial))
+
+    let thoughtLine: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null
+    if (thoughtPositions.length) {
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(thoughtPositions, 3))
+      const material = new THREE.LineBasicMaterial({
+        color: accentHot,
+        transparent: true,
+        opacity: 0.82,
+        blending: THREE.AdditiveBlending,
+      })
+      disposables.push(geometry, material)
+      thoughtLine = new THREE.LineSegments(geometry, material)
+      root.add(thoughtLine)
+    }
+
+    const resize = () => {
+      const width = Math.max(mount.clientWidth, 320)
+      const height = Math.max(mount.clientHeight, 320)
+      camera.aspect = width / height
+      camera.updateProjectionMatrix()
+      renderer.setSize(width, height)
+    }
+    resize()
+    const observer = new ResizeObserver(resize)
+    observer.observe(mount)
 
     const raycaster = new THREE.Raycaster()
     const pointer = new THREE.Vector2()
+    let dragging = false
+    let moved = false
+    let startX = 0
+    let startY = 0
+    let targetRotY = root.rotation.y
+    let targetRotX = root.rotation.x
+
     const setPointer = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect()
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-      raycaster.setFromCamera(pointer, camera)
+      pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1)
     }
-    const onPointerMove = (event: PointerEvent) => {
-      setPointer(event)
-      const [hit] = raycaster.intersectObjects(selectable)
-      renderer.domElement.style.cursor = hit ? 'pointer' : 'grab'
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      setPointer(event)
-      const [hit] = raycaster.intersectObjects(selectable)
-      if (hit?.object.userData.label) {
-        setSelectedConcept(hit.object.userData.label)
-      }
-    }
-    renderer.domElement.addEventListener('pointermove', onPointerMove)
-    renderer.domElement.addEventListener('pointerdown', onPointerDown)
 
-    const resizeObserver = new ResizeObserver(([entry]) => {
-      const nextWidth = Math.max(entry.contentRect.width, 260)
-      const nextHeight = Math.max(entry.contentRect.height, 260)
-      camera.aspect = nextWidth / nextHeight
-      camera.updateProjectionMatrix()
-      renderer.setSize(nextWidth, nextHeight)
-    })
-    resizeObserver.observe(mount)
+    const onPointerDown = (event: PointerEvent) => {
+      dragging = true
+      moved = false
+      startX = event.clientX
+      startY = event.clientY
+      renderer.domElement.setPointerCapture(event.pointerId)
+    }
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!dragging) return
+      const dx = event.clientX - startX
+      const dy = event.clientY - startY
+      if (Math.abs(dx) + Math.abs(dy) > 6) moved = true
+      startX = event.clientX
+      startY = event.clientY
+      targetRotY += dx * 0.006
+      targetRotX += dy * 0.003
+      targetRotX = Math.max(-0.92, Math.min(0.42, targetRotX))
+    }
+
+    const onPointerUp = (event: PointerEvent) => {
+      dragging = false
+      renderer.domElement.releasePointerCapture(event.pointerId)
+      if (moved) return
+      setPointer(event)
+      raycaster.setFromCamera(pointer, camera)
+      const hit = raycaster.intersectObjects(selectableMeshes, false)[0]
+      const nodeId = hit?.object.userData.nodeId
+      if (nodeId) onSelect(nodeId)
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault()
+      camera.position.z = Math.max(3.8, Math.min(11, camera.position.z + event.deltaY * 0.004))
+    }
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown)
+    renderer.domElement.addEventListener('pointermove', onPointerMove)
+    renderer.domElement.addEventListener('pointerup', onPointerUp)
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: false })
 
     let frame = 0
     let animationId = 0
     const animate = () => {
-      frame += 0.01
-      core.rotation.x += 0.004
-      core.rotation.y += 0.006
-      neuronCluster.rotation.y -= 0.0025
-      neuronCluster.rotation.x = Math.sin(frame * 0.8) * 0.08
-      haloA.rotation.z += 0.004
-      haloB.rotation.x -= 0.003
-      stars.rotation.y -= 0.0008
+      frame += 1
+      root.rotation.y += (targetRotY - root.rotation.y) * 0.08
+      root.rotation.x += (targetRotX - root.rotation.x) * 0.08
+      root.rotation.z = Math.sin(frame * 0.006) * 0.025
+      core.scale.setScalar(1 + Math.sin(frame * 0.04) * 0.06)
+      ambientParticles.rotation.y += 0.0009
+      ambientParticles.rotation.x = Math.sin(frame * 0.004) * 0.08
+      flowGroup.rotation.y -= 0.0007
+      if (thoughtLine) thoughtLine.material.opacity = 0.48 + Math.sin(frame * 0.05) * 0.26
 
-      selectable.forEach((mesh, index) => {
-        const baseScale = mesh.userData.baseScale || 1
-        const activePulse = mesh.userData.label === selectedLabel ? 0.09 : 0.035
-        const pulse = Math.sin(frame * 4 + index) * activePulse
-        mesh.scale.setScalar(baseScale + pulse)
+      root.children.forEach(child => {
+        if (child instanceof THREE.Mesh && child.geometry.type === 'TorusGeometry') {
+          child.rotation.z += (child.userData.speed ?? 0.001)
+        }
       })
 
-      neuronCluster.children.forEach(child => {
-        if (!(child instanceof THREE.Mesh) || !child.userData.basePosition) return
-        const base = child.userData.basePosition as THREE.Vector3
-        const index = child.userData.index as number
-        child.position.copy(base).add(new THREE.Vector3(
-          Math.sin(frame * 2.2 + index) * 0.025,
-          Math.cos(frame * 1.8 + index) * 0.025,
-          Math.sin(frame * 2.4 + index * 0.7) * 0.025,
-        ))
-      })
-
-      pulseSignals.forEach(signal => {
-        const t = (frame * signal.speed + signal.offset) % 1
-        const point = signal.curve.getPointAt(t)
-        signal.mesh.position.copy(point)
-        const scale = 0.72 + Math.sin((t + frame) * Math.PI * 2) * 0.22
-        signal.mesh.scale.setScalar(scale)
-      })
-
-      labelSprites.forEach(sprite => {
-        sprite.quaternion.copy(camera.quaternion)
-      })
-
-      controls.update()
       renderer.render(scene, camera)
       animationId = window.requestAnimationFrame(animate)
     }
@@ -550,126 +577,288 @@ export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
 
     return () => {
       window.cancelAnimationFrame(animationId)
-      resizeObserver.disconnect()
-      renderer.domElement.removeEventListener('pointermove', onPointerMove)
+      observer.disconnect()
       renderer.domElement.removeEventListener('pointerdown', onPointerDown)
-      controls.dispose()
+      renderer.domElement.removeEventListener('pointermove', onPointerMove)
+      renderer.domElement.removeEventListener('pointerup', onPointerUp)
+      renderer.domElement.removeEventListener('wheel', onWheel)
       renderer.dispose()
-      labelSprites.forEach(sprite => {
-        sprite.userData.texture?.dispose()
-        sprite.userData.material?.dispose()
-      })
       disposables.forEach(item => item.dispose())
       mount.removeChild(renderer.domElement)
     }
-  }, [activeMessages.length, conceptSignature, selectedNode?.label])
+  }, [nodes, selectedId, thoughtMode, onSelect])
+
+  return <div ref={mountRef} className="memory-three-canvas" aria-label="Mapa neural 3D interativo" />
+}
+
+// Mapa Obsidian do cérebro da IA: memórias, fontes e raciocínio em uma cena 3D interativa.
+export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
+  const allNodes = useMemo(() => buildMemoryNodes(messages, knowledgeSources), [messages, knowledgeSources])
+  const [selectedId, setSelectedId] = useState(allNodes[0]?.id ?? 'sistema-contexto')
+  const [isStatsOpen, setIsStatsOpen] = useState(false)
+  const [period, setPeriod] = useState<MemoryPeriod>('all')
+  const [thoughtMode, setThoughtMode] = useState(false)
+  const nodes = useMemo(() => filterNodesByPeriod(allNodes, period), [allNodes, period])
+  const visibleNodes = nodes.length ? nodes : allNodes.slice(0, 8)
+  const selectedNode = visibleNodes.find(node => node.id === selectedId) ?? visibleNodes[0]
+  const activeMessages = messages.filter(message => message.text !== '__thinking__')
+  const learnedCount = knowledgeSources.length
+  const memoryLoad = Math.min(100, Math.round((allNodes.length / 140) * 100))
+  const sourceTopics = knowledgeSources.flatMap(source => source.topics ?? []).slice(0, 12)
+  const totalConnections = Math.max(allNodes.length * 3, sourceTopics.length + activeMessages.length)
+  const processedTokens = [...messages, ...knowledgeSources.map(source => ({ text: source.summary }))]
+    .reduce((total, item) => total + Math.ceil((item.text || '').length / 4), 0)
+
+  const recentLearning = useMemo(() => {
+    const sourceEvents = knowledgeSources.slice(0, 4).map(source => ({
+      id: `source-${source.id}`,
+      label: 'Documento indexado',
+      text: getLearningTitle(source),
+      date: parseDate(source.created_at),
+    }))
+    const nodeEvents = allNodes.slice(0, 5).map(node => ({
+      id: `node-${node.id}`,
+      label: node.kind === 'topico' ? 'Relação criada' : node.kind === 'mensagem' ? 'Memória criada' : 'Conhecimento consolidado',
+      text: node.label,
+      date: node.createdAt,
+    }))
+    return [...sourceEvents, ...nodeEvents].sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 6)
+  }, [allNodes, knowledgeSources])
+
+  useEffect(() => {
+    if (!visibleNodes.some(node => node.id === selectedId)) {
+      setSelectedId(visibleNodes[0]?.id ?? allNodes[0]?.id ?? 'sistema-contexto')
+    }
+  }, [allNodes, selectedId, visibleNodes])
 
   return (
-    <div className="brain-card">
-      <div className="brain-card-header">
+    <div className="brain-card memory-brain-card">
+      <div className="brain-card-header obsidian-glass-hud">
         <div>
-          <span className="eyebrow">Mapa Obsidian</span>
-          <strong>Cérebro IA</strong>
+          <span className="eyebrow">Nexus Core</span>
+          <strong>Cérebro digital vivo</strong>
         </div>
         <div className="brain-header-actions">
           <span><Radio size={12} /> ao vivo</span>
-          <span><GitBranch size={12} /> {Math.max(0, nodes.length - 1)}</span>
-          <BrainCircuit size={15} />
-        </div>
-      </div>
-
-      <div className="brain-graph" aria-label="Mapa 3D de conceitos da conversa">
-        <div ref={mountRef} className="brain-canvas" />
-        <div className="brain-hud">
-          <span>Selecionado</span>
-          <strong>{selectedNode?.label ?? selectedConcept}</strong>
-          <em>{selectedNode ? `${selectedNode.count} conexões` : `${nodes.length} nós ativos`}</em>
-        </div>
-        <div className="brain-vault-status">
-          <Layers3 size={13} />
-          <span>Aprendizado</span>
-          <strong>{Math.max(memoryLoad, learnedLoad)}%</strong>
-        </div>
-      </div>
-
-      <div className="brain-controls">
-        <span><Rotate3D size={12} /> arraste</span>
-        <span><ZoomIn size={12} /> zoom</span>
-        <span><MousePointer2 size={12} /> selecione</span>
-      </div>
-
-      <div className="brain-stats">
-        <div className="brain-stat-card">
-          <span>Suas mensagens</span>
-          <strong>{userMessages}</strong>
-          <small>entradas usadas como contexto</small>
-        </div>
-        <div className="brain-stat-card">
-          <span>Respostas da IA</span>
-          <strong>{aiMessages}</strong>
-          <small>respostas na conversa atual</small>
-        </div>
-        <div className="brain-stat-card">
-          <span>Fontes aprendidas</span>
-          <strong>{knowledgeSources.length}</strong>
-          <small>PDFs, páginas ou pesquisas importadas</small>
-        </div>
-        <div className="brain-stat-card">
-          <span>Carga da memória</span>
-          <strong>{memoryLoad}%</strong>
-          <small>{totalMentionsLabel}</small>
-        </div>
-      </div>
-
-      <div className="brain-detail">
-        <span>Nó ativo</span>
-        <strong>{selectedNode?.label ?? 'Nexus'}</strong>
-        <p>
-          {selectedNode
-            ? `Aparece ${selectedNode.count} ${selectedNode.count === 1 ? 'vez' : 'vezes'}, com ${selectedUserLabel} e ${selectedIaLabel}.`
-            : knowledgeSources[0]
-              ? `Assunto aprendido: ${knowledgeSources[0].title}.`
-              : 'Núcleo da conversa atual, conectando contexto, memória e respostas do modelo.'}
-        </p>
-      </div>
-
-      <div className="brain-signal-panel">
-        <div>
-          <Activity size={13} />
-          <span>Sinapses</span>
-          <strong>{Math.max(nodes.length * 3, totalMentions)}</strong>
-        </div>
-        <div>
-          <Network size={13} />
-          <span>Fontes</span>
-          <strong>{knowledgeSources.length}</strong>
-        </div>
-        <div className="brain-signal-bars" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
-          <span />
-        </div>
-      </div>
-
-      <div className="concept-list">
-        <div className="panel-heading compact">
-          <span>Conceitos em tempo real</span>
-          <ScanSearch size={13} />
-        </div>
-        {nodes.slice(0, 7).map(node => (
+          <span><GitBranch size={12} /> {visibleNodes.length}</span>
           <button
-            key={node.id}
             type="button"
-            className={selectedConcept === node.label ? 'is-active' : ''}
-            onClick={() => setSelectedConcept(node.label)}
+            className={thoughtMode ? 'is-active' : ''}
+            onClick={() => setThoughtMode(value => !value)}
+            title="Modo pensamento"
           >
-            <span>{node.label}</span>
-            <strong>{node.count}</strong>
+            <BrainCircuit size={14} />
+          </button>
+          <button type="button" onClick={() => setIsStatsOpen(true)} title="Abrir estatísticas do cérebro">
+            <BarChart3 size={14} />
+          </button>
+        </div>
+      </div>
+
+      <div className="obsidian-timeline obsidian-glass-hud" aria-label="Linha do tempo de aprendizado">
+        <div>
+          <CalendarDays size={13} />
+          <span>Timeline</span>
+        </div>
+        {PERIODS.map(option => (
+          <button
+            key={option.id}
+            type="button"
+            className={period === option.id ? 'is-active' : ''}
+            onClick={() => setPeriod(option.id)}
+          >
+            {option.label}
           </button>
         ))}
       </div>
+
+      <div className="brain-graph memory-three-shell" aria-label="Mapa neural tridimensional de memórias">
+        <ThreeMemoryGraph
+          nodes={visibleNodes}
+          selectedId={selectedNode?.id ?? selectedId}
+          thoughtMode={thoughtMode}
+          onSelect={setSelectedId}
+        />
+
+        <div className="nexus-core-readout">
+          <span>Nexus Core</span>
+          <strong>{allNodes.length}</strong>
+          <em>memórias vivas</em>
+        </div>
+
+        <div className="brain-hud memory-hud">
+          <span>Memória selecionada</span>
+          <strong>{selectedNode?.label ?? 'Nexus'}</strong>
+          <em>{selectedNode ? KIND_LABEL[selectedNode.kind] : 'Sistema'}</em>
+        </div>
+
+        <div className="brain-vault-status">
+          <Layers3 size={13} />
+          <span>Conexões cognitivas</span>
+          <strong>{totalConnections}</strong>
+        </div>
+      </div>
+
+      <div className="brain-controls obsidian-glass-hud">
+        <span><MousePointer2 size={12} /> arraste para girar</span>
+        <span><ZoomIn size={12} /> scroll para zoom</span>
+        <button type="button" onClick={() => setIsStatsOpen(true)}>
+          <Activity size={12} /> abrir cérebro aprendido
+        </button>
+      </div>
+
+      <div className="thought-path-panel obsidian-glass-hud">
+        <span>Modo Pensamento</span>
+        <ol>
+          <li className={thoughtMode ? 'is-active' : ''}>Pergunta</li>
+          <li className={thoughtMode ? 'is-active' : ''}>Busca</li>
+          <li className={thoughtMode ? 'is-active' : ''}>Memórias</li>
+          <li className={thoughtMode ? 'is-active' : ''}>Resposta</li>
+        </ol>
+      </div>
+
+      <AnimatePresence>
+        {isStatsOpen && (
+          <motion.div
+            className="brain-stats-popover"
+            role="dialog"
+            aria-label="Estatísticas e memórias aprendidas"
+            initial={{ opacity: 0, x: 28, scale: 0.98 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 28, scale: 0.98 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+          >
+            <div className="brain-stats-popover-head">
+              <div>
+                <span className="eyebrow">Cérebro aprendido</span>
+                <strong>Memória da IA</strong>
+              </div>
+              <button type="button" onClick={() => setIsStatsOpen(false)} aria-label="Fechar estatísticas" title="Fechar">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="brain-stats">
+              <div className="brain-stat-card">
+                <span>Memórias totais</span>
+                <strong>{allNodes.length}</strong>
+                <small>pontos ligados ao núcleo</small>
+              </div>
+              <div className="brain-stat-card">
+                <span>Aprendizados</span>
+                <strong>{learnedCount}</strong>
+                <small>documentos, páginas ou pesquisas</small>
+              </div>
+              <div className="brain-stat-card">
+                <span>Conexões</span>
+                <strong>{totalConnections}</strong>
+                <small>relações cognitivas estimadas</small>
+              </div>
+              <div className="brain-stat-card">
+                <span>Tokens</span>
+                <strong>{processedTokens}</strong>
+                <small>conteúdo processado na sessão</small>
+              </div>
+              <div className="brain-stat-card">
+                <span>Atividade</span>
+                <strong>{memoryLoad}%</strong>
+                <small>densidade atual do mapa</small>
+              </div>
+              <div className="brain-stat-card">
+                <span>Precisão</span>
+                <strong>{Math.min(99, 82 + learnedCount * 3)}%</strong>
+                <small>qualidade contextual estimada</small>
+              </div>
+            </div>
+
+            <div className="brain-detail">
+              <span>Nó ativo</span>
+              <strong>{selectedNode?.label ?? 'Nexus Core'}</strong>
+              <p>{selectedNode?.summary ?? 'Selecione uma memória para ver o que foi guardado.'}</p>
+              <div className="memory-meta-grid">
+                <small>Origem: {selectedNode?.source ?? 'Nexus Core'}</small>
+                <small>Data: {selectedNode ? formatShortDate(selectedNode.createdAt) : '--'}</small>
+                <small>Importância: {selectedNode?.weight ?? 0}</small>
+                <small>Tipo: {selectedNode ? KIND_LABEL[selectedNode.kind] : 'Sistema'}</small>
+              </div>
+            </div>
+
+            <div className="brain-signal-panel">
+              <div>
+                <Activity size={13} />
+                <span>Sinapses</span>
+                <strong>{totalConnections}</strong>
+              </div>
+              <div>
+                <Network size={13} />
+                <span>Tópicos</span>
+                <strong>{sourceTopics.length}</strong>
+              </div>
+              <div>
+                <Database size={13} />
+                <span>Conversas</span>
+                <strong>{activeMessages.length}</strong>
+              </div>
+              <div className="brain-signal-bars" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+
+            <div className="recent-learning-strip">
+              <span className="eyebrow">Aprendizados recentes</span>
+              {recentLearning.map(item => (
+                <div key={item.id}>
+                  <Sparkles size={13} />
+                  <strong>{item.label}</strong>
+                  <p>{item.text}</p>
+                  <small>{formatShortDate(item.date)}</small>
+                </div>
+              ))}
+            </div>
+
+            <div className="learned-source-list">
+              <span className="eyebrow">Fontes importadas</span>
+              {knowledgeSources.length ? knowledgeSources.slice(0, 6).map(source => {
+                const title = getLearningTitle(source)
+                const detail = source.summary || source.topics?.slice(0, 4).join(' · ') || 'Aprendizado salvo na memória.'
+                return (
+                  <button key={source.id} type="button" onClick={() => setSelectedId(`fonte-${source.id}`)}>
+                    <FileText size={14} />
+                    <span>
+                      <strong>{title}</strong>
+                      <small>{compactLabel(detail, 'Resumo indisponível', 120)}</small>
+                    </span>
+                  </button>
+                )
+              }) : (
+                <p>Nenhum PDF, página ou pesquisa importada ainda.</p>
+              )}
+            </div>
+
+            <div className="concept-list">
+              <div className="panel-heading compact">
+                <span>Memórias recentes</span>
+                <ScanSearch size={13} />
+              </div>
+              {allNodes.slice(0, 10).map(node => (
+                <button
+                  key={node.id}
+                  type="button"
+                  className={selectedId === node.id ? 'is-active' : ''}
+                  onClick={() => setSelectedId(node.id)}
+                >
+                  <span>{node.label}</span>
+                  <strong>{node.weight}</strong>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

@@ -1,6 +1,6 @@
-import { Activity, Cpu, Gauge, Moon, SlidersHorizontal, Sun, Volume2, X } from 'lucide-react'
+import { Activity, BrainCircuit, Circle, Cpu, Gauge, SlidersHorizontal, Volume2, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { AccentColor, AiState, InterfaceSettings } from '../types'
+import type { AiState, InterfaceSettings, ThemeMode } from '../types'
 
 interface StatusPanelProps {
   aiState: AiState
@@ -8,8 +8,10 @@ interface StatusPanelProps {
   msgCount: number
   latency: string
   model: string
+  models: string[]
   googleSearchAvailable: boolean
   settings: InterfaceSettings
+  onModelChange: (model: string) => void
   onSettingChange: <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => void
   onClose: () => void
   children?: ReactNode
@@ -46,10 +48,18 @@ function StatusLine({ label, value }: { label: string; value: string }) {
   )
 }
 
-const ACCENT_OPTIONS: Array<{ value: AccentColor; label: string }> = [
-  { value: 'white', label: 'Branco' },
-  { value: 'amber', label: 'Amarelo' },
+const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
+  { value: 'white', label: 'White' },
+  { value: 'black', label: 'Black' },
+  { value: 'gold', label: 'Gold' },
+  { value: 'silver', label: 'Silver' },
 ]
+
+const MODEL_OPTIONS: Record<string, { label: string; hint: string }> = {
+  'qwen2.5-coder:3b': { label: 'Rápido', hint: 'leve, responde mais rápido' },
+  'qwen2.5-coder:7b': { label: 'Padrão', hint: 'equilíbrio entre velocidade e qualidade' },
+  'qwen2.5-coder:14b': { label: 'Mais potente', hint: 'melhor raciocínio, exige mais do Mac' },
+}
 
 // Gaveta de configurações da interface, voz, tema e status técnico da sessão.
 export function StatusPanel({
@@ -58,8 +68,10 @@ export function StatusPanel({
   msgCount,
   latency,
   model,
+  models,
   googleSearchAvailable,
   settings,
+  onModelChange,
   onSettingChange,
   onClose,
   children,
@@ -82,34 +94,16 @@ export function StatusPanel({
           <SlidersHorizontal size={15} />
         </div>
 
-        <div className="segmented">
-          <button
-            type="button"
-            className={settings.theme === 'dark' ? 'is-active' : ''}
-            onClick={() => onSettingChange('theme', 'dark')}
-          >
-            <Moon size={14} />
-            Escuro
-          </button>
-          <button
-            type="button"
-            className={settings.theme === 'light' ? 'is-active' : ''}
-            onClick={() => onSettingChange('theme', 'light')}
-          >
-            <Sun size={14} />
-            Claro
-          </button>
-        </div>
-
-        <div className="accent-picker" aria-label="Cor do sistema">
-          {ACCENT_OPTIONS.map(option => (
+        <div className="accent-picker theme-grid" aria-label="Tema do sistema">
+          {THEME_OPTIONS.map(option => (
             <button
               key={option.value}
               type="button"
-              className={`accent-swatch accent-${option.value} ${settings.accentColor === option.value ? 'is-active' : ''}`}
-              onClick={() => onSettingChange('accentColor', option.value)}
+              className={`accent-swatch theme-swatch theme-${option.value} ${settings.theme === option.value ? 'is-active' : ''}`}
+              onClick={() => onSettingChange('theme', option.value)}
               title={`Tema ${option.label}`}
             >
+              <Circle size={13} />
               <span />
               {option.label}
             </button>
@@ -137,6 +131,30 @@ export function StatusPanel({
             checked={settings.webSearchEnabled}
             onChange={(checked) => onSettingChange('webSearchEnabled', checked)}
           />
+        </div>
+      </div>
+
+      <div className="panel-block">
+        <div className="panel-heading">
+          <span>Modelo da IA</span>
+          <BrainCircuit size={15} />
+        </div>
+        <div className="settings-model-list" aria-label="Selecionar modelo da IA">
+          {models.map(option => {
+            const info = MODEL_OPTIONS[option] ?? { label: option, hint: 'modelo local do Ollama' }
+            return (
+              <button
+                key={option}
+                type="button"
+                className={option === model ? 'is-active' : ''}
+                onClick={() => onModelChange(option)}
+              >
+                <strong>{info.label}</strong>
+                <span>{option}</span>
+                <small>{info.hint}</small>
+              </button>
+            )
+          })}
         </div>
       </div>
 

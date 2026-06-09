@@ -12,6 +12,8 @@ interface ChatInputProps {
   models?: string[]
   onModelChange?: (m: string) => void
   showQuickPrompts?: boolean
+  showModelSelect?: boolean
+  showMeta?: boolean
   density?: DensityMode
 }
 
@@ -39,6 +41,8 @@ export function ChatInput({
   models = ['qwen3:8b'],
   onModelChange,
   showQuickPrompts = true,
+  showModelSelect = true,
+  showMeta = true,
   density = 'compact',
 }: ChatInputProps) {
   const [text, setText] = useState('')
@@ -97,6 +101,7 @@ export function ChatInput({
         />
 
         <div className="composer-actions">
+          {showModelSelect && (
           <div className="model-select">
             <button
               type="button"
@@ -127,6 +132,7 @@ export function ChatInput({
               </div>
             )}
           </div>
+          )}
 
           <button
             type="button"
@@ -152,10 +158,12 @@ export function ChatInput({
         </div>
       </div>
 
+      {showMeta && (
       <div className="composer-meta">
         <span>{text.length} / 4000</span>
         <span>Enter envia</span>
       </div>
+      )}
     </div>
   )
 }
