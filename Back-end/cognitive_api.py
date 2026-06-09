@@ -1,0 +1,529 @@
+"""
+cognitive_api.py — Blueprint Flask da Camada Cognitiva do Nexus IA.
+
+Todos os endpoints prefixados com /api/cognitive
+Registra o Blueprint em app.py com: app.register_blueprint(cognitive_bp)
+"""
+
+from __future__ import annotations
+
+# Importa o pacote cognitivo primeiro para garantir que o sys.path está
+# configurado (via cognitive/__init__.py) antes de qualquer outro import.
+import cognitive  # noqa: F401 — efeito colateral: injeta Back-end/ no sys.path
+
+from flask import Blueprint, jsonify, request
+
+from cognitive import (
+    memory,
+    knowledge_graph,
+    rag,
+    projects,
+    timeline,
+    insights,
+    summarizer,
+    search,
+    detector,
+)
+import database_v2 as dbv2
+from database_v2 import get_db_connection
+
+cognitive_bp = Blueprint("cognitive", __name__, url_prefix="/api/cognitive")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _ok(data, status: int = 200):
+    return jsonify(data), status
+
+
+def _err(message: str, status: int = 400):
+    return jsonify({"error": message}), status
+
+
+def _int_param(key: str, default: int = 10) -> int:
+    try:
+        return int(request.args.get(key, default))
+    except (ValueError, TypeError):
+        return default
+
+
+# ── Health / Stats ─────────────────────────────────────────────────────────--
+
+@cognitive_bp.get("/health")
+def health():
+    """Retorna status de saúde do sistema cognitivo."""
+    return _ok({
+        "status": "online",
+        "memory": memory.get_stats(),
+        "graph": knowledge_graph.get_stats(),
+        "rag": rag.get_stats(),
+        "projects": projects.get_stats(),
+        "timeline": timeline.get_stats(),
+        "insights": insights.get_stats(),
+    })
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# MEMÓRIA
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/memory")
+def get_memories():
+    """Lista memórias com filtros opcionais."""
+    types = request.args.getlist("type") or None
+    session_id = request.args.get("session_id")
+    tags = request.args.getlist("tag") or None
+    include_expired = request.args.get("include_expired") == "true"
+    limit = _int_param("limit", 50)
+
+    data = memory.get_memories(
+        memory_types=types,
+        session_id=session_id,
+        tags=tags,
+        include_expired=include_expired,
+        limit=limit,
+    )
+    return _ok(data)
+
+
+@cognitive_bp.post("/memory")
+def save_memory():
+    """Salva uma memória manualmente."""
+    body = request.get_json(silent=True) or {}
+    content = (body.get("content") or "").strip()
+    if not content:
+        return _err("Campo 'content' é obrigatório.")
+
+    mem_type = body.get("type", "medium")
+    session_id = body.get("session_id")
+    importance = float(body.get("importance", 0.6))
+    tags = body.get("tags") or []
+
+    result = memory.save_memory(content, mem_type, session_id, importance, tags)
+    return _ok(result, 201)
+
+
+@cognitive_bp.get("/memory/recall")
+def recall_memory():
+    """Recupera memórias relevantes para uma consulta."""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return _err("Parâmetro 'q' é obrigatório.")
+
+    types = request.args.getlist("type") or None
+    limit = _int_param("limit", 8)
+    data = memory.recall(query, memory_types=types, limit=limit)
+    return _ok(data)
+
+
+@cognitive_bp.delete("/memory/prune")
+def prune_memories():
+    """Remove memórias expiradas."""
+    removed = memory.prune_expired()
+    return _ok({"removed": removed})
+
+
+@cognitive_bp.post("/memory/consolidate/<session_id>")
+def consolidate_session_memory(session_id: str):
+    """Consolida memórias de curto → médio → longo prazo para uma sessão."""
+    result = memory.consolidate_session(session_id)
+    return _ok(result)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# GRAFO DE CONHECIMENTO
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/graph")
+def get_graph():
+    """Retorna o grafo completo para o Obsidian/BrainMap."""
+    limit = _int_param("limit", 200)
+    return _ok(knowledge_graph.get_full_graph(limit=limit))
+
+
+@cognitive_bp.get("/graph/entity/<path:name>")
+def get_entity(name: str):
+    """Retorna uma entidade específica com seus vizinhos."""
+    depth = _int_param("depth", 1)
+    data = knowledge_graph.get_neighbors(name, depth=depth)
+    if not data:
+        return _err(f"Entidade '{name}' não encontrada.", 404)
+    return _ok(data)
+
+
+@cognitive_bp.get("/graph/top")
+def get_top_entities():
+    """Entidades mais conectadas."""
+    limit = _int_param("limit", 20)
+    return _ok(knowledge_graph.get_most_connected(limit=limit))
+
+
+@cognitive_bp.post("/graph/entity")
+def create_entity():
+    """Cria ou atualiza uma entidade no grafo."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return _err("Campo 'name' é obrigatório.")
+
+    entity = knowledge_graph.upsert_entity(
+        name=name,
+        entity_type=body.get("entity_type", "concept"),
+        description=body.get("description"),
+        importance=float(body.get("importance", 0.5)),
+        metadata=body.get("metadata"),
+    )
+    return _ok(entity, 201)
+
+
+@cognitive_bp.post("/graph/relation")
+def create_relation():
+    """Cria relação entre duas entidades."""
+    body = request.get_json(silent=True) or {}
+    source = (body.get("source") or "").strip()
+    target = (body.get("target") or "").strip()
+    if not source or not target:
+        return _err("Campos 'source' e 'target' são obrigatórios.")
+
+    result = knowledge_graph.add_relation(
+        source_name=source,
+        target_name=target,
+        relation_type=body.get("relation_type", "related_to"),
+        strength=float(body.get("strength", 0.5)),
+    )
+    if not result:
+        return _err("Uma ou ambas as entidades não foram encontradas.", 404)
+    return _ok(result, 201)
+
+
+@cognitive_bp.post("/graph/detect")
+def detect_graph():
+    """Detecta entidades em um texto e registra no grafo."""
+    body = request.get_json(silent=True) or {}
+    text = (body.get("text") or "").strip()
+    if not text:
+        return _err("Campo 'text' é obrigatório.")
+
+    found = knowledge_graph.detect_and_register(text)
+    return _ok({"detected": found, "count": len(found)})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PROJETOS
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/projects")
+def list_projects():
+    """Lista todos os projetos."""
+    status = request.args.get("status")
+    return _ok(projects.get_all_projects(status=status))
+
+
+@cognitive_bp.post("/projects")
+def create_project():
+    """Cria um novo projeto."""
+    body = request.get_json(silent=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name:
+        return _err("Campo 'name' é obrigatório.")
+
+    proj = projects.create_project(
+        name=name,
+        description=body.get("description"),
+        technologies=body.get("technologies") or [],
+        objectives=body.get("objectives") or [],
+        tags=body.get("tags") or [],
+    )
+    return _ok(proj, 201)
+
+
+@cognitive_bp.get("/projects/<int:project_id>")
+def get_project(project_id: int):
+    """Retorna projeto completo com sessões e documentos."""
+    proj = projects.get_project(project_id)
+    if not proj:
+        return _err("Projeto não encontrado.", 404)
+    return _ok(proj)
+
+
+@cognitive_bp.patch("/projects/<int:project_id>")
+def update_project(project_id: int):
+    """Atualiza campos do projeto."""
+    body = request.get_json(silent=True) or {}
+    proj = projects.update_project(project_id, **body)
+    if not proj:
+        return _err("Projeto não encontrado.", 404)
+    return _ok(proj)
+
+
+@cognitive_bp.delete("/projects/<int:project_id>")
+def delete_project(project_id: int):
+    """Remove um projeto."""
+    ok = projects.delete_project(project_id)
+    if not ok:
+        return _err("Projeto não encontrado.", 404)
+    return _ok({"success": True})
+
+
+@cognitive_bp.post("/projects/<int:project_id>/link/<session_id>")
+def link_session_to_project(project_id: int, session_id: str):
+    """Vincula uma sessão a um projeto."""
+    ok = projects.link_session(project_id, session_id)
+    return _ok({"success": ok})
+
+
+@cognitive_bp.delete("/projects/<int:project_id>/link/<session_id>")
+def unlink_session_from_project(project_id: int, session_id: str):
+    """Desvincula sessão do projeto."""
+    ok = projects.unlink_session(project_id, session_id)
+    return _ok({"success": ok})
+
+
+@cognitive_bp.post("/projects/<int:project_id>/documents")
+def add_project_document(project_id: int):
+    """Adiciona documento ao projeto."""
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or "").strip()
+    if not title:
+        return _err("Campo 'title' é obrigatório.")
+
+    doc = projects.add_document(
+        project_id=project_id,
+        title=title,
+        doc_type=body.get("doc_type", "document"),
+        knowledge_source_id=body.get("knowledge_source_id"),
+    )
+    return _ok(doc, 201)
+
+
+@cognitive_bp.get("/projects/<int:project_id>/summary")
+def project_summary(project_id: int):
+    """Resumo completo do projeto."""
+    result = summarizer.summarize_project(project_id)
+    if result.get("error"):
+        return _err(result["error"], 404)
+    return _ok(result)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TIMELINE
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/timeline")
+def get_timeline():
+    """Lista eventos da timeline com filtros."""
+    start = request.args.get("start")
+    end = request.args.get("end")
+    types = request.args.getlist("type") or None
+    limit = _int_param("limit", 100)
+    data = timeline.get_timeline(start_date=start, end_date=end, event_types=types, limit=limit)
+    return _ok(data)
+
+
+@cognitive_bp.post("/timeline")
+def add_timeline_event():
+    """Adiciona evento manualmente."""
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or "").strip()
+    if not title:
+        return _err("Campo 'title' é obrigatório.")
+
+    event = timeline.add_event(
+        title=title,
+        event_type=body.get("event_type", "milestone"),
+        description=body.get("description"),
+        event_date=body.get("event_date"),
+        entity_id=body.get("entity_id"),
+        entity_type=body.get("entity_type"),
+        session_id=body.get("session_id"),
+        importance=float(body.get("importance", 0.6)),
+        tags=body.get("tags") or [],
+    )
+    return _ok(event, 201)
+
+
+@cognitive_bp.get("/timeline/recent")
+def recent_activity():
+    """Atividade recente."""
+    days = _int_param("days", 7)
+    return _ok(timeline.get_recent_activity(days=days))
+
+
+@cognitive_bp.get("/timeline/answer")
+def answer_timeline():
+    """Responde perguntas temporais em linguagem natural."""
+    question = request.args.get("q", "").strip()
+    if not question:
+        return _err("Parâmetro 'q' é obrigatório.")
+    result = timeline.answer_temporal_query(question)
+    return _ok(result)
+
+
+@cognitive_bp.get("/timeline/today")
+def timeline_today():
+    return _ok(timeline.get_today())
+
+
+@cognitive_bp.get("/timeline/week")
+def timeline_week():
+    return _ok(timeline.get_this_week())
+
+
+@cognitive_bp.get("/timeline/month")
+def timeline_month():
+    return _ok(timeline.get_this_month())
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# INSIGHTS
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/insights")
+def get_insights():
+    """Lista insights pendentes."""
+    include_read = request.args.get("include_read") == "true"
+    limit = _int_param("limit", 10)
+    return _ok(insights.get_all_insights(include_read=include_read, limit=limit))
+
+
+@cognitive_bp.post("/insights/generate")
+def generate_insights():
+    """Gera todos os insights agora."""
+    generated = insights.generate_all_insights()
+    return _ok({"generated": len(generated), "insights": generated})
+
+
+@cognitive_bp.patch("/insights/<int:insight_id>/read")
+def mark_insight_read(insight_id: int):
+    """Marca insight como lido."""
+    ok = insights.mark_read(insight_id)
+    if not ok:
+        return _err("Insight não encontrado.", 404)
+    return _ok({"success": True})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# RESUMOS
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/summary/session/<session_id>")
+def summary_session(session_id: str):
+    """Resumo de uma sessão."""
+    use_llm = request.args.get("llm") == "true"
+    result = summarizer.summarize_session(session_id, use_llm=use_llm)
+    if result.get("error"):
+        return _err(result["error"], 404)
+    return _ok(result)
+
+
+@cognitive_bp.get("/summary/daily")
+def summary_daily():
+    """Resumo do dia."""
+    date = request.args.get("date")
+    return _ok(summarizer.summarize_daily(date=date))
+
+
+@cognitive_bp.get("/summary/weekly")
+def summary_weekly():
+    """Resumo da semana."""
+    week = request.args.get("week")
+    return _ok(summarizer.summarize_weekly(week_start=week))
+
+
+@cognitive_bp.get("/summary/monthly")
+def summary_monthly():
+    """Resumo mensal."""
+    month = request.args.get("month")
+    return _ok(summarizer.summarize_monthly(year_month=month))
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# BUSCA GLOBAL
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/search")
+def global_search():
+    """Busca unificada em memórias, projetos, timeline, conhecimento e grafo."""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return _err("Parâmetro 'q' é obrigatório.")
+
+    session_id = request.args.get("session_id")
+    limit = _int_param("limit", 30)
+    results = search.global_search(query, limit=limit, session_id=session_id)
+    return _ok(results)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# RAG
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.post("/rag/index/<int:knowledge_id>")
+def rag_index(knowledge_id: int):
+    """Indexa (ou re-indexa) um knowledge_source específico."""
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT content FROM knowledge_sources WHERE id=?", (knowledge_id,)
+        ).fetchone()
+
+    if not row:
+        return _err("knowledge_source não encontrado.", 404)
+
+    chunks = rag.index_document(knowledge_id, row["content"])
+    return _ok({"knowledge_id": knowledge_id, "chunks_indexed": chunks})
+
+
+@cognitive_bp.post("/rag/reindex-all")
+def rag_reindex_all():
+    """Re-indexa toda a base de conhecimento."""
+    session_id = (request.get_json(silent=True) or {}).get("session_id")
+    result = rag.index_all_knowledge(session_id=session_id)
+    return _ok(result)
+
+
+@cognitive_bp.get("/rag/search")
+def rag_search():
+    """Busca semântica direta nos chunks indexados."""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return _err("Parâmetro 'q' é obrigatório.")
+
+    session_id = request.args.get("session_id")
+    top_k = _int_param("top_k", 8)
+    mode = request.args.get("mode", "hybrid")  # semantic | bm25 | hybrid
+
+    if mode == "bm25":
+        results = rag.bm25_search(query, top_k=top_k, session_id=session_id)
+    elif mode == "semantic":
+        results = rag.semantic_search(query, top_k=top_k, session_id=session_id)
+    else:
+        results = rag.hybrid_search(query, top_k=top_k, session_id=session_id)
+
+    return _ok({"results": results, "mode": mode, "query": query})
+
+
+@cognitive_bp.get("/rag/context")
+def rag_context():
+    """Contexto RAG formatado para injetar no LLM."""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return _err("Parâmetro 'q' é obrigatório.")
+
+    session_id = request.args.get("session_id")
+    top_k = _int_param("top_k", 6)
+    context = rag.build_rag_context(query, session_id=session_id, top_k=top_k)
+    return _ok({"context": context, "query": query})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# DETECTOR
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.post("/detect")
+def detect_signals():
+    """Detecta sinais cognitivos em um texto (API pública)."""
+    body = request.get_json(silent=True) or {}
+    text = (body.get("text") or "").strip()
+    if not text:
+        return _err("Campo 'text' é obrigatório.")
+    return _ok(detector.detect_learning_signals(text))

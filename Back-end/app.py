@@ -24,6 +24,13 @@ from agenty import (
 )
 import database
 
+# ── Camada Cognitiva (Second Brain) ──────────────────────────────────────────
+import database_v2
+from cognitive_api import cognitive_bp
+from cognitive import detector as cognitive_detector
+from cognitive import rag as cognitive_rag
+import supabase_sync
+
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR.parent / "front-end" / "dist"
 STATIC_DIR = FRONTEND_DIST_DIR if FRONTEND_DIST_DIR.exists() else BASE_DIR / "static"
@@ -32,8 +39,14 @@ app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 # Habilita CORS para permitir conexões do Front-end em outras portas
 CORS(app)
 
-# Inicializa as tabelas do banco de dados SQLite
+# Inicializa as tabelas do banco de dados SQLite (existentes)
 database.init_db()
+
+# Inicializa as tabelas cognitivas do Second Brain (migração não-destrutiva)
+database_v2.migrate()
+
+# Registra o Blueprint da Camada Cognitiva
+app.register_blueprint(cognitive_bp)
 
 
 def sse_event(payload: dict) -> str:
@@ -187,6 +200,9 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
 
     database.add_message(session_id, "user", user_text)
     knowledge_context = database.build_knowledge_context(session_id, query=user_text)
+    rag_context = cognitive_rag.build_rag_context(user_text, session_id=session_id, top_k=6)
+    if rag_context:
+        knowledge_context = f"{knowledge_context}\n\n{rag_context}" if knowledge_context else rag_context
     return history, title_update, knowledge_context
 
 
@@ -236,6 +252,24 @@ def get_config():
         "ollama_url": "http://localhost:11434",
         "google_search_available": is_google_search_configured(),
     }), 200
+
+
+@app.route('/api/sync/status', methods=['GET'])
+def get_sync_status():
+    """Retorna o estado da sincronização local-first com Supabase."""
+    return jsonify(supabase_sync.get_status()), 200
+
+
+@app.route('/api/sync/run', methods=['POST'])
+def run_sync():
+    """Envia snapshots locais para o Supabase quando houver configuração."""
+    data = request.get_json(silent=True) or {}
+    result = supabase_sync.run_sync(
+        table=data.get("table"),
+        limit=data.get("limit"),
+        dry_run=bool(data.get("dry_run")),
+    )
+    return jsonify(result), 200 if result.get("success") else 400
 
 
 def get_requested_model() -> str:
@@ -381,6 +415,11 @@ def import_session_knowledge(session_id):
             content=content,
             topics=topics,
         )
+        try:
+            item["rag_chunks"] = cognitive_rag.index_document(item["id"], content)
+        except Exception as rag_error:
+            print(f"[RAG] Indexação ignorada para knowledge_source {item['id']}: {rag_error}")
+            item["rag_chunks"] = 0
         return jsonify(item), 201
 
     except Exception as e:
@@ -449,6 +488,11 @@ def chat():
         msg_data = None
         if session_id:
             msg_data = database.add_message(session_id, "ia", reply, audio_url)
+            cognitive_detector.process_chat_async(
+                session_id=session_id,
+                user_text=user_text,
+                ai_text=reply,
+            )
 
         return jsonify({
             "user_text": user_text,
@@ -550,6 +594,13 @@ def chat_stream():
             if session_id and full_response:
                 # Salva o texto completo gerado
                 database.add_message(session_id, "ia", full_response.strip())
+
+                # ── Detecção cognitiva em background (não bloqueia a resposta) ──
+                cognitive_detector.process_chat_async(
+                    session_id=session_id,
+                    user_text=user_text,
+                    ai_text=full_response.strip(),
+                )
 
         except Exception as e:
             yield sse_event({'type': 'error', 'content': str(e)})

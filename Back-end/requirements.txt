@@ -9,3 +9,14 @@ flask-cors
 faster-whisper
 huggingface-hub
 PyPDF2
+
+# ── Camada Cognitiva (Second Brain) ──────────────────────────────────────────
+
+# RAG semântico — embeddings locais multilingual (offline, instalado)
+sentence-transformers
+
+# BM25 para busca híbrida (fallback leve, sem dependências extras)
+# rank-bm25
+
+# Suporte a DOCX (opcional)
+# python-docx

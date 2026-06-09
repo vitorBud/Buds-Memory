@@ -9,7 +9,6 @@ import numpy as np
 import requests
 import sounddevice as sd
 import soundfile as sf
-from faster_whisper import WhisperModel
 
 BASE = Path(__file__).resolve().parent
 CONFIG_FILE = BASE / "config.json"
@@ -105,22 +104,36 @@ def play_wav(wav_path: Path, device_id: int):
 
 # ====== STT (sounddevice + faster-whisper Local em CPU) ======
 STT_MODEL_PATH = BASE / "models" / "faster-whisper-base"
+stt_model = None
 
-print("[OK] Inicializando modelo STT (faster-whisper) na CPU...")
 
-try:
-    stt_model = WhisperModel(
-        str(STT_MODEL_PATH),
-        device="cpu",
-        compute_type="int8"
-    )
-except Exception as e:
-    print(f"[Erro] Falha ao carregar o modelo STT local: {e}")
-    print("Dica: confira se o modelo foi baixado corretamente em:")
-    print(f"      {STT_MODEL_PATH}")
-    print("Se ainda não baixou, rode:")
-    print("      python baixar_stt.py")
-    raise e
+def get_stt_model():
+    """Carrega o Whisper apenas quando o usuário envia áudio."""
+    global stt_model
+    if stt_model is not None:
+        return stt_model
+
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError as e:
+        raise RuntimeError("STT indisponível: instale faster-whisper para usar áudio.") from e
+
+    print("[STT] Carregando modelo faster-whisper sob demanda...")
+    try:
+        stt_model = WhisperModel(
+            str(STT_MODEL_PATH),
+            device="cpu",
+            compute_type="int8"
+        )
+        print("[STT] Modelo carregado.")
+        return stt_model
+    except Exception as e:
+        print(f"[Erro] Falha ao carregar o modelo STT local: {e}")
+        print("Dica: confira se o modelo foi baixado corretamente em:")
+        print(f"      {STT_MODEL_PATH}")
+        print("Se ainda não baixou, rode:")
+        print("      python baixar_stt.py")
+        raise e
 
 
 def record_wav_dynamic(out_path: Path, device_id: int, sr_rate=16000):
@@ -176,7 +189,8 @@ def record_wav_dynamic(out_path: Path, device_id: int, sr_rate=16000):
 
 def stt_local(wav_path: Path) -> str:
     try:
-        segments, _info = stt_model.transcribe(
+        model = get_stt_model()
+        segments, _info = model.transcribe(
             str(wav_path),
             language="pt",
             beam_size=1,
@@ -205,7 +219,11 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_SEARCH_API_KEY
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_SEARCH_ENGINE_ID")
 
 SYSTEM_STYLE = (
-    "Você é um assistente virtual prestativo, claro e educado, com um estilo parecido com o ChatGPT. "
+    "Sua identidade fixa é Nexus IA. Você é o chat Nexus, um assistente local inteligente criado para ajudar o usuário "
+    "com conversas, código, estudos, documentos, memória e organização de conhecimento. "
+    "Quando perguntarem quem você é, responda com segurança que você é o Nexus IA, sem dizer que é ChatGPT, OpenAI, Qwen, Ollama "
+    "ou outro modelo base, a menos que o usuário pergunte explicitamente sobre detalhes técnicos do motor. "
+    "Seu estilo de conversa deve ser prestativo, claro e educado, parecido com o ChatGPT. "
     "Responda sempre em português do Brasil, com precisão, naturalidade e objetividade. "
     "Quando for útil, organize a resposta em passos curtos ou tópicos, sem ironia, grosseria ou sarcasmo. "
     "Se faltar contexto, faça uma pergunta simples antes de assumir algo arriscado. "
