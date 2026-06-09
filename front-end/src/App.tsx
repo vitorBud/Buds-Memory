@@ -21,8 +21,8 @@ import { BrainMap } from './components/BrainMap'
 import { JarvisCore } from './components/JarvisCore'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
-import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge } from './services/api'
-import type { AiState, Session, ActivityItem, InterfaceSettings, Message, KnowledgeSource } from './types'
+import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, getCognitiveMemories, getKnowledgeGraph } from './services/api'
+import type { AiState, Session, ActivityItem, InterfaceSettings, Message, KnowledgeSource, SyncStatus, CognitiveMemory, KnowledgeGraph } from './types'
 import { formatSessionDate } from './utils/formatters'
 
 const SETTINGS_KEY = 'nexus-interface-settings'
@@ -309,6 +309,7 @@ export default function App() {
   const pageRef = useRef<HTMLDivElement>(null)
   const chatSceneRef = useRef<HTMLElement>(null)
   const obsidianSceneRef = useRef<HTMLElement>(null)
+  const didAutoLoadSessionRef = useRef(false)
   const [aiState, setAiState] = useState<AiState>('idle')
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
@@ -333,6 +334,10 @@ export default function App() {
   const [knowledgeInput, setKnowledgeInput] = useState('')
   const [isImportingKnowledge, setIsImportingKnowledge] = useState(false)
   const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [cognitiveMemories, setCognitiveMemories] = useState<CognitiveMemory[]>([])
+  const [knowledgeGraph, setKnowledgeGraph] = useState<KnowledgeGraph | null>(null)
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (window.location.hash === '#chat') return 'chat'
     if (window.location.hash === '#obsidian') return 'obsidian'
@@ -361,6 +366,28 @@ export default function App() {
   const pushActivity = useCallback((label: string, color: ActivityItem['color'] = 'cyan') => {
     const item: ActivityItem = { id: Date.now().toString(), label, time: 'agora', color }
     setActivityItems(prev => [item, ...prev].slice(0, 8))
+  }, [])
+
+  const refreshSyncStatus = useCallback(async () => {
+    try {
+      const status = await getSyncStatus()
+      setSyncStatus(status)
+    } catch (err) {
+      console.error(err)
+    }
+  }, [])
+
+  const refreshCognitiveBrain = useCallback(async () => {
+    try {
+      const [memories, graph] = await Promise.all([
+        getCognitiveMemories(220),
+        getKnowledgeGraph(260),
+      ])
+      setCognitiveMemories(memories)
+      setKnowledgeGraph(graph)
+    } catch (err) {
+      console.error(err)
+    }
   }, [])
 
   const updateSetting = <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => {
@@ -415,17 +442,56 @@ export default function App() {
     onStateChange: setAiState,
   })
 
+  const loadSessionData = useCallback(async (session: Session, announce = true) => {
+    setCurrentSessionId(session.id)
+    setCurrentSessionTitle(session.title)
+    setCurrentSessionCreatedAt(session.created_at)
+    setDraftTitle(session.title)
+    setIsEditingTitle(false)
+    clearMessages()
+
+    const msgs = await getSessionMessages(session.id)
+    const sources = await getSessionKnowledge(session.id)
+    loadMessages(msgs)
+    setKnowledgeSources(sources)
+    if (announce) pushActivity(`Conversa carregada: ${session.title}`, 'violet')
+  }, [clearMessages, loadMessages, pushActivity])
+
   useEffect(() => {
-    getSessions().then(setSessions).catch(console.error)
+    let cancelled = false
+
+    getSessions()
+      .then(async loadedSessions => {
+        if (cancelled) return
+        setSessions(loadedSessions)
+        const latestSession = loadedSessions[0]
+        if (latestSession && !didAutoLoadSessionRef.current) {
+          didAutoLoadSessionRef.current = true
+          await loadSessionData(latestSession, false)
+        }
+      })
+      .catch(console.error)
+
+    refreshSyncStatus()
+    refreshCognitiveBrain()
     getBackendConfig()
       .then(config => {
+        if (cancelled) return
         const models = config.models?.length ? config.models : DEFAULT_MODELS
         setAvailableModels(models)
         setSelectedModel(models.includes(config.model) ? config.model : models[0] || FALLBACK_MODEL)
         setGoogleSearchAvailable(Boolean(config.google_search_available))
       })
       .catch(console.error)
-  }, [])
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadSessionData, refreshCognitiveBrain, refreshSyncStatus])
+
+  useEffect(() => {
+    if (settingsOpen) refreshSyncStatus()
+  }, [settingsOpen, refreshSyncStatus])
 
   useEffect(() => {
     const target = window.location.hash
@@ -479,18 +545,8 @@ export default function App() {
   }
 
   const handleSelectSession = async (session: Session) => {
-    setCurrentSessionId(session.id)
-    setCurrentSessionTitle(session.title)
-    setCurrentSessionCreatedAt(session.created_at)
-    setDraftTitle(session.title)
-    setIsEditingTitle(false)
-    clearMessages()
     try {
-      const msgs = await getSessionMessages(session.id)
-      const sources = await getSessionKnowledge(session.id)
-      loadMessages(msgs)
-      setKnowledgeSources(sources)
-      pushActivity(`Conversa carregada: ${session.title}`, 'violet')
+      await loadSessionData(session)
     } catch (err) {
       console.error(err)
     }
@@ -517,6 +573,9 @@ export default function App() {
     pushActivity(`Mensagem enviada: "${text.slice(0, 30)}..."`, 'cyan')
     await sendText(text)
     pushActivity('Resposta da IA recebida', 'violet')
+    window.setTimeout(() => {
+      void refreshCognitiveBrain()
+    }, 1800)
   }
 
   const handleEditCurrentTitle = () => {
@@ -546,6 +605,7 @@ export default function App() {
       const sessionId = await ensureSession()
       const source = await importKnowledge(sessionId, { file })
       setKnowledgeSources(prev => [source, ...prev])
+      void refreshCognitiveBrain()
       pushActivity(`Conhecimento importado: ${source.title}`, 'emerald')
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao importar conhecimento.')
@@ -569,6 +629,7 @@ export default function App() {
       const source = await importKnowledge(sessionId, payload)
       setKnowledgeSources(prev => [source, ...prev])
       setKnowledgeInput('')
+      void refreshCognitiveBrain()
       pushActivity(`IA aprendeu: ${source.title}`, 'emerald')
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao importar conhecimento.')
@@ -576,6 +637,21 @@ export default function App() {
       setIsImportingKnowledge(false)
     }
   }
+
+  const handleSyncNow = useCallback(async () => {
+    setIsSyncing(true)
+    try {
+      const result = await runSync()
+      setSyncStatus(result.status)
+      pushActivity(`Sync Supabase: ${result.uploaded} registro(s)`, 'emerald')
+    } catch (err) {
+      pushActivity('Falha no sync Supabase', 'rose')
+      alert(err instanceof Error ? err.message : 'Falha ao sincronizar Supabase.')
+      void refreshSyncStatus()
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [pushActivity, refreshSyncStatus])
 
   const handleOpenHome = () => {
     setActiveView('home')
@@ -820,7 +896,7 @@ export default function App() {
             <span className="eyebrow">Obsidian neural</span>
             <h2>Cérebro IA</h2>
             <p>
-              Rede viva da conversa: memória, contexto, código e resposta conectados em tempo real.
+              Rede viva do que o Nexus salvou: memórias, documentos, conceitos e relações aprendidas.
             </p>
             <div className="obsidian-progress-meter">
               <span />
@@ -828,7 +904,13 @@ export default function App() {
           </div>
 
           <div className="obsidian-stage-graph">
-            <BrainMap key={settings.theme} messages={messages} knowledgeSources={knowledgeSources} />
+            <BrainMap
+              key={settings.theme}
+              messages={messages}
+              knowledgeSources={knowledgeSources}
+              cognitiveMemories={cognitiveMemories}
+              knowledgeGraph={knowledgeGraph}
+            />
           </div>
         </div>
       </section>
@@ -850,8 +932,11 @@ export default function App() {
             model={selectedModel}
             models={availableModels}
             googleSearchAvailable={googleSearchAvailable}
+            syncStatus={syncStatus}
+            isSyncing={isSyncing}
             settings={settings}
             onModelChange={setSelectedModel}
+            onSyncNow={handleSyncNow}
             onSettingChange={updateSetting}
             onClose={() => setSettingsOpen(false)}
           >

@@ -18,14 +18,16 @@ import {
   X,
   ZoomIn,
 } from 'lucide-react'
-import type { KnowledgeSource, Message } from '../types'
+import type { CognitiveMemory, KnowledgeGraph, KnowledgeSource, Message } from '../types'
 
 interface BrainMapProps {
   messages: Message[]
   knowledgeSources?: KnowledgeSource[]
+  cognitiveMemories?: CognitiveMemory[]
+  knowledgeGraph?: KnowledgeGraph | null
 }
 
-type MemoryKind = 'fonte' | 'mensagem' | 'topico' | 'sistema'
+type MemoryKind = 'fonte' | 'mensagem' | 'memoria' | 'entidade' | 'topico' | 'sistema'
 type MemoryPeriod = 'today' | 'yesterday' | 'week' | 'month' | 'all'
 
 interface MemoryNode {
@@ -92,6 +94,8 @@ const PERIODS: Array<{ id: MemoryPeriod; label: string }> = [
 const KIND_LABEL: Record<MemoryKind, string> = {
   fonte: 'Documento',
   mensagem: 'Conversa',
+  memoria: 'Memória salva',
+  entidade: 'Conceito salvo',
   topico: 'Conceito',
   sistema: 'Sistema',
 }
@@ -99,6 +103,8 @@ const KIND_LABEL: Record<MemoryKind, string> = {
 const KIND_COLOR: Record<MemoryKind, string> = {
   fonte: '#d6a63d',
   mensagem: '#62c77b',
+  memoria: '#d7f7ff',
+  entidade: '#c7b8ff',
   topico: '#7da7ff',
   sistema: '#cfd7e6',
 }
@@ -157,6 +163,51 @@ function parseDate(value?: string | null, fallbackOffset = 0) {
   return new Date(Date.now() - fallbackOffset)
 }
 
+function buildBaseMemoryNodes(): Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[] {
+  return [
+    {
+      id: 'sistema-contexto',
+      label: 'Contexto da conversa',
+      summary: 'Memória inicial aguardando mensagens e arquivos.',
+      kind: 'sistema',
+      weight: 8,
+      createdAt: new Date(),
+      source: 'Nexus Core',
+      tags: ['contexto', 'sessão'],
+    },
+    {
+      id: 'sistema-pdfs',
+      label: 'PDFs importados',
+      summary: 'Quando você importar PDFs, cada um vira um ponto vivo no grafo.',
+      kind: 'sistema',
+      weight: 7,
+      createdAt: new Date(),
+      source: 'Vault',
+      tags: ['pdf', 'documentos'],
+    },
+    {
+      id: 'sistema-pesquisas',
+      label: 'Pesquisas salvas',
+      summary: 'Pesquisas e páginas entram como conhecimento navegável.',
+      kind: 'sistema',
+      weight: 7,
+      createdAt: new Date(),
+      source: 'Web',
+      tags: ['google', 'web'],
+    },
+    {
+      id: 'sistema-topicos',
+      label: 'Tópicos aprendidos',
+      summary: 'Os principais tópicos aparecem como ramificações do núcleo.',
+      kind: 'sistema',
+      weight: 7,
+      createdAt: new Date(),
+      source: 'Nexus Core',
+      tags: ['aprendizado', 'conceitos'],
+    },
+  ]
+}
+
 function positionNodes(nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[]): MemoryNode[] {
   const total = Math.max(nodes.length, 1)
 
@@ -178,8 +229,13 @@ function positionNodes(nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 
   })
 }
 
-function buildMemoryNodes(messages: Message[], sources: KnowledgeSource[]): MemoryNode[] {
-  const nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[] = []
+function buildMemoryNodes(
+  messages: Message[],
+  sources: KnowledgeSource[],
+  cognitiveMemories: CognitiveMemory[] = [],
+  graph?: KnowledgeGraph | null,
+): MemoryNode[] {
+  const nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[] = buildBaseMemoryNodes()
 
   sources.forEach((source, sourceIndex) => {
     const createdAt = parseDate(source.created_at, sourceIndex * 86_400_000)
@@ -216,6 +272,46 @@ function buildMemoryNodes(messages: Message[], sources: KnowledgeSource[]): Memo
     })
   })
 
+  cognitiveMemories.forEach((memory, memoryIndex) => {
+    const createdAt = parseDate(memory.created_at || memory.last_accessed, memoryIndex * 3_600_000)
+    const tags = [...new Set([memory.memory_type, ...(memory.tags ?? []), ...getTopics(memory.content, 4)])]
+      .map(prettifyTopic)
+      .filter(Boolean)
+      .slice(0, 8)
+    const importance = Number.isFinite(memory.importance) ? memory.importance : 0.5
+
+    nodes.push({
+      id: `memoria-${memory.id}`,
+      label: compactLabel(memory.content, `Memória ${memory.memory_type}`, 68),
+      summary: memory.content,
+      kind: 'memoria',
+      weight: 9 + Math.round(importance * 8) + Math.min(memory.access_count ?? 0, 4),
+      createdAt,
+      source: `Memória ${memory.memory_type}`,
+      tags,
+    })
+  })
+
+  ;(graph?.entities ?? []).slice(0, 90).forEach((entity, entityIndex) => {
+    const createdAt = parseDate(entity.last_seen || entity.first_seen, entityIndex * 5_400_000)
+    const entityTags = [entity.entity_type, ...getTopics(`${entity.name} ${entity.description ?? ''}`, 4)]
+      .map(prettifyTopic)
+      .filter(Boolean)
+      .slice(0, 6)
+    const importance = Number.isFinite(entity.importance) ? entity.importance : 0.5
+
+    nodes.push({
+      id: `entidade-${entity.id}`,
+      label: compactLabel(prettifyTopic(entity.name) || entity.name, 'Conceito salvo', 54),
+      summary: entity.description || `Conceito detectado e salvo no grafo cognitivo: ${entity.name}.`,
+      kind: 'entidade',
+      weight: 7 + Math.round(importance * 8) + Math.min(entity.access_count ?? 0, 4),
+      createdAt,
+      source: 'Grafo cognitivo',
+      tags: entityTags,
+    })
+  })
+
   messages
     .filter(message => message.text !== '__thinking__')
     .slice(-36)
@@ -232,51 +328,6 @@ function buildMemoryNodes(messages: Message[], sources: KnowledgeSource[]): Memo
         tags: topics,
       })
     })
-
-  if (!nodes.length) {
-    return positionNodes([
-      {
-        id: 'sistema-contexto',
-        label: 'Contexto da conversa',
-        summary: 'Memória inicial aguardando mensagens e arquivos.',
-        kind: 'sistema',
-        weight: 8,
-        createdAt: new Date(),
-        source: 'Nexus Core',
-        tags: ['contexto', 'sessão'],
-      },
-      {
-        id: 'sistema-pdfs',
-        label: 'PDFs importados',
-        summary: 'Quando você importar PDFs, cada um vira um ponto vivo no grafo.',
-        kind: 'sistema',
-        weight: 7,
-        createdAt: new Date(),
-        source: 'Vault',
-        tags: ['pdf', 'documentos'],
-      },
-      {
-        id: 'sistema-pesquisas',
-        label: 'Pesquisas salvas',
-        summary: 'Pesquisas e páginas entram como conhecimento navegável.',
-        kind: 'sistema',
-        weight: 7,
-        createdAt: new Date(),
-        source: 'Web',
-        tags: ['google', 'web'],
-      },
-      {
-        id: 'sistema-topicos',
-        label: 'Tópicos aprendidos',
-        summary: 'Os principais tópicos aparecem como ramificações do núcleo.',
-        kind: 'sistema',
-        weight: 7,
-        createdAt: new Date(),
-        source: 'Nexus Core',
-        tags: ['aprendizado', 'conceitos'],
-      },
-    ])
-  }
 
   return positionNodes(nodes.slice(0, 140))
 }
@@ -592,8 +643,16 @@ function ThreeMemoryGraph({
 }
 
 // Mapa Obsidian do cérebro da IA: memórias, fontes e raciocínio em uma cena 3D interativa.
-export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
-  const allNodes = useMemo(() => buildMemoryNodes(messages, knowledgeSources), [messages, knowledgeSources])
+export function BrainMap({
+  messages,
+  knowledgeSources = [],
+  cognitiveMemories = [],
+  knowledgeGraph = null,
+}: BrainMapProps) {
+  const allNodes = useMemo(
+    () => buildMemoryNodes(messages, knowledgeSources, cognitiveMemories, knowledgeGraph),
+    [messages, knowledgeSources, cognitiveMemories, knowledgeGraph],
+  )
   const [selectedId, setSelectedId] = useState(allNodes[0]?.id ?? 'sistema-contexto')
   const [isStatsOpen, setIsStatsOpen] = useState(false)
   const [period, setPeriod] = useState<MemoryPeriod>('all')
@@ -603,13 +662,32 @@ export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
   const selectedNode = visibleNodes.find(node => node.id === selectedId) ?? visibleNodes[0]
   const activeMessages = messages.filter(message => message.text !== '__thinking__')
   const learnedCount = knowledgeSources.length
+  const savedMemoryCount = cognitiveMemories.length
+  const graphEntityCount = knowledgeGraph?.entities.length ?? 0
+  const graphEdgeCount = knowledgeGraph?.edges.length ?? 0
   const memoryLoad = Math.min(100, Math.round((allNodes.length / 140) * 100))
   const sourceTopics = knowledgeSources.flatMap(source => source.topics ?? []).slice(0, 12)
-  const totalConnections = Math.max(allNodes.length * 3, sourceTopics.length + activeMessages.length)
-  const processedTokens = [...messages, ...knowledgeSources.map(source => ({ text: source.summary }))]
+  const totalConnections = Math.max(allNodes.length * 3, sourceTopics.length + activeMessages.length + graphEdgeCount)
+  const processedTokens = [
+    ...messages,
+    ...knowledgeSources.map(source => ({ text: source.summary })),
+    ...cognitiveMemories.map(memory => ({ text: memory.content })),
+  ]
     .reduce((total, item) => total + Math.ceil((item.text || '').length / 4), 0)
 
   const recentLearning = useMemo(() => {
+    const memoryEvents = cognitiveMemories.slice(0, 5).map(memory => ({
+      id: `memory-${memory.id}`,
+      label: `Memória ${memory.memory_type}`,
+      text: compactLabel(memory.content, 'Memória salva', 96),
+      date: parseDate(memory.created_at || memory.last_accessed),
+    }))
+    const entityEvents = (knowledgeGraph?.entities ?? []).slice(0, 5).map(entity => ({
+      id: `entity-${entity.id}`,
+      label: 'Conceito aprendido',
+      text: compactLabel(prettifyTopic(entity.name) || entity.name, 'Conceito salvo', 96),
+      date: parseDate(entity.last_seen || entity.first_seen),
+    }))
     const sourceEvents = knowledgeSources.slice(0, 4).map(source => ({
       id: `source-${source.id}`,
       label: 'Documento indexado',
@@ -622,8 +700,10 @@ export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
       text: node.label,
       date: node.createdAt,
     }))
-    return [...sourceEvents, ...nodeEvents].sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 6)
-  }, [allNodes, knowledgeSources])
+    return [...memoryEvents, ...entityEvents, ...sourceEvents, ...nodeEvents]
+      .sort((a, b) => b.date.getTime() - a.date.getTime())
+      .slice(0, 6)
+  }, [allNodes, cognitiveMemories, knowledgeGraph, knowledgeSources])
 
   useEffect(() => {
     if (!visibleNodes.some(node => node.id === selectedId)) {
@@ -742,7 +822,12 @@ export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
               <div className="brain-stat-card">
                 <span>Memórias totais</span>
                 <strong>{allNodes.length}</strong>
-                <small>pontos ligados ao núcleo</small>
+                <small>pontos do cérebro visual</small>
+              </div>
+              <div className="brain-stat-card">
+                <span>Memórias salvas</span>
+                <strong>{savedMemoryCount}</strong>
+                <small>registros reais do banco</small>
               </div>
               <div className="brain-stat-card">
                 <span>Aprendizados</span>
@@ -750,9 +835,14 @@ export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
                 <small>documentos, páginas ou pesquisas</small>
               </div>
               <div className="brain-stat-card">
-                <span>Conexões</span>
-                <strong>{totalConnections}</strong>
-                <small>relações cognitivas estimadas</small>
+                <span>Conceitos</span>
+                <strong>{graphEntityCount}</strong>
+                <small>entidades do grafo cognitivo</small>
+              </div>
+              <div className="brain-stat-card">
+                <span>Relações</span>
+                <strong>{graphEdgeCount}</strong>
+                <small>conexões reais do grafo</small>
               </div>
               <div className="brain-stat-card">
                 <span>Tokens</span>
@@ -791,8 +881,8 @@ export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
               </div>
               <div>
                 <Network size={13} />
-                <span>Tópicos</span>
-                <strong>{sourceTopics.length}</strong>
+                <span>Conceitos</span>
+                <strong>{graphEntityCount}</strong>
               </div>
               <div>
                 <Database size={13} />
@@ -818,6 +908,23 @@ export function BrainMap({ messages, knowledgeSources = [] }: BrainMapProps) {
                   <small>{formatShortDate(item.date)}</small>
                 </div>
               ))}
+            </div>
+
+            <div className="learned-source-list">
+              <span className="eyebrow">Memórias salvas</span>
+              {cognitiveMemories.length ? cognitiveMemories.slice(0, 8).map(memory => (
+                <button key={memory.id} type="button" onClick={() => setSelectedId(`memoria-${memory.id}`)}>
+                  <Database size={14} />
+                  <span>
+                    <strong>{compactLabel(memory.content, `Memória ${memory.memory_type}`, 86)}</strong>
+                    <small>
+                      {memory.memory_type} · importância {Math.round((memory.importance ?? 0) * 100)}%
+                    </small>
+                  </span>
+                </button>
+              )) : (
+                <p>Nenhuma memória cognitiva salva ainda.</p>
+              )}
             </div>
 
             <div className="learned-source-list">

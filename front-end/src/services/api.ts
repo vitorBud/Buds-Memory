@@ -1,15 +1,59 @@
 // ─── API Service Layer ───────────────────────────────────────────────────────
 // All calls go through the Vite proxy → http://127.0.0.1:5050
 
-import type { Session, Message, BackendConfig, ChatStreamEvent, KnowledgeSource } from '../types'
+import type {
+  Session,
+  Message,
+  BackendConfig,
+  ChatStreamEvent,
+  CognitiveMemory,
+  KnowledgeGraph,
+  KnowledgeSource,
+  SyncRunResult,
+  SyncStatus,
+} from '../types'
 
-const BASE = '/api'
+const desktopApiBase = (window as unknown as { nexus?: { apiBase?: string } }).nexus?.apiBase
+const BASE = desktopApiBase || import.meta.env.VITE_API_BASE_URL || '/api'
 
 // ── Backend Config ─────────────────────────────────────────────────────────
 
 export async function getBackendConfig(): Promise<BackendConfig> {
   const res = await fetch(`${BASE}/config`)
   if (!res.ok) throw new Error(`getBackendConfig: ${res.status}`)
+  return res.json()
+}
+
+// ── Local-first Sync ────────────────────────────────────────────────────────
+
+export async function getSyncStatus(): Promise<SyncStatus> {
+  const res = await fetch(`${BASE}/sync/status`)
+  if (!res.ok) throw new Error(`getSyncStatus: ${res.status}`)
+  return res.json()
+}
+
+export async function runSync(): Promise<SyncRunResult> {
+  const res = await fetch(`${BASE}/sync/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || data.message || `runSync: ${res.status}`)
+  return data
+}
+
+// ── Cognitive Brain / Obsidian ─────────────────────────────────────────────
+
+export async function getCognitiveMemories(limit = 200): Promise<CognitiveMemory[]> {
+  const res = await fetch(`${BASE}/cognitive/memory?limit=${limit}`)
+  if (!res.ok) throw new Error(`getCognitiveMemories: ${res.status}`)
+  return res.json()
+}
+
+export async function getKnowledgeGraph(limit = 240): Promise<KnowledgeGraph> {
+  const res = await fetch(`${BASE}/cognitive/graph?limit=${limit}`)
+  if (!res.ok) throw new Error(`getKnowledgeGraph: ${res.status}`)
   return res.json()
 }
 

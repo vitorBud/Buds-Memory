@@ -1,6 +1,6 @@
-import { Activity, BrainCircuit, Circle, Cpu, Gauge, SlidersHorizontal, Volume2, X } from 'lucide-react'
+import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, Cpu, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Volume2, X } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { AiState, InterfaceSettings, ThemeMode } from '../types'
+import type { AiState, InterfaceSettings, SyncStatus, ThemeMode } from '../types'
 
 interface StatusPanelProps {
   aiState: AiState
@@ -10,8 +10,11 @@ interface StatusPanelProps {
   model: string
   models: string[]
   googleSearchAvailable: boolean
+  syncStatus: SyncStatus | null
+  isSyncing: boolean
   settings: InterfaceSettings
   onModelChange: (model: string) => void
+  onSyncNow: () => void
   onSettingChange: <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => void
   onClose: () => void
   children?: ReactNode
@@ -61,6 +64,18 @@ const MODEL_OPTIONS: Record<string, { label: string; hint: string }> = {
   'qwen2.5-coder:14b': { label: 'Mais potente', hint: 'melhor raciocínio, exige mais do Mac' },
 }
 
+function formatSyncDate(value?: string | null) {
+  if (!value) return 'Nunca'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Nunca'
+  return date.toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 // Gaveta de configurações da interface, voz, tema e status técnico da sessão.
 export function StatusPanel({
   aiState,
@@ -70,8 +85,11 @@ export function StatusPanel({
   model,
   models,
   googleSearchAvailable,
+  syncStatus,
+  isSyncing,
   settings,
   onModelChange,
+  onSyncNow,
   onSettingChange,
   onClose,
   children,
@@ -156,6 +174,54 @@ export function StatusPanel({
             )
           })}
         </div>
+      </div>
+
+      <div className="panel-block sync-panel-block">
+        <div className="panel-heading">
+          <span>Supabase Sync</span>
+          <Cloud size={15} />
+        </div>
+
+        <div className="sync-status-card">
+          <div className="sync-orb" data-state={syncStatus?.supabase_configured ? 'online' : 'offline'}>
+            {syncStatus?.supabase_configured ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+          </div>
+          <div>
+            <strong>{syncStatus?.supabase_configured ? 'Pronto para nuvem' : 'Apenas local'}</strong>
+            <span>
+              {syncStatus?.online_sync_enabled
+                ? `Tabela ${syncStatus.remote_table}`
+                : 'Sync desativado ou sem credenciais'}
+            </span>
+          </div>
+        </div>
+
+        <div className="sync-metrics-grid">
+          <div>
+            <HardDrive size={13} />
+            <span>Registros locais</span>
+            <strong>{syncStatus?.local_records?.total ?? 0}</strong>
+          </div>
+          <div>
+            <Cloud size={13} />
+            <span>Último sync</span>
+            <strong>{formatSyncDate(syncStatus?.last_sync_at)}</strong>
+          </div>
+        </div>
+
+        {syncStatus?.last_sync_error && (
+          <p className="sync-error">{syncStatus.last_sync_error}</p>
+        )}
+
+        <button
+          type="button"
+          className="sync-now-button"
+          onClick={onSyncNow}
+          disabled={isSyncing || !syncStatus?.supabase_configured || !syncStatus?.online_sync_enabled}
+        >
+          <RefreshCw size={14} className={isSyncing ? 'is-spinning' : ''} />
+          <span>{isSyncing ? 'Sincronizando' : 'Sincronizar agora'}</span>
+        </button>
       </div>
 
       <div className="panel-block">

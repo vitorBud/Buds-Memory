@@ -5571,6 +5571,161 @@ input {
   line-height: 1.35;
 }
 
+.sync-panel-block {
+  gap: 12px;
+}
+
+.sync-status-card {
+  align-items: center;
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 52%),
+    var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white, transparent 72%);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 11px;
+}
+
+.sync-status-card strong,
+.sync-status-card span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-status-card strong {
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.sync-status-card span {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.sync-orb {
+  align-items: center;
+  border: 1px solid var(--liquid-border);
+  border-radius: 999px;
+  display: grid;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.sync-orb[data-state='online'] {
+  background: color-mix(in srgb, #34d399, transparent 78%);
+  border-color: color-mix(in srgb, #34d399, transparent 44%);
+  color: #34d399;
+  box-shadow: 0 0 28px color-mix(in srgb, #34d399, transparent 78%);
+}
+
+.sync-orb[data-state='offline'] {
+  background: color-mix(in srgb, var(--accent-hot), transparent 82%);
+  border-color: color-mix(in srgb, var(--accent-hot), transparent 58%);
+  color: var(--accent-hot);
+}
+
+.sync-metrics-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sync-metrics-grid div {
+  background:
+    linear-gradient(135deg, color-mix(in srgb, white, transparent 90%), transparent),
+    color-mix(in srgb, var(--liquid-panel-soft), transparent 14%);
+  border: 1px solid var(--liquid-border);
+  border-radius: 15px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.sync-metrics-grid svg {
+  color: var(--accent-hot);
+}
+
+.sync-metrics-grid span,
+.sync-metrics-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-metrics-grid span {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.sync-metrics-grid strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.sync-error {
+  background: color-mix(in srgb, #fb7185, transparent 88%);
+  border: 1px solid color-mix(in srgb, #fb7185, transparent 58%);
+  border-radius: 14px;
+  color: color-mix(in srgb, #fb7185, var(--text) 18%);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+  padding: 9px 10px;
+}
+
+.sync-now-button {
+  align-items: center;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent-hot), white 20%), color-mix(in srgb, var(--accent), black 10%));
+  border: 1px solid color-mix(in srgb, var(--accent-hot), transparent 40%);
+  border-radius: 999px;
+  box-shadow: 0 16px 44px color-mix(in srgb, var(--accent-hot), transparent 80%);
+  color: var(--accent-ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 750;
+  gap: 8px;
+  justify-content: center;
+  letter-spacing: 0;
+  min-height: 38px;
+  padding: 0 14px;
+  transition: opacity 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+  width: 100%;
+}
+
+.sync-now-button:not(:disabled):hover {
+  box-shadow: 0 20px 54px color-mix(in srgb, var(--accent-hot), transparent 74%);
+  transform: translateY(-1px);
+}
+
+.sync-now-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.is-spinning {
+  animation: sync-spin 900ms linear infinite;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 900px) {
   .jarvis-frame {
     padding-top: 68px;

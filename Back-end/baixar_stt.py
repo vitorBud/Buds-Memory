@@ -1,4 +1,5 @@
 from pathlib import Path
+# pyrefly: ignore [missing-import]
 from huggingface_hub import snapshot_download
 
 BASE = Path(__file__).resolve().parent

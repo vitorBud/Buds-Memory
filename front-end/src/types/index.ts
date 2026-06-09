@@ -90,3 +90,60 @@ export interface BackendConfig {
   ollama_url: string
   google_search_available: boolean
 }
+
+export interface CognitiveMemory {
+  id: number
+  session_id?: string | null
+  content: string
+  memory_type: 'short' | 'medium' | 'long' | string
+  importance: number
+  access_count: number
+  last_accessed?: string | null
+  expires_at?: string | null
+  tags: string[]
+  created_at: string
+}
+
+export interface KnowledgeGraphEntity {
+  id: number
+  name: string
+  entity_type: string
+  description?: string | null
+  importance: number
+  access_count: number
+  first_seen: string
+  last_seen: string
+  metadata?: Record<string, unknown>
+}
+
+export interface KnowledgeGraphEdge {
+  source: string
+  target: string
+  relation_type: string
+  strength: number
+}
+
+export interface KnowledgeGraph {
+  entities: KnowledgeGraphEntity[]
+  edges: KnowledgeGraphEdge[]
+}
+
+export interface SyncStatus {
+  mode: 'local-first' | string
+  online_sync_enabled: boolean
+  supabase_configured: boolean
+  remote_table: string
+  device_id: string
+  last_sync_at?: string | null
+  last_sync_error?: string | null
+  local_records: Record<string, number>
+}
+
+export interface SyncRunResult {
+  success: boolean
+  message: string
+  uploaded: number
+  dry_run?: boolean
+  records_found?: number
+  status: SyncStatus
+}
