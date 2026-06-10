@@ -378,9 +378,6 @@ function ThreeMemoryGraph({
   useEffect(() => {
     const mount = mountRef.current
     if (!mount) return
-    const interactionTarget = mount.closest('.memory-three-shell') as HTMLElement | null
-    const eventTarget = interactionTarget ?? mount
-
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100)
     camera.position.set(0, 0.65, 7.2)
@@ -388,7 +385,15 @@ function ThreeMemoryGraph({
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25))
     renderer.setClearColor(0x000000, 0)
+    renderer.domElement.style.touchAction = 'none'
+    renderer.domElement.style.pointerEvents = 'auto'
     mount.appendChild(renderer.domElement)
+
+    // Ocultar barras de rolagem nativas para evitar que o mouse cause scroll em vez de zoom
+    mount.style.overflow = 'hidden'
+
+    // O target real onde os eventos de mouse vão disparar é o próprio canvas
+    const eventTarget = renderer.domElement
 
     const root = new THREE.Group()
     const nodesGroup = new THREE.Group()

@@ -7156,3 +7156,90 @@ input {
   padding-left: 22px;
 }
 
+/* ── Network Status ──────────────────────────────────────────────────────── */
+
+.network-status-container {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.network-status-toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(8, 6, 4, 0.86);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  pointer-events: auto;
+  color: #fff;
+  min-width: 320px;
+}
+
+.network-status-toast.offline {
+  border-color: rgba(239, 68, 68, 0.3);
+  box-shadow: 0 4px 24px rgba(239, 68, 68, 0.15), inset 0 1px 0 rgba(239, 68, 68, 0.2);
+}
+
+.network-status-toast.online {
+  border-color: rgba(34, 197, 94, 0.3);
+  box-shadow: 0 4px 24px rgba(34, 197, 94, 0.15), inset 0 1px 0 rgba(34, 197, 94, 0.2);
+}
+
+.network-status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.network-status-toast.offline .network-status-icon {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.network-status-toast.online .network-status-icon {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.network-status-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.network-status-text strong {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.network-status-text span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.4;
+}
+
+/* ── Fix Obsidian Pointer Events ────────────────────────────────────────── */
+
+.obsidian-stage-graph .thought-path-panel,
+.obsidian-stage-graph .brain-hud {
+  pointer-events: none !important;
+}
+
+.obsidian-stage-graph .thought-path-panel *,
+.obsidian-stage-graph .brain-hud * {
+  pointer-events: none !important;
+}

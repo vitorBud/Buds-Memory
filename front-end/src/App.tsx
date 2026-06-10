@@ -20,6 +20,7 @@ import { StatusPanel } from './components/StatusPanel'
 import { BrainMap } from './components/BrainMap'
 import { BootScreen } from './components/BootScreen'
 import type { SystemHealth } from './components/BootScreen'
+import { NetworkStatus } from './components/NetworkStatus'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, getCognitiveMemories, getKnowledgeGraph } from './services/api'
@@ -736,6 +737,8 @@ export default function App() {
 
   return (
     <div className="scroll-experience" ref={pageRef}>
+      <NetworkStatus />
+      
       {/* Tela de boot — aparece até todos os serviços serem verificados */}
       {!bootDone && <BootScreen onDone={handleBootDone} />}
 
@@ -774,7 +777,8 @@ export default function App() {
 
       {activeView === 'chat' && (
       <section className={`chat-scroll-scene ${chatRevealActive ? 'is-revealing' : ''}`} id="chat" ref={chatSceneRef}>
-        <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
+        <div className={`app-layout theme-${settings.theme} density-${settings.density}`}>
+          <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
           {!focusMode && (
             <Sidebar
               sessions={sessions}
@@ -894,6 +898,7 @@ export default function App() {
 
             </section>
           </main>
+        </div>
         </div>
 
       </section>

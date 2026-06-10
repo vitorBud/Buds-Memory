@@ -45,9 +45,15 @@ function wait(ms: number) {
 
 /** Transforma erros de rede crus em mensagens amigáveis em português. */
 function humanizeError(err: unknown): Error {
+  if (!navigator.onLine) {
+    return new Error(
+      'Modo Offline. Verifique sua conexão com a internet ou rede Wi-Fi.',
+    )
+  }
+
   if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
     return new Error(
-      'Não foi possível conectar ao servidor. Verifique se o backend Flask está rodando na porta 5050 (execute start_backend.sh).',
+      'Não foi possível conectar ao servidor local. Verifique se o backend Flask está rodando na porta 5050 (execute start_backend.sh).',
     )
   }
   return err instanceof Error ? err : new Error(String(err))
