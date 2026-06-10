@@ -46,7 +46,7 @@ interface MemoryNode {
   tags: string[]
 }
 
-type SelectableNodeMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshPhysicalMaterial> & {
+type SelectableNodeMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> & {
   userData: { nodeId: string }
 }
 
@@ -292,7 +292,7 @@ function buildMemoryNodes(
     })
   })
 
-  ;(graph?.entities ?? []).slice(0, 90).forEach((entity, entityIndex) => {
+  ;(graph?.entities ?? []).slice(0, 40).forEach((entity, entityIndex) => {
     const createdAt = parseDate(entity.last_seen || entity.first_seen, entityIndex * 5_400_000)
     const entityTags = [entity.entity_type, ...getTopics(`${entity.name} ${entity.description ?? ''}`, 4)]
       .map(prettifyTopic)
@@ -329,7 +329,7 @@ function buildMemoryNodes(
       })
     })
 
-  return positionNodes(nodes.slice(0, 110))
+  return positionNodes(nodes.slice(0, 72))
 }
 
 function filterNodesByPeriod(nodes: MemoryNode[], period: MemoryPeriod) {
@@ -466,7 +466,7 @@ function ThreeMemoryGraph({
       root.add(ring)
     }
 
-    const pointCount = Math.max(720, nodes.length * 12)
+    const pointCount = Math.max(360, nodes.length * 8)
     const particlePositions = new Float32Array(pointCount * 3)
     for (let index = 0; index < pointCount; index += 1) {
       const angle = index * 2.399963
@@ -494,17 +494,15 @@ function ThreeMemoryGraph({
     nodes.forEach((node, index) => {
       const color = new THREE.Color(KIND_COLOR[node.kind])
       const size = 0.055 + Math.min(node.weight, 16) * 0.008
-      const geometry = new THREE.SphereGeometry(size, 18, 18)
-      const material = new THREE.MeshPhysicalMaterial({
+      const geometry = new THREE.SphereGeometry(size, 12, 12)
+      const material = new THREE.MeshStandardMaterial({
         color,
         emissive: color,
         emissiveIntensity: node.id === selectedIdRef.current ? 0.72 : 0.22,
-        metalness: 0.05,
-        roughness: 0.16,
-        transmission: 0.28,
+        metalness: 0.02,
+        roughness: 0.34,
         transparent: true,
         opacity: node.id === selectedIdRef.current ? 0.96 : 0.72,
-        clearcoat: 1,
       })
       disposables.push(geometry, material)
       const mesh = new THREE.Mesh(geometry, material) as unknown as SelectableNodeMesh
@@ -580,7 +578,11 @@ function ThreeMemoryGraph({
       moved = false
       startX = event.clientX
       startY = event.clientY
-      eventTarget.setPointerCapture(event.pointerId)
+      try {
+        eventTarget.setPointerCapture(event.pointerId)
+      } catch {
+        /* pointer capture can fail if the event began on a composed child */
+      }
     }
 
     const onPointerMove = (event: PointerEvent) => {
@@ -617,9 +619,9 @@ function ThreeMemoryGraph({
     }
 
     eventTarget.addEventListener('pointerdown', onPointerDown)
-    eventTarget.addEventListener('pointermove', onPointerMove)
-    eventTarget.addEventListener('pointerup', onPointerUp)
-    eventTarget.addEventListener('pointercancel', onPointerUp)
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
     eventTarget.addEventListener('wheel', onWheel, { passive: false })
 
     let frame = 0
@@ -664,9 +666,9 @@ function ThreeMemoryGraph({
       window.cancelAnimationFrame(animationId)
       observer.disconnect()
       eventTarget.removeEventListener('pointerdown', onPointerDown)
-      eventTarget.removeEventListener('pointermove', onPointerMove)
-      eventTarget.removeEventListener('pointerup', onPointerUp)
-      eventTarget.removeEventListener('pointercancel', onPointerUp)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
       eventTarget.removeEventListener('wheel', onWheel)
       renderer.dispose()
       disposables.forEach(item => item.dispose())
@@ -701,7 +703,7 @@ export function BrainMap({
   const savedMemoryCount = cognitiveMemories.length
   const graphEntityCount = knowledgeGraph?.entities.length ?? 0
   const graphEdgeCount = knowledgeGraph?.edges.length ?? 0
-  const memoryLoad = Math.min(100, Math.round((allNodes.length / 140) * 100))
+  const memoryLoad = Math.min(100, Math.round((allNodes.length / 72) * 100))
   const sourceTopics = knowledgeSources.flatMap(source => source.topics ?? []).slice(0, 12)
   const totalConnections = Math.max(allNodes.length * 3, sourceTopics.length + activeMessages.length + graphEdgeCount)
   const processedTokens = [

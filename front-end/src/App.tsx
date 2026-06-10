@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type PointerEvent } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   BrainCircuit,
   Check,
@@ -18,7 +18,6 @@ import { ChatWindow } from './components/ChatWindow'
 import { ChatInput } from './components/ChatInput'
 import { StatusPanel } from './components/StatusPanel'
 import { BrainMap } from './components/BrainMap'
-import { JarvisCore } from './components/JarvisCore'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, getCognitiveMemories, getKnowledgeGraph } from './services/api'
@@ -323,8 +322,6 @@ export default function App() {
   const chatSceneRef = useRef<HTMLElement>(null)
   const obsidianSceneRef = useRef<HTMLElement>(null)
   const didAutoLoadSessionRef = useRef(false)
-  const landingFrameRef = useRef<number | null>(null)
-  const landingPointerRef = useRef<{ target: HTMLElement; clientX: number; clientY: number } | null>(null)
   const [aiState, setAiState] = useState<AiState>('idle')
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
@@ -364,12 +361,6 @@ export default function App() {
     return () => clearInterval(t)
   }, [])
 
-  useEffect(() => () => {
-    if (landingFrameRef.current !== null) {
-      window.cancelAnimationFrame(landingFrameRef.current)
-    }
-  }, [])
-
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme
     document.documentElement.dataset.accent = settings.theme
@@ -401,8 +392,8 @@ export default function App() {
   const refreshCognitiveBrain = useCallback(async () => {
     try {
       const [memories, graph] = await Promise.all([
-        getCognitiveMemories(220),
-        getKnowledgeGraph(260),
+        getCognitiveMemories(80),
+        getKnowledgeGraph(120),
       ])
       setCognitiveMemories(memories)
       setKnowledgeGraph(graph)
@@ -730,86 +721,38 @@ export default function App() {
     </nav>
   )
 
-  const flushLandingPointer = useCallback(() => {
-    const pointer = landingPointerRef.current
-    landingFrameRef.current = null
-    if (!pointer) return
-
-    const rect = pointer.target.getBoundingClientRect()
-    const x = ((pointer.clientX - rect.left) / rect.width) * 100
-    const y = ((pointer.clientY - rect.top) / rect.height) * 100
-    const relativeX = (pointer.clientX - rect.left) / rect.width - 0.5
-    const relativeY = (pointer.clientY - rect.top) / rect.height - 0.5
-    const tiltX = relativeY * -10
-    const tiltY = relativeX * 10
-
-    pointer.target.style.setProperty('--mouse-x', `${x.toFixed(2)}%`)
-    pointer.target.style.setProperty('--mouse-y', `${y.toFixed(2)}%`)
-    pointer.target.style.setProperty('--tilt-x', `${tiltX.toFixed(2)}deg`)
-    pointer.target.style.setProperty('--tilt-y', `${tiltY.toFixed(2)}deg`)
-    pointer.target.style.setProperty('--parallax-x', `${(relativeX * 28).toFixed(2)}px`)
-    pointer.target.style.setProperty('--parallax-y', `${(relativeY * 28).toFixed(2)}px`)
-  }, [])
-
-  const handleLandingPointerMove = (event: PointerEvent<HTMLElement>) => {
-    landingPointerRef.current = {
-      target: event.currentTarget,
-      clientX: event.clientX,
-      clientY: event.clientY,
-    }
-    if (landingFrameRef.current === null) {
-      landingFrameRef.current = window.requestAnimationFrame(flushLandingPointer)
-    }
-  }
-
-  const handleLandingPointerLeave = (event: PointerEvent<HTMLElement>) => {
-    landingPointerRef.current = null
-    if (landingFrameRef.current !== null) {
-      window.cancelAnimationFrame(landingFrameRef.current)
-      landingFrameRef.current = null
-    }
-    event.currentTarget.style.setProperty('--mouse-x', '50%')
-    event.currentTarget.style.setProperty('--mouse-y', '50%')
-    event.currentTarget.style.setProperty('--tilt-x', '0deg')
-    event.currentTarget.style.setProperty('--tilt-y', '0deg')
-    event.currentTarget.style.setProperty('--parallax-x', '0px')
-    event.currentTarget.style.setProperty('--parallax-y', '0px')
-  }
-
   return (
     <div className="scroll-experience" ref={pageRef}>
       {renderViewNav('floating')}
 
       {activeView === 'home' && (
-      <section
-        className="jarvis-landing"
-        id="inicio"
-        aria-label="Tela inicial Jarvis"
-        onPointerMove={handleLandingPointerMove}
-        onPointerLeave={handleLandingPointerLeave}
-      >
-        <div className="jarvis-cursor-aura" />
-        <div className="jarvis-scanline" />
-        <div className="jarvis-frame">
-          <div className="jarvis-brand-lockup">
-            <span>Nexus IA</span>
-            <strong>Assistente local inteligente</strong>
-          </div>
-
-          <div className="jarvis-visual-stage">
-            <JarvisCore key={settings.theme} />
-            <div className="jarvis-reticle jarvis-reticle-a" />
-            <div className="jarvis-reticle jarvis-reticle-b" />
-            <div className="jarvis-data-stack">
-              <span>MODELO</span>
-              <strong>{selectedModel}</strong>
-              <span>WEB</span>
-              <strong>{googleSearchAvailable ? 'PRONTO' : 'OFFLINE'}</strong>
+        <section className="home-landing" id="inicio" aria-label="Tela inicial Nexus IA">
+          <div className="home-glass-shell">
+            <div className="home-brand-mark" aria-hidden="true">
+              <span />
+              <i />
+            </div>
+            <div className="home-brand-copy">
+              <span>Nexus IA</span>
+              <h1>Assistente local inteligente</h1>
+              <p>Chat, memória Obsidian e configurações em uma experiência compacta para Mac.</p>
+            </div>
+            <div className="home-status-grid" aria-label="Estado do sistema">
+              <div>
+                <small>Modelo</small>
+                <strong>{selectedModel}</strong>
+              </div>
+              <div>
+                <small>Busca</small>
+                <strong>{googleSearchAvailable ? 'Google pronto' : 'Offline'}</strong>
+              </div>
+              <div>
+                <small>Memórias</small>
+                <strong>{cognitiveMemories.length}</strong>
+              </div>
             </div>
           </div>
-
-        </div>
-      </section>
+        </section>
       )}
 
       {activeView === 'chat' && (
