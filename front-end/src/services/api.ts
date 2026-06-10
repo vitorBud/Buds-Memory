@@ -1,5 +1,6 @@
 // ─── API Service Layer ───────────────────────────────────────────────────────
-// All calls go through the Vite proxy → http://127.0.0.1:5050
+// All calls go through the Vite proxy → http://127.0.0.1:5050 (web)
+// or directly to http://127.0.0.1:5050/api (Electron desktop).
 
 import type {
   Session,
@@ -13,15 +14,46 @@ import type {
   SyncStatus,
 } from '../types'
 
-const desktopApiBase = (window as unknown as { nexus?: { apiBase?: string } }).nexus?.apiBase
-const BASE = desktopApiBase || import.meta.env.VITE_API_BASE_URL || '/api'
-const IS_DESKTOP = Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
+type NexusBridge = { apiBase?: string; isDesktop?: boolean }
+
+/**
+ * Resolve a URL base de forma lazy (em tempo de execução) para garantir que o
+ * preload do Electron já injetou window.nexus antes da primeira chamada de API.
+ */
+export function getBase(): string {
+  const bridge = (window as unknown as { nexus?: NexusBridge }).nexus
+  return bridge?.apiBase || import.meta.env.VITE_API_BASE_URL || '/api'
+}
+
+function isDesktop(): boolean {
+  return Boolean((window as unknown as { nexus?: NexusBridge }).nexus?.isDesktop)
+}
+
+/**
+ * Converte um caminho relativo de API (/api/audio/...) em URL absoluta.
+ * Necessário para funcionar tanto no browser (proxy Vite) quanto no Electron (file://).
+ */
+export function resolveUrl(path: string): string {
+  if (path.startsWith('http')) return path
+  const base = getBase().replace(/\/api$/, '')
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+}
 
 function wait(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
-async function fetchJsonWithStartupRetry<T>(url: string, attempts = IS_DESKTOP ? 16 : 1): Promise<T> {
+/** Transforma erros de rede crus em mensagens amigáveis em português. */
+function humanizeError(err: unknown): Error {
+  if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
+    return new Error(
+      'Não foi possível conectar ao servidor. Verifique se o backend Flask está rodando na porta 5050 (execute start_backend.sh).',
+    )
+  }
+  return err instanceof Error ? err : new Error(String(err))
+}
+
+async function fetchJsonWithStartupRetry<T>(url: string, attempts = isDesktop() ? 16 : 1): Promise<T> {
   let lastError: unknown
 
   for (let index = 0; index < attempts; index += 1) {
@@ -35,27 +67,32 @@ async function fetchJsonWithStartupRetry<T>(url: string, attempts = IS_DESKTOP ?
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error(`Falha ao acessar ${url}`)
+  throw humanizeError(lastError) ?? new Error(`Falha ao acessar ${url}`)
 }
 
 // ── Backend Config ─────────────────────────────────────────────────────────
 
 export async function getBackendConfig(): Promise<BackendConfig> {
-  return fetchJsonWithStartupRetry<BackendConfig>(`${BASE}/config`)
+  return fetchJsonWithStartupRetry<BackendConfig>(`${getBase()}/config`)
 }
 
 // ── Local-first Sync ────────────────────────────────────────────────────────
 
 export async function getSyncStatus(): Promise<SyncStatus> {
-  return fetchJsonWithStartupRetry<SyncStatus>(`${BASE}/sync/status`)
+  return fetchJsonWithStartupRetry<SyncStatus>(`${getBase()}/sync/status`)
 }
 
 export async function runSync(): Promise<SyncRunResult> {
-  const res = await fetch(`${BASE}/sync/run`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${getBase()}/sync/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+  } catch (err) {
+    throw humanizeError(err)
+  }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || data.message || `runSync: ${res.status}`)
   return data
@@ -64,21 +101,21 @@ export async function runSync(): Promise<SyncRunResult> {
 // ── Cognitive Brain / Obsidian ─────────────────────────────────────────────
 
 export async function getCognitiveMemories(limit = 200): Promise<CognitiveMemory[]> {
-  return fetchJsonWithStartupRetry<CognitiveMemory[]>(`${BASE}/cognitive/memory?limit=${limit}`)
+  return fetchJsonWithStartupRetry<CognitiveMemory[]>(`${getBase()}/cognitive/memory?limit=${limit}`)
 }
 
 export async function getKnowledgeGraph(limit = 240): Promise<KnowledgeGraph> {
-  return fetchJsonWithStartupRetry<KnowledgeGraph>(`${BASE}/cognitive/graph?limit=${limit}`)
+  return fetchJsonWithStartupRetry<KnowledgeGraph>(`${getBase()}/cognitive/graph?limit=${limit}`)
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────
 
 export async function getSessions(): Promise<Session[]> {
-  return fetchJsonWithStartupRetry<Session[]>(`${BASE}/sessions`)
+  return fetchJsonWithStartupRetry<Session[]>(`${getBase()}/sessions`)
 }
 
 export async function createSession(title?: string): Promise<Session> {
-  const res = await fetch(`${BASE}/sessions`, {
+  const res = await fetch(`${getBase()}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: title ?? null }),
@@ -88,12 +125,12 @@ export async function createSession(title?: string): Promise<Session> {
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/sessions/${id}`, { method: 'DELETE' })
+  const res = await fetch(`${getBase()}/sessions/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`deleteSession: ${res.status}`)
 }
 
 export async function updateSessionTitle(id: string, title: string): Promise<Session> {
-  const res = await fetch(`${BASE}/sessions/${id}`, {
+  const res = await fetch(`${getBase()}/sessions/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -103,7 +140,7 @@ export async function updateSessionTitle(id: string, title: string): Promise<Ses
 }
 
 export async function getSessionMessages(id: string): Promise<Message[]> {
-  const res = await fetch(`${BASE}/sessions/${id}/messages`)
+  const res = await fetch(`${getBase()}/sessions/${id}/messages`)
   if (!res.ok) throw new Error(`getSessionMessages: ${res.status}`)
   return res.json()
 }
@@ -111,7 +148,7 @@ export async function getSessionMessages(id: string): Promise<Message[]> {
 // ── Knowledge Sources ──────────────────────────────────────────────────────
 
 export async function getSessionKnowledge(id: string): Promise<KnowledgeSource[]> {
-  const res = await fetch(`${BASE}/sessions/${id}/knowledge`)
+  const res = await fetch(`${getBase()}/sessions/${id}/knowledge`)
   if (!res.ok) throw new Error(`getSessionKnowledge: ${res.status}`)
   return res.json()
 }
@@ -126,12 +163,12 @@ export async function importKnowledge(
     const body = new FormData()
     body.append('file', payload.file)
     if (payload.title) body.append('title', payload.title)
-    response = await fetch(`${BASE}/sessions/${sessionId}/knowledge`, {
+    response = await fetch(`${getBase()}/sessions/${sessionId}/knowledge`, {
       method: 'POST',
       body,
     })
   } else {
-    response = await fetch(`${BASE}/sessions/${sessionId}/knowledge`, {
+    response = await fetch(`${getBase()}/sessions/${sessionId}/knowledge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -157,7 +194,7 @@ export async function streamChat(
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const attempts = IS_DESKTOP ? 3 : 2
+  const attempts = isDesktop() ? 3 : 2
   let lastError: unknown
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -187,7 +224,7 @@ export async function streamChat(
         }
 
     try {
-      const response = await fetch(`${BASE}/chat/stream`, fetchOptions)
+      const response = await fetch(`${getBase()}/chat/stream`, fetchOptions)
       if (!response.ok || !response.body) throw new Error(`streamChat: ${response.status}`)
 
       const reader = response.body.getReader()
@@ -208,6 +245,10 @@ export async function streamChat(
           if (!raw) continue
           try {
             const event = JSON.parse(raw)
+            // Resolve URLs de áudio relativas para absolutas (necessário no Electron)
+            if (event.url && !event.url.startsWith('http')) {
+              event.url = resolveUrl(event.url)
+            }
             receivedAnyEvent = true
             onEvent(event)
           } catch { /* ignore parse errors */ }
@@ -221,11 +262,12 @@ export async function streamChat(
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Falha ao conectar com o chat.')
+  throw humanizeError(lastError) ?? new Error('Falha ao conectar com o chat.')
 }
 
 // ── Audio URL ───────────────────────────────────────────────────────────────
 
+/** Retorna a URL absoluta para um arquivo de áudio gerado pelo backend. */
 export function getAudioUrl(filename: string): string {
-  return `/api/audio/${filename}`
+  return resolveUrl(`/api/audio/${filename}`)
 }

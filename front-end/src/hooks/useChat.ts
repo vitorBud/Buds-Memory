@@ -199,8 +199,9 @@ export function useChat({
     } catch (err) {
       if (controller.signal.aborted) return
       console.error('[Chat] fetch error:', err)
+      const errorMsg = err instanceof Error ? err.message : 'Erro ao conectar com o servidor. Verifique se o Ollama está rodando.'
       setMessages(prev => prev.filter(m => m.id !== assistantMessageId))
-      addMessage({ sender: 'ia', text: '⚠ Erro ao conectar com o servidor. Verifique se o Ollama está rodando.', created_at: new Date().toISOString() })
+      addMessage({ sender: 'ia', text: `⚠ ${errorMsg}`, created_at: new Date().toISOString() })
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {
@@ -255,8 +256,9 @@ export function useChat({
     } catch (err) {
       if (controller.signal.aborted) return
       console.error('[Audio Chat] error:', err)
+      const errorMsg = err instanceof Error ? err.message : 'Erro ao processar o áudio. Tente novamente.'
       setMessages(prev => prev.filter(m => m.id !== assistantMessageId))
-      addMessage({ sender: 'ia', text: '⚠ Erro ao processar o áudio. Tente novamente.', created_at: new Date().toISOString() })
+      addMessage({ sender: 'ia', text: `⚠ ${errorMsg}`, created_at: new Date().toISOString() })
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {

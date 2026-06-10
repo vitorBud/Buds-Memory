@@ -18,6 +18,8 @@ import { ChatWindow } from './components/ChatWindow'
 import { ChatInput } from './components/ChatInput'
 import { StatusPanel } from './components/StatusPanel'
 import { BrainMap } from './components/BrainMap'
+import { BootScreen } from './components/BootScreen'
+import type { SystemHealth } from './components/BootScreen'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, getCognitiveMemories, getKnowledgeGraph } from './services/api'
@@ -350,9 +352,20 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false)
   const [cognitiveMemories, setCognitiveMemories] = useState<CognitiveMemory[]>([])
   const [knowledgeGraph, setKnowledgeGraph] = useState<KnowledgeGraph | null>(null)
+  const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
+  const [bootDone, setBootDone] = useState(false)
+
+  const handleBootDone = useCallback((h: SystemHealth) => {
+    setSystemHealth(h)
+    setBootDone(true)
+  }, [])
+
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (window.location.hash === '#chat') return 'chat'
     if (window.location.hash === '#obsidian') return 'obsidian'
+    // No desktop Electron, abre direto no chat para o usuário ver o histórico
+    const isDesktopApp = Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
+    if (isDesktopApp) return 'chat'
     return 'home'
   })
 
@@ -723,7 +736,11 @@ export default function App() {
 
   return (
     <div className="scroll-experience" ref={pageRef}>
+      {/* Tela de boot — aparece até todos os serviços serem verificados */}
+      {!bootDone && <BootScreen onDone={handleBootDone} />}
+
       {renderViewNav('floating')}
+
 
       {activeView === 'home' && (
         <section className="home-landing" id="inicio" aria-label="Tela inicial Nexus IA">
@@ -772,17 +789,18 @@ export default function App() {
           )}
 
           <main className="workspace">
-            <TopBar
-              aiState={aiState}
-              sessionTitle={currentSessionTitle}
-              latency={latency}
-              historyHidden={focusMode}
-              onToggleHistory={() => setFocusMode(value => !value)}
-              settingsOpen={settingsOpen}
-              onToggleSettings={() => setSettingsOpen(v => !v)}
-              canStopOutput={isProcessing || aiState === 'speaking'}
-              onStopOutput={stopOutput}
-            />
+              <TopBar
+                aiState={aiState}
+                sessionTitle={currentSessionTitle}
+                latency={latency}
+                historyHidden={focusMode}
+                onToggleHistory={() => setFocusMode(value => !value)}
+                settingsOpen={settingsOpen}
+                onToggleSettings={() => setSettingsOpen(v => !v)}
+                canStopOutput={isProcessing || aiState === 'speaking'}
+                onStopOutput={stopOutput}
+                systemHealth={systemHealth}
+              />
 
             <section className="content-grid">
               <div className="chat-panel">

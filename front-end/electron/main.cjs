@@ -7,6 +7,7 @@ const BACKEND_URL = 'http://127.0.0.1:5050'
 const API_CONFIG_URL = `${BACKEND_URL}/api/config`
 
 let mainWindow = null
+let splashWindow = null
 let backendProcess = null
 let backendStartedByElectron = false
 let backendLogTail = []
@@ -15,6 +16,8 @@ app.setName('Nexus IA')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
+
+// ── Logging ──────────────────────────────────────────────────────────────────
 
 function resolveDataDir() {
   return process.env.NEXUS_DATA_DIR || app.getPath('userData')
@@ -37,8 +40,111 @@ function logLine(...parts) {
 function rememberBackendLog(chunk) {
   const lines = chunk.toString().split(/\r?\n/).map(line => line.trim()).filter(Boolean)
   backendLogTail = [...backendLogTail, ...lines].slice(-18)
-  lines.forEach(line => logLine('[backend]', line))
+  // Apenas registra no log de arquivo — sem duplicar no console.
+  lines.forEach(line => {
+    const formatted = `[${new Date().toISOString()}] [backend] ${line}`
+    try {
+      fs.mkdirSync(resolveDataDir(), { recursive: true })
+      fs.appendFileSync(path.join(resolveDataDir(), 'main.log'), `${formatted}\n`)
+    } catch { /* silencia */ }
+  })
 }
+
+// ── Splash window ─────────────────────────────────────────────────────────────
+
+function createSplash() {
+  splashWindow = new BrowserWindow({
+    width: 380,
+    height: 260,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    center: true,
+    alwaysOnTop: true,
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  })
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: rgba(5,6,7,0.97);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+    color: #e2e8f0;
+    gap: 20px;
+    -webkit-app-region: drag;
+    overflow: hidden;
+  }
+  .logo {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #06b6d4 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    box-shadow: 0 0 32px rgba(99,102,241,0.45);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+  p { font-size: 12px; color: rgba(255,255,255,0.42); }
+  .bar-wrap {
+    width: 180px;
+    height: 3px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 99px;
+    overflow: hidden;
+  }
+  .bar {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, #6366f1, #06b6d4);
+    animation: slide 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { box-shadow: 0 0 32px rgba(99,102,241,0.45); }
+    50%      { box-shadow: 0 0 52px rgba(99,102,241,0.75); }
+  }
+  @keyframes slide {
+    0%   { width: 0%;   margin-left: 0%; }
+    50%  { width: 60%;  margin-left: 20%; }
+    100% { width: 0%;   margin-left: 100%; }
+  }
+</style>
+</head>
+<body>
+  <div class="logo">⚡</div>
+  <div style="text-align:center;gap:6px;display:flex;flex-direction:column;align-items:center">
+    <h1>Nexus IA</h1>
+    <p>Iniciando o servidor…</p>
+  </div>
+  <div class="bar-wrap"><div class="bar"></div></div>
+</body>
+</html>`
+
+  splashWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  splashWindow.once('ready-to-show', () => splashWindow.show())
+}
+
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close()
+    splashWindow = null
+  }
+}
+
+// ── Backend ───────────────────────────────────────────────────────────────────
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
@@ -89,6 +195,7 @@ function syncEnvFileToDataDir() {
 }
 
 async function startBackend() {
+  // Backend já está rodando (iniciado manualmente ou por outra instância)
   if (await isBackendReady()) {
     logLine('[Nexus Backend] usando backend já ativo em 127.0.0.1:5050')
     return true
@@ -97,7 +204,11 @@ async function startBackend() {
   const backendDir = resolveBackendDir()
   const pythonExecutable = resolvePythonExecutable(backendDir)
   const appFile = path.join(backendDir, 'app.py')
-  const hasLocalEnv = fs.existsSync(path.join(backendDir, 'ambiente')) || fs.existsSync(path.join(backendDir, 'venv')) || fs.existsSync(path.join(backendDir, '.venv'))
+  const hasLocalEnv = (
+    fs.existsSync(path.join(backendDir, 'ambiente')) ||
+    fs.existsSync(path.join(backendDir, 'venv')) ||
+    fs.existsSync(path.join(backendDir, '.venv'))
+  )
 
   if (!fs.existsSync(appFile)) {
     logLine('[Nexus Backend] app.py não encontrado:', appFile)
@@ -114,6 +225,7 @@ async function startBackend() {
   backendLogTail = []
   logLine('[Nexus Backend] iniciando', pythonExecutable, appFile, 'cwd=', backendDir)
   backendStartedByElectron = true
+
   try {
     backendProcess = spawn(pythonExecutable, ['app.py'], {
       cwd: backendDir,
@@ -130,15 +242,9 @@ async function startBackend() {
     return false
   }
 
-  backendProcess.stdout.on('data', chunk => {
-    rememberBackendLog(chunk)
-    console.log(`[Nexus Backend] ${chunk.toString().trim()}`)
-  })
-
-  backendProcess.stderr.on('data', chunk => {
-    rememberBackendLog(chunk)
-    console.error(`[Nexus Backend] ${chunk.toString().trim()}`)
-  })
+  // Captura stdout/stderr apenas para o log de arquivo (sem poluir o console)
+  backendProcess.stdout.on('data', chunk => rememberBackendLog(chunk))
+  backendProcess.stderr.on('data', chunk => rememberBackendLog(chunk))
 
   backendProcess.on('exit', code => {
     logLine(`[Nexus Backend] encerrado com código ${code}`)
@@ -150,12 +256,14 @@ async function startBackend() {
     backendProcess = null
   })
 
+  // Aguarda o backend responder (até 45 s)
   for (let attempt = 0; attempt < 45; attempt += 1) {
     if (await isBackendReady()) return true
     if (!backendProcess) break
     await sleep(1000)
   }
 
+  // Backend não respondeu — mostra erro descritivo
   await dialog.showMessageBox({
     type: hasLocalEnv ? 'warning' : 'error',
     title: 'Backend não iniciou',
@@ -164,13 +272,17 @@ async function startBackend() {
       `Backend: ${backendDir}`,
       `Python: ${pythonExecutable}`,
       '',
-      hasLocalEnv ? 'Confira se o Ollama está ativo e se a porta 5050 está livre.' : 'O ambiente Python do backend não foi encontrado dentro do app.',
+      hasLocalEnv
+        ? 'Confira se o Ollama está ativo e se a porta 5050 está livre.'
+        : 'O ambiente Python do backend não foi encontrado dentro do app.',
       '',
       backendLogTail.join('\n'),
     ].filter(Boolean).join('\n'),
   })
   return false
 }
+
+// ── Main window ───────────────────────────────────────────────────────────────
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -192,25 +304,37 @@ function createWindow() {
     },
   })
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show()
-  })
-
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
-
   const devUrl = process.env.VITE_DEV_SERVER_URL
   if (devUrl) {
     mainWindow.loadURL(devUrl)
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
+
+  mainWindow.once('ready-to-show', () => {
+    closeSplash()
+    mainWindow.show()
+    // Pequena animação de fade-in via opacidade
+    mainWindow.setOpacity(0)
+    let opacity = 0
+    const fadeIn = setInterval(() => {
+      opacity = Math.min(1, opacity + 0.08)
+      mainWindow.setOpacity(opacity)
+      if (opacity >= 1) clearInterval(fadeIn)
+    }, 16)
+  })
+
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
 }
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 function stopBackend() {
   if (backendStartedByElectron && backendProcess) {
+    logLine('[Nexus Backend] encerrando processo filho…')
     backendProcess.kill('SIGTERM')
     backendProcess = null
   }
@@ -226,12 +350,17 @@ process.on('unhandledRejection', error => {
 
 app.whenReady().then(async () => {
   logLine('[Electron] app pronto. packaged=', app.isPackaged, 'resources=', process.resourcesPath)
+
+  // Mostra tela de loading enquanto o backend sobe
+  createSplash()
+
   try {
     await startBackend()
   } catch (error) {
     logLine('[Nexus Backend] falha ao iniciar:', error)
   }
 
+  // Abre janela principal (a splash fecha automaticamente via ready-to-show)
   createWindow()
 
   app.on('activate', () => {

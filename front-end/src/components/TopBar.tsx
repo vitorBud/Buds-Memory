@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { PanelLeftClose, PanelLeftOpen, Settings, Square } from 'lucide-react'
 import type { AiState } from '../types'
+import { SystemStatus } from './SystemStatus'
+import type { SystemHealth } from './BootScreen'
 
 interface TopBarProps {
   aiState: AiState
@@ -12,6 +14,7 @@ interface TopBarProps {
   onToggleSettings: () => void
   canStopOutput: boolean
   onStopOutput: () => void
+  systemHealth?: SystemHealth | null
 }
 
 const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
@@ -34,6 +37,7 @@ export function TopBar({
   onToggleSettings,
   canStopOutput,
   onStopOutput,
+  systemHealth = null,
 }: TopBarProps) {
   const stateInfo = STATE_MAP[aiState]
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
@@ -57,6 +61,7 @@ export function TopBar({
           <span />
           {stateInfo.label}
         </div>
+        <SystemStatus health={systemHealth} />
       </div>
 
       <div className="topbar-actions">
