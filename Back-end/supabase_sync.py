@@ -18,6 +18,7 @@ from typing import Iterable, Optional
 import requests
 
 from database_v2 import get_db_connection, now_iso
+from storage import get_env_path
 
 BASE = Path(__file__).resolve().parent
 ENV_FILE = BASE / ".env"
@@ -52,7 +53,8 @@ def load_env_file(path: Path = ENV_FILE):
             os.environ[key] = value
 
 
-load_env_file()
+load_env_file(get_env_path())
+load_env_file(ENV_FILE)
 
 
 def get_supabase_config() -> dict:

@@ -1,5 +1,7 @@
 # ====== Áudios gerados pelo assistente ======
+.DS_Store
 Back-end/out/*.wav
+Back-end/chat_history.db*
 
 # ====== Python ======
 __pycache__/
@@ -18,8 +20,9 @@ ambiente/
 Back-end/ambiente/
 config.json
 Back-end/config.json
+front-end/release/
+front-end/dist/
 
 # ====== Modelos baixados pelo Whisper (cache) ======
 ~/.cache/huggingface/
 Back-end/models/
-

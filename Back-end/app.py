@@ -23,6 +23,7 @@ from agenty import (
     search_google,
 )
 import database
+from storage import get_data_dir
 
 # ── Camada Cognitiva (Second Brain) ──────────────────────────────────────────
 import database_v2
@@ -251,6 +252,7 @@ def get_config():
         "models": OLLAMA_MODELS,
         "ollama_url": "http://localhost:11434",
         "google_search_available": is_google_search_configured(),
+        "data_dir": str(get_data_dir()),
     }), 200
 
 

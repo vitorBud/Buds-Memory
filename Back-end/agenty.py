@@ -9,11 +9,12 @@ import numpy as np
 import requests
 import sounddevice as sd
 import soundfile as sf
+from storage import get_env_path, get_output_dir
 
 BASE = Path(__file__).resolve().parent
 CONFIG_FILE = BASE / "config.json"
 ENV_FILE = BASE / ".env"
-OUT_DIR = BASE / "out"
+OUT_DIR = get_output_dir()
 OUT_DIR.mkdir(exist_ok=True)
 
 
@@ -33,6 +34,7 @@ def load_env_file(path: Path):
             os.environ[key] = value
 
 
+load_env_file(get_env_path())
 load_env_file(ENV_FILE)
 
 # ====== Piper (TTS - 100% Offline) ======

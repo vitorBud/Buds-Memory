@@ -10,6 +10,15 @@ let mainWindow = null
 let backendProcess = null
 let backendStartedByElectron = false
 
+app.setName('Nexus IA')
+app.commandLine.appendSwitch('enable-gpu-rasterization')
+app.commandLine.appendSwitch('ignore-gpu-blocklist')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
+
+function resolveDataDir() {
+  return process.env.NEXUS_DATA_DIR || app.getPath('userData')
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -61,6 +70,7 @@ async function startBackend() {
     cwd: backendDir,
     env: {
       ...process.env,
+      NEXUS_DATA_DIR: resolveDataDir(),
       PYTHONUNBUFFERED: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -95,12 +105,13 @@ async function startBackend() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    show: false,
     width: 1320,
     height: 860,
     minWidth: 1040,
     minHeight: 720,
     title: 'Nexus IA',
-    backgroundColor: '#f5f5f2',
+    backgroundColor: '#050607',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 18 },
     webPreferences: {
@@ -108,7 +119,12 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      backgroundThrottling: false,
     },
+  })
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -131,9 +147,11 @@ function stopBackend() {
   }
 }
 
-app.whenReady().then(async () => {
-  await startBackend()
+app.whenReady().then(() => {
   createWindow()
+  startBackend().catch(error => {
+    console.error('[Nexus Backend] falha ao iniciar:', error)
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

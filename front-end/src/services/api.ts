@@ -15,21 +15,39 @@ import type {
 
 const desktopApiBase = (window as unknown as { nexus?: { apiBase?: string } }).nexus?.apiBase
 const BASE = desktopApiBase || import.meta.env.VITE_API_BASE_URL || '/api'
+const IS_DESKTOP = Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
+
+function wait(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+async function fetchJsonWithStartupRetry<T>(url: string, attempts = IS_DESKTOP ? 16 : 1): Promise<T> {
+  let lastError: unknown
+
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      const res = await fetch(url)
+      if (!res.ok) throw new Error(`${url}: ${res.status}`)
+      return res.json()
+    } catch (err) {
+      lastError = err
+      if (index < attempts - 1) await wait(450)
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(`Falha ao acessar ${url}`)
+}
 
 // ── Backend Config ─────────────────────────────────────────────────────────
 
 export async function getBackendConfig(): Promise<BackendConfig> {
-  const res = await fetch(`${BASE}/config`)
-  if (!res.ok) throw new Error(`getBackendConfig: ${res.status}`)
-  return res.json()
+  return fetchJsonWithStartupRetry<BackendConfig>(`${BASE}/config`)
 }
 
 // ── Local-first Sync ────────────────────────────────────────────────────────
 
 export async function getSyncStatus(): Promise<SyncStatus> {
-  const res = await fetch(`${BASE}/sync/status`)
-  if (!res.ok) throw new Error(`getSyncStatus: ${res.status}`)
-  return res.json()
+  return fetchJsonWithStartupRetry<SyncStatus>(`${BASE}/sync/status`)
 }
 
 export async function runSync(): Promise<SyncRunResult> {
@@ -46,23 +64,17 @@ export async function runSync(): Promise<SyncRunResult> {
 // ── Cognitive Brain / Obsidian ─────────────────────────────────────────────
 
 export async function getCognitiveMemories(limit = 200): Promise<CognitiveMemory[]> {
-  const res = await fetch(`${BASE}/cognitive/memory?limit=${limit}`)
-  if (!res.ok) throw new Error(`getCognitiveMemories: ${res.status}`)
-  return res.json()
+  return fetchJsonWithStartupRetry<CognitiveMemory[]>(`${BASE}/cognitive/memory?limit=${limit}`)
 }
 
 export async function getKnowledgeGraph(limit = 240): Promise<KnowledgeGraph> {
-  const res = await fetch(`${BASE}/cognitive/graph?limit=${limit}`)
-  if (!res.ok) throw new Error(`getKnowledgeGraph: ${res.status}`)
-  return res.json()
+  return fetchJsonWithStartupRetry<KnowledgeGraph>(`${BASE}/cognitive/graph?limit=${limit}`)
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────
 
 export async function getSessions(): Promise<Session[]> {
-  const res = await fetch(`${BASE}/sessions`)
-  if (!res.ok) throw new Error(`getSessions: ${res.status}`)
-  return res.json()
+  return fetchJsonWithStartupRetry<Session[]>(`${BASE}/sessions`)
 }
 
 export async function createSession(title?: string): Promise<Session> {

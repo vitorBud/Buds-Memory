@@ -89,6 +89,7 @@ export interface BackendConfig {
   models: string[]
   ollama_url: string
   google_search_available: boolean
+  data_dir?: string
 }
 
 export interface CognitiveMemory {

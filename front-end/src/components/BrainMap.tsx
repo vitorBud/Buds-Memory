@@ -374,7 +374,7 @@ function ThreeMemoryGraph({
     camera.position.set(0, 0.65, 7.2)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     renderer.setClearColor(0x000000, 0)
     mount.appendChild(renderer.domElement)
 
@@ -554,6 +554,7 @@ function ThreeMemoryGraph({
     let startY = 0
     let targetRotY = root.rotation.y
     let targetRotX = root.rotation.x
+    let idleVelocity = 0.0019
 
     const setPointer = (event: PointerEvent) => {
       const rect = renderer.domElement.getBoundingClientRect()
@@ -563,6 +564,7 @@ function ThreeMemoryGraph({
 
     const onPointerDown = (event: PointerEvent) => {
       dragging = true
+      idleVelocity = 0.0004
       moved = false
       startX = event.clientX
       startY = event.clientY
@@ -583,6 +585,7 @@ function ThreeMemoryGraph({
 
     const onPointerUp = (event: PointerEvent) => {
       dragging = false
+      idleVelocity = 0.0019
       renderer.domElement.releasePointerCapture(event.pointerId)
       if (moved) return
       setPointer(event)
@@ -606,6 +609,10 @@ function ThreeMemoryGraph({
     let animationId = 0
     const animate = () => {
       frame += 1
+      if (!dragging) {
+        targetRotY += idleVelocity
+        targetRotX += Math.sin(frame * 0.003) * 0.0002
+      }
       root.rotation.y += (targetRotY - root.rotation.y) * 0.08
       root.rotation.x += (targetRotX - root.rotation.x) * 0.08
       root.rotation.z = Math.sin(frame * 0.006) * 0.025

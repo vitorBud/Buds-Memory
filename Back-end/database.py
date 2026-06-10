@@ -3,9 +3,10 @@ from pathlib import Path
 import uuid
 import datetime
 import re
+from storage import get_database_path
 
 BASE = Path(__file__).resolve().parent
-DB_PATH = BASE / "chat_history.db"
+DB_PATH = get_database_path()
 
 SEARCH_STOP_WORDS = {
     "a", "o", "os", "as", "um", "uma", "uns", "umas", "de", "do", "da", "dos", "das",

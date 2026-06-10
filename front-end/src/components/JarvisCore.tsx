@@ -14,7 +14,7 @@ export function JarvisCore() {
     camera.position.set(0, 0.1, 5.35)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     renderer.setClearColor(0x000000, 0)
     mount.appendChild(renderer.domElement)
 

@@ -26,6 +26,7 @@ import type { AiState, Session, ActivityItem, InterfaceSettings, Message, Knowle
 import { formatSessionDate } from './utils/formatters'
 
 const SETTINGS_KEY = 'nexus-interface-settings'
+const DESKTOP_THEME_BOOT_KEY = 'nexus-desktop-theme-boot-v1'
 const FALLBACK_MODEL = 'qwen2.5-coder:7b'
 const DEFAULT_MODELS = ['qwen2.5-coder:3b', FALLBACK_MODEL, 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
@@ -44,10 +45,22 @@ const DEFAULT_SETTINGS: InterfaceSettings = {
 
 const OFFICIAL_THEMES = ['white', 'black', 'gold', 'silver'] as const
 
+function isDesktopApp() {
+  return Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
+}
+
 function getInitialSettings(): InterfaceSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
     const parsed = raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS
+    const shouldApplyDesktopDefault = isDesktopApp() && !localStorage.getItem(DESKTOP_THEME_BOOT_KEY)
+
+    if (shouldApplyDesktopDefault) {
+      parsed.theme = 'black'
+      parsed.accentColor = 'black'
+      localStorage.setItem(DESKTOP_THEME_BOOT_KEY, '1')
+    }
+
     if (parsed.theme === 'light') parsed.theme = 'white'
     if (parsed.theme === 'dark') parsed.theme = parsed.accentColor === 'amber' ? 'gold' : 'black'
     if (!OFFICIAL_THEMES.includes(parsed.theme)) parsed.theme = DEFAULT_SETTINGS.theme
