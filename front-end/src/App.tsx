@@ -27,8 +27,8 @@ import { formatSessionDate } from './utils/formatters'
 
 const SETTINGS_KEY = 'nexus-interface-settings'
 const DESKTOP_THEME_BOOT_KEY = 'nexus-desktop-theme-boot-v1'
-const FALLBACK_MODEL = 'qwen2.5-coder:7b'
-const DEFAULT_MODELS = ['qwen2.5-coder:3b', FALLBACK_MODEL, 'qwen2.5-coder:14b']
+const FALLBACK_MODEL = 'qwen2.5-coder:3b'
+const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
 type AppView = 'home' | 'chat' | 'obsidian'
 
@@ -323,6 +323,8 @@ export default function App() {
   const chatSceneRef = useRef<HTMLElement>(null)
   const obsidianSceneRef = useRef<HTMLElement>(null)
   const didAutoLoadSessionRef = useRef(false)
+  const landingFrameRef = useRef<number | null>(null)
+  const landingPointerRef = useRef<{ target: HTMLElement; clientX: number; clientY: number } | null>(null)
   const [aiState, setAiState] = useState<AiState>('idle')
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
@@ -360,6 +362,12 @@ export default function App() {
   useEffect(() => {
     const t = setInterval(() => setUptimeSeconds(s => s + 1), 1000)
     return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => () => {
+    if (landingFrameRef.current !== null) {
+      window.cancelAnimationFrame(landingFrameRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -514,8 +522,10 @@ export default function App() {
 
   useEffect(() => {
     const clamp = (value: number) => Math.min(1, Math.max(0, value))
+    let frame = 0
 
     const updateScrollProgress = () => {
+      frame = 0
       const viewport = window.innerHeight || 1
       const chatRect = chatSceneRef.current?.getBoundingClientRect()
       const obsidianRect = obsidianSceneRef.current?.getBoundingClientRect()
@@ -531,15 +541,21 @@ export default function App() {
       }
     }
 
+    const scheduleScrollProgress = () => {
+      if (frame) return
+      frame = window.requestAnimationFrame(updateScrollProgress)
+    }
+
     updateScrollProgress()
-    window.addEventListener('scroll', updateScrollProgress, { passive: true })
-    window.addEventListener('resize', updateScrollProgress)
+    window.addEventListener('scroll', scheduleScrollProgress, { passive: true })
+    window.addEventListener('resize', scheduleScrollProgress)
 
     return () => {
-      window.removeEventListener('scroll', updateScrollProgress)
-      window.removeEventListener('resize', updateScrollProgress)
+      if (frame) window.cancelAnimationFrame(frame)
+      window.removeEventListener('scroll', scheduleScrollProgress)
+      window.removeEventListener('resize', scheduleScrollProgress)
     }
-  }, [])
+  }, [activeView])
 
   const handleNewChat = async () => {
     const session = await createSession()
@@ -714,24 +730,44 @@ export default function App() {
     </nav>
   )
 
-  const handleLandingPointerMove = (event: PointerEvent<HTMLElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    const x = ((event.clientX - rect.left) / rect.width) * 100
-    const y = ((event.clientY - rect.top) / rect.height) * 100
-    const relativeX = (event.clientX - rect.left) / rect.width - 0.5
-    const relativeY = (event.clientY - rect.top) / rect.height - 0.5
+  const flushLandingPointer = useCallback(() => {
+    const pointer = landingPointerRef.current
+    landingFrameRef.current = null
+    if (!pointer) return
+
+    const rect = pointer.target.getBoundingClientRect()
+    const x = ((pointer.clientX - rect.left) / rect.width) * 100
+    const y = ((pointer.clientY - rect.top) / rect.height) * 100
+    const relativeX = (pointer.clientX - rect.left) / rect.width - 0.5
+    const relativeY = (pointer.clientY - rect.top) / rect.height - 0.5
     const tiltX = relativeY * -10
     const tiltY = relativeX * 10
 
-    event.currentTarget.style.setProperty('--mouse-x', `${x.toFixed(2)}%`)
-    event.currentTarget.style.setProperty('--mouse-y', `${y.toFixed(2)}%`)
-    event.currentTarget.style.setProperty('--tilt-x', `${tiltX.toFixed(2)}deg`)
-    event.currentTarget.style.setProperty('--tilt-y', `${tiltY.toFixed(2)}deg`)
-    event.currentTarget.style.setProperty('--parallax-x', `${(relativeX * 28).toFixed(2)}px`)
-    event.currentTarget.style.setProperty('--parallax-y', `${(relativeY * 28).toFixed(2)}px`)
+    pointer.target.style.setProperty('--mouse-x', `${x.toFixed(2)}%`)
+    pointer.target.style.setProperty('--mouse-y', `${y.toFixed(2)}%`)
+    pointer.target.style.setProperty('--tilt-x', `${tiltX.toFixed(2)}deg`)
+    pointer.target.style.setProperty('--tilt-y', `${tiltY.toFixed(2)}deg`)
+    pointer.target.style.setProperty('--parallax-x', `${(relativeX * 28).toFixed(2)}px`)
+    pointer.target.style.setProperty('--parallax-y', `${(relativeY * 28).toFixed(2)}px`)
+  }, [])
+
+  const handleLandingPointerMove = (event: PointerEvent<HTMLElement>) => {
+    landingPointerRef.current = {
+      target: event.currentTarget,
+      clientX: event.clientX,
+      clientY: event.clientY,
+    }
+    if (landingFrameRef.current === null) {
+      landingFrameRef.current = window.requestAnimationFrame(flushLandingPointer)
+    }
   }
 
   const handleLandingPointerLeave = (event: PointerEvent<HTMLElement>) => {
+    landingPointerRef.current = null
+    if (landingFrameRef.current !== null) {
+      window.cancelAnimationFrame(landingFrameRef.current)
+      landingFrameRef.current = null
+    }
     event.currentTarget.style.setProperty('--mouse-x', '50%')
     event.currentTarget.style.setProperty('--mouse-y', '50%')
     event.currentTarget.style.setProperty('--tilt-x', '0deg')

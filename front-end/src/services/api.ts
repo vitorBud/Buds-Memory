@@ -157,55 +157,71 @@ export async function streamChat(
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  let body: FormData | null = null
+  const attempts = IS_DESKTOP ? 3 : 2
+  let lastError: unknown
 
-  if (payload.audio) {
-    body = new FormData()
-    body.append('audio', payload.audio, 'recording.webm')
-    if (payload.sessionId) body.append('session_id', payload.sessionId)
-    if (payload.model) body.append('model', payload.model)
-    if (payload.webSearch) body.append('web_search', 'true')
-  }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let body: FormData | null = null
+    let receivedAnyEvent = false
 
-  const fetchOptions: RequestInit = payload.audio
-    ? { method: 'POST', body, signal }
-    : {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: payload.text,
-          session_id: payload.sessionId,
-          model: payload.model,
-          web_search: payload.webSearch,
-        }),
-        signal,
+    if (payload.audio) {
+      body = new FormData()
+      body.append('audio', payload.audio, 'recording.webm')
+      if (payload.sessionId) body.append('session_id', payload.sessionId)
+      if (payload.model) body.append('model', payload.model)
+      if (payload.webSearch) body.append('web_search', 'true')
+    }
+
+    const fetchOptions: RequestInit = payload.audio
+      ? { method: 'POST', body, signal }
+      : {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: payload.text,
+            session_id: payload.sessionId,
+            model: payload.model,
+            web_search: payload.webSearch,
+          }),
+          signal,
+        }
+
+    try {
+      const response = await fetch(`${BASE}/chat/stream`, fetchOptions)
+      if (!response.ok || !response.body) throw new Error(`streamChat: ${response.status}`)
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue
+          const raw = line.slice(5).trim()
+          if (!raw) continue
+          try {
+            const event = JSON.parse(raw)
+            receivedAnyEvent = true
+            onEvent(event)
+          } catch { /* ignore parse errors */ }
+        }
       }
-
-  const response = await fetch(`${BASE}/chat/stream`, fetchOptions)
-  if (!response.ok || !response.body) throw new Error(`streamChat: ${response.status}`)
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-
-    for (const line of lines) {
-      if (!line.startsWith('data:')) continue
-      const raw = line.slice(5).trim()
-      if (!raw) continue
-      try {
-        const event = JSON.parse(raw)
-        onEvent(event)
-      } catch { /* ignore parse errors */ }
+      return
+    } catch (err) {
+      lastError = err
+      if (signal?.aborted || receivedAnyEvent || attempt >= attempts - 1) break
+      await wait(550 + attempt * 650)
     }
   }
+
+  throw lastError instanceof Error ? lastError : new Error('Falha ao conectar com o chat.')
 }
 
 // ── Audio URL ───────────────────────────────────────────────────────────────

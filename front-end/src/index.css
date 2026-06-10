@@ -5853,6 +5853,141 @@ input {
   width: 100% !important;
 }
 
+/* Final override v2: must stay at the end of this file. */
+.settings-panel {
+  -webkit-backdrop-filter: blur(16px) saturate(1.18);
+  backdrop-filter: blur(16px) saturate(1.18);
+  contain: none;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+.settings-panel .panel-block,
+.settings-drawer-head {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  contain: none;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell {
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  z-index: 3;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell:active {
+  cursor: grabbing;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::before,
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::after,
+.obsidian-stage-graph .memory-brain-card .brain-hud,
+.obsidian-stage-graph .memory-brain-card .brain-vault-status,
+.nexus-core-readout {
+  pointer-events: none;
+}
+
+.memory-three-canvas,
+.memory-three-canvas canvas {
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* Final interaction fix: these rules intentionally come last. */
+.settings-panel {
+  -webkit-backdrop-filter: blur(16px) saturate(1.18);
+  backdrop-filter: blur(16px) saturate(1.18);
+  contain: none;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+.settings-panel .panel-block,
+.settings-drawer-head {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  contain: none;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell {
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  z-index: 3;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell:active {
+  cursor: grabbing;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::before,
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::after,
+.obsidian-stage-graph .memory-brain-card .brain-hud,
+.obsidian-stage-graph .memory-brain-card .brain-vault-status,
+.nexus-core-readout {
+  pointer-events: none;
+}
+
+.memory-three-canvas,
+.memory-three-canvas canvas {
+  pointer-events: auto;
+  touch-action: none;
+}
+
+/* Stability patch: fixed drawers with blur must not use paint containment while scrolling. */
+.settings-panel {
+  -webkit-backdrop-filter: blur(16px) saturate(1.18);
+  backdrop-filter: blur(16px) saturate(1.18);
+  contain: none;
+  isolation: isolate;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  transform: translate3d(0, 0, 0);
+}
+
+.settings-panel .panel-block,
+.settings-drawer-head {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  contain: none;
+  transform: translateZ(0);
+}
+
+.settings-backdrop {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.memory-three-shell,
+.memory-three-canvas,
+.memory-three-canvas canvas {
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell {
+  overscroll-behavior: contain;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-hud,
+.obsidian-stage-graph .memory-brain-card .brain-vault-status {
+  pointer-events: none;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-card-header,
+.obsidian-stage-graph .memory-brain-card .brain-controls,
+.obsidian-timeline,
+.brain-stats-popover {
+  pointer-events: auto;
+}
+
 .memory-three-canvas:active {
   cursor: grabbing;
 }
@@ -6285,4 +6420,137 @@ input {
   .jarvis-brand-lockup span {
     font-size: 34px;
   }
+}
+
+/* Performance pass: keeps panels and WebGL views composited immediately. */
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translate3d(18px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.jarvis-landing,
+.chat-scroll-scene,
+.obsidian-scroll-scene {
+  contain: layout paint style;
+}
+
+.chat-scroll-scene .app-shell,
+.obsidian-sticky-stage,
+.jarvis-visual-stage,
+.brain-graph,
+.memory-three-canvas,
+.memory-three-canvas canvas {
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+.settings-backdrop {
+  inset: 0;
+  opacity: 1;
+  pointer-events: auto;
+  position: fixed;
+  transform: translateZ(0);
+  z-index: 900;
+}
+
+.settings-panel {
+  animation: drawer-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  bottom: 0;
+  contain: layout paint style;
+  max-height: 100dvh;
+  min-height: 100dvh;
+  opacity: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  position: fixed;
+  right: 0;
+  top: 0;
+  transform: translateZ(0);
+  will-change: transform, opacity;
+  z-index: 920;
+}
+
+.settings-panel .panel-block,
+.settings-drawer-head {
+  contain: layout paint;
+}
+
+.brain-stats-popover {
+  animation: drawer-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  bottom: 18px;
+  contain: layout paint style;
+  max-height: calc(100dvh - 92px);
+  opacity: 1;
+  overflow-y: auto;
+  position: fixed;
+  right: 18px;
+  top: 74px;
+  transform: translateZ(0);
+  will-change: transform, opacity;
+  z-index: 930;
+}
+
+.memory-three-shell,
+.memory-three-canvas {
+  min-height: 420px;
+}
+
+.memory-three-canvas {
+  height: 100%;
+  width: 100%;
+}
+
+.memory-three-canvas canvas {
+  display: block;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* Final override v2: must stay at the end of this file. */
+.settings-panel {
+  -webkit-backdrop-filter: blur(16px) saturate(1.18);
+  backdrop-filter: blur(16px) saturate(1.18);
+  contain: none;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+.settings-panel .panel-block,
+.settings-drawer-head {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  contain: none;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell {
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  z-index: 3;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell:active {
+  cursor: grabbing;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::before,
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::after,
+.obsidian-stage-graph .memory-brain-card .brain-hud,
+.obsidian-stage-graph .memory-brain-card .brain-vault-status,
+.nexus-core-readout {
+  pointer-events: none;
+}
+
+.memory-three-canvas,
+.memory-three-canvas canvas {
+  pointer-events: auto;
+  touch-action: none;
 }

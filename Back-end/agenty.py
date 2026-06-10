@@ -210,12 +210,20 @@ def stt_local(wav_path: Path) -> str:
 
 # ====== LLM local via HTTP (Ollama) ======
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen2.5-coder:7b"
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
 OLLAMA_MODELS = [
     "qwen2.5-coder:3b",
     "qwen2.5-coder:7b",
     "qwen2.5-coder:14b",
 ]
+OLLAMA_OPTIONS = {
+    "temperature": 0.2,
+    "top_p": 0.85,
+    "repeat_penalty": 1.08,
+    "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "4096")),
+    "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "768")),
+}
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "2m")
 GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_SEARCH_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_SEARCH_ENGINE_ID")
@@ -354,23 +362,37 @@ def resolve_ollama_model(model: Optional[str] = None) -> str:
     return model if model in OLLAMA_MODELS else OLLAMA_MODEL
 
 
+def post_ollama(payload: dict, *, stream: bool):
+    """Chama o Ollama com pequenas tentativas para recuperar falhas transitórias."""
+    last_error = None
+    for attempt in range(3):
+        try:
+            return requests.post(
+                OLLAMA_URL,
+                json=payload,
+                stream=stream,
+                timeout=(8, 180),
+            )
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(0.45 * (attempt + 1))
+    raise RuntimeError(f"Ollama indisponível após tentativas automáticas: {last_error}") from last_error
+
+
 def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None) -> str:
     prompt = build_prompt(user_text, history, web_context, knowledge_context)
     selected_model = resolve_ollama_model(model)
 
-    r = requests.post(
-        OLLAMA_URL,
-        json={
+    r = post_ollama(
+        {
             "model": selected_model,
             "prompt": prompt,
             "stream": False,
-            "options": {
-                "temperature": 0.2,
-                "top_p": 0.85,
-                "repeat_penalty": 1.08
-            }
+            "keep_alive": OLLAMA_KEEP_ALIVE,
+            "options": OLLAMA_OPTIONS,
         },
-        timeout=180
+        stream=False,
     )
 
     r.raise_for_status()
@@ -382,20 +404,15 @@ def llm_ollama_stream(user_text: str, history=None, model: Optional[str] = None,
     prompt = build_prompt(user_text, history, web_context, knowledge_context)
     selected_model = resolve_ollama_model(model)
 
-    r = requests.post(
-        OLLAMA_URL,
-        json={
+    r = post_ollama(
+        {
             "model": selected_model,
             "prompt": prompt,
             "stream": True,
-            "options": {
-                "temperature": 0.2,
-                "top_p": 0.85,
-                "repeat_penalty": 1.08
-            }
+            "keep_alive": OLLAMA_KEEP_ALIVE,
+            "options": OLLAMA_OPTIONS,
         },
         stream=True,
-        timeout=180
     )
     r.raise_for_status()
 

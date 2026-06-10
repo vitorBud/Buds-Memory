@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import * as THREE from 'three'
 import {
@@ -329,7 +329,7 @@ function buildMemoryNodes(
       })
     })
 
-  return positionNodes(nodes.slice(0, 140))
+  return positionNodes(nodes.slice(0, 110))
 }
 
 function filterNodesByPeriod(nodes: MemoryNode[], period: MemoryPeriod) {
@@ -364,17 +364,29 @@ function ThreeMemoryGraph({
   onSelect: (id: string) => void
 }) {
   const mountRef = useRef<HTMLDivElement>(null)
+  const selectedIdRef = useRef(selectedId)
+  const onSelectRef = useRef(onSelect)
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
+
+  useEffect(() => {
+    onSelectRef.current = onSelect
+  }, [onSelect])
 
   useEffect(() => {
     const mount = mountRef.current
     if (!mount) return
+    const interactionTarget = mount.closest('.memory-three-shell') as HTMLElement | null
+    const eventTarget = interactionTarget ?? mount
 
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100)
     camera.position.set(0, 0.65, 7.2)
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25))
     renderer.setClearColor(0x000000, 0)
     mount.appendChild(renderer.domElement)
 
@@ -403,7 +415,7 @@ function ThreeMemoryGraph({
     sideLight.position.set(-4, -1, 3)
     scene.add(sideLight)
 
-    const coreGeometry = new THREE.SphereGeometry(0.42, 64, 64)
+    const coreGeometry = new THREE.SphereGeometry(0.42, 48, 48)
     const coreMaterial = new THREE.MeshPhysicalMaterial({
       color: accentHot,
       emissive: accentHot,
@@ -420,7 +432,7 @@ function ThreeMemoryGraph({
     const core = new THREE.Mesh(coreGeometry, coreMaterial)
     root.add(core)
 
-    const haloGeometry = new THREE.SphereGeometry(0.88, 64, 64)
+    const haloGeometry = new THREE.SphereGeometry(0.88, 40, 40)
     const haloMaterial = new THREE.MeshBasicMaterial({
       color: accentHot,
       transparent: true,
@@ -439,7 +451,7 @@ function ThreeMemoryGraph({
     })
     disposables.push(ringMaterial)
     for (let index = 0; index < 7; index += 1) {
-      const geometry = new THREE.TorusGeometry(1.1 + index * 0.42, 0.003, 6, 170)
+      const geometry = new THREE.TorusGeometry(1.1 + index * 0.42, 0.003, 6, 112)
       disposables.push(geometry)
       const ring = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
         color: index % 2 ? accent : accentHot,
@@ -454,7 +466,7 @@ function ThreeMemoryGraph({
       root.add(ring)
     }
 
-    const pointCount = Math.max(1200, nodes.length * 18)
+    const pointCount = Math.max(720, nodes.length * 12)
     const particlePositions = new Float32Array(pointCount * 3)
     for (let index = 0; index < pointCount; index += 1) {
       const angle = index * 2.399963
@@ -482,16 +494,16 @@ function ThreeMemoryGraph({
     nodes.forEach((node, index) => {
       const color = new THREE.Color(KIND_COLOR[node.kind])
       const size = 0.055 + Math.min(node.weight, 16) * 0.008
-      const geometry = new THREE.SphereGeometry(size, 28, 28)
+      const geometry = new THREE.SphereGeometry(size, 18, 18)
       const material = new THREE.MeshPhysicalMaterial({
         color,
         emissive: color,
-        emissiveIntensity: node.id === selectedId ? 0.72 : 0.22,
+        emissiveIntensity: node.id === selectedIdRef.current ? 0.72 : 0.22,
         metalness: 0.05,
         roughness: 0.16,
         transmission: 0.28,
         transparent: true,
-        opacity: node.id === selectedId ? 0.96 : 0.72,
+        opacity: node.id === selectedIdRef.current ? 0.96 : 0.72,
         clearcoat: 1,
       })
       disposables.push(geometry, material)
@@ -568,7 +580,7 @@ function ThreeMemoryGraph({
       moved = false
       startX = event.clientX
       startY = event.clientY
-      renderer.domElement.setPointerCapture(event.pointerId)
+      eventTarget.setPointerCapture(event.pointerId)
     }
 
     const onPointerMove = (event: PointerEvent) => {
@@ -586,24 +598,29 @@ function ThreeMemoryGraph({
     const onPointerUp = (event: PointerEvent) => {
       dragging = false
       idleVelocity = 0.0019
-      renderer.domElement.releasePointerCapture(event.pointerId)
+      if (eventTarget.hasPointerCapture(event.pointerId)) {
+        eventTarget.releasePointerCapture(event.pointerId)
+      }
       if (moved) return
       setPointer(event)
       raycaster.setFromCamera(pointer, camera)
       const hit = raycaster.intersectObjects(selectableMeshes, false)[0]
       const nodeId = hit?.object.userData.nodeId
-      if (nodeId) onSelect(nodeId)
+      if (nodeId) onSelectRef.current(nodeId)
     }
 
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
-      camera.position.z = Math.max(3.8, Math.min(11, camera.position.z + event.deltaY * 0.004))
+      event.stopPropagation()
+      const delta = Math.sign(event.deltaY) * Math.min(Math.abs(event.deltaY), 120)
+      camera.position.z = Math.max(3.5, Math.min(11.5, camera.position.z + delta * 0.01))
     }
 
-    renderer.domElement.addEventListener('pointerdown', onPointerDown)
-    renderer.domElement.addEventListener('pointermove', onPointerMove)
-    renderer.domElement.addEventListener('pointerup', onPointerUp)
-    renderer.domElement.addEventListener('wheel', onWheel, { passive: false })
+    eventTarget.addEventListener('pointerdown', onPointerDown)
+    eventTarget.addEventListener('pointermove', onPointerMove)
+    eventTarget.addEventListener('pointerup', onPointerUp)
+    eventTarget.addEventListener('pointercancel', onPointerUp)
+    eventTarget.addEventListener('wheel', onWheel, { passive: false })
 
     let frame = 0
     let animationId = 0
@@ -622,6 +639,16 @@ function ThreeMemoryGraph({
       flowGroup.rotation.y -= 0.0007
       if (thoughtLine) thoughtLine.material.opacity = 0.48 + Math.sin(frame * 0.05) * 0.26
 
+      selectableMeshes.forEach(mesh => {
+        const material = mesh.material
+        const active = mesh.userData.nodeId === selectedIdRef.current
+        const targetOpacity = active ? 0.96 : 0.72
+        const targetIntensity = active ? 0.72 : 0.22
+        material.opacity += (targetOpacity - material.opacity) * 0.12
+        material.emissiveIntensity += (targetIntensity - material.emissiveIntensity) * 0.12
+        mesh.scale.setScalar(active ? 1.22 : 1)
+      })
+
       root.children.forEach(child => {
         if (child instanceof THREE.Mesh && child.geometry.type === 'TorusGeometry') {
           child.rotation.z += (child.userData.speed ?? 0.001)
@@ -636,15 +663,16 @@ function ThreeMemoryGraph({
     return () => {
       window.cancelAnimationFrame(animationId)
       observer.disconnect()
-      renderer.domElement.removeEventListener('pointerdown', onPointerDown)
-      renderer.domElement.removeEventListener('pointermove', onPointerMove)
-      renderer.domElement.removeEventListener('pointerup', onPointerUp)
-      renderer.domElement.removeEventListener('wheel', onWheel)
+      eventTarget.removeEventListener('pointerdown', onPointerDown)
+      eventTarget.removeEventListener('pointermove', onPointerMove)
+      eventTarget.removeEventListener('pointerup', onPointerUp)
+      eventTarget.removeEventListener('pointercancel', onPointerUp)
+      eventTarget.removeEventListener('wheel', onWheel)
       renderer.dispose()
       disposables.forEach(item => item.dispose())
-      mount.removeChild(renderer.domElement)
+      if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement)
     }
-  }, [nodes, selectedId, thoughtMode, onSelect])
+  }, [nodes, thoughtMode])
 
   return <div ref={mountRef} className="memory-three-canvas" aria-label="Mapa neural 3D interativo" />
 }
@@ -667,6 +695,7 @@ export function BrainMap({
   const nodes = useMemo(() => filterNodesByPeriod(allNodes, period), [allNodes, period])
   const visibleNodes = nodes.length ? nodes : allNodes.slice(0, 8)
   const selectedNode = visibleNodes.find(node => node.id === selectedId) ?? visibleNodes[0]
+  const handleSelectNode = useCallback((id: string) => setSelectedId(id), [])
   const activeMessages = messages.filter(message => message.text !== '__thinking__')
   const learnedCount = knowledgeSources.length
   const savedMemoryCount = cognitiveMemories.length
@@ -760,12 +789,12 @@ export function BrainMap({
       </div>
 
       <div className="brain-graph memory-three-shell" aria-label="Mapa neural tridimensional de memórias">
-        <ThreeMemoryGraph
-          nodes={visibleNodes}
-          selectedId={selectedNode?.id ?? selectedId}
-          thoughtMode={thoughtMode}
-          onSelect={setSelectedId}
-        />
+          <ThreeMemoryGraph
+            nodes={visibleNodes}
+            selectedId={selectedNode?.id ?? selectedId}
+            thoughtMode={thoughtMode}
+            onSelect={handleSelectNode}
+          />
 
         <div className="nexus-core-readout">
           <span>Nexus Core</span>
