@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 import json
@@ -23,6 +24,7 @@ from agenty import (
     search_google,
 )
 import database
+import supabase_sync
 from storage import get_data_dir
 
 # ── Camada Cognitiva (Second Brain) ──────────────────────────────────────────
@@ -30,7 +32,6 @@ import database_v2
 from cognitive_api import cognitive_bp
 from cognitive import detector as cognitive_detector
 from cognitive import rag as cognitive_rag
-import supabase_sync
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR.parent / "front-end" / "dist"
@@ -259,19 +260,26 @@ def get_config():
 @app.route('/api/sync/status', methods=['GET'])
 def get_sync_status():
     """Retorna o estado da sincronização local-first com Supabase."""
-    return jsonify(supabase_sync.get_status()), 200
+    try:
+        return jsonify(supabase_sync.get_status()), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/sync/run', methods=['POST'])
 def run_sync():
-    """Envia snapshots locais para o Supabase quando houver configuração."""
-    data = request.get_json(silent=True) or {}
-    result = supabase_sync.run_sync(
-        table=data.get("table"),
-        limit=data.get("limit"),
-        dry_run=bool(data.get("dry_run")),
-    )
-    return jsonify(result), 200 if result.get("success") else 400
+    """Executa a sincronização manual dos dados locais para o Supabase."""
+    try:
+        data = request.get_json(silent=True) or {}
+        result = supabase_sync.run_sync(
+            table=data.get("table"),
+            limit=data.get("limit"),
+            dry_run=bool(data.get("dry_run")),
+        )
+        status = 200 if result.get("success") else 400
+        return jsonify(result), status
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 def get_requested_model() -> str:
