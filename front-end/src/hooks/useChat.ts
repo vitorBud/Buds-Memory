@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { streamChat } from '../services/api'
 import type { Message, AiState, Session, ChatStreamEvent } from '../types'
 
@@ -75,7 +75,7 @@ export function useChat({
     if (!isPlayingRef.current) playNextAudio()
   }
 
-  function stopOutput() {
+  const stopOutput = useCallback(() => {
     activeAbortRef.current?.abort()
     activeAbortRef.current = null
     audioQueueRef.current = []
@@ -88,7 +88,7 @@ export function useChat({
       .filter(msg => msg.text !== '__thinking__'))
     setIsProcessing(false)
     onStateChange('idle')
-  }
+  }, [onStateChange])
 
   // ── Append message helpers ─────────────────────────────────────────────────
   function addMessage(msg: Message) {
@@ -268,17 +268,17 @@ export function useChat({
     }
   }
 
-  function clearMessages() {
+  const clearMessages = useCallback(() => {
     setMessages([])
     msgCountRef.current = 0
     onMsgCountChange(0)
-  }
+  }, [onMsgCountChange])
 
-  function loadMessages(msgs: Message[]) {
+  const loadMessages = useCallback((msgs: Message[]) => {
     setMessages(msgs)
     msgCountRef.current = msgs.length
     onMsgCountChange(msgs.length)
-  }
+  }, [onMsgCountChange])
 
   return { messages, isProcessing, sendText, sendAudio, stopOutput, clearMessages, loadMessages }
 }

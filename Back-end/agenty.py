@@ -217,9 +217,9 @@ OLLAMA_MODELS = [
     "qwen2.5-coder:14b",
 ]
 OLLAMA_OPTIONS = {
-    "temperature": 0.2,
-    "top_p": 0.85,
-    "repeat_penalty": 1.08,
+    "temperature": 0.6,
+    "top_p": 0.90,
+    "repeat_penalty": 1.18,
     "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "4096")),
     "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "768")),
 }

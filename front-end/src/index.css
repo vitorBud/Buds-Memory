@@ -242,7 +242,6 @@ input:focus-visible {
 
 .jarvis-landing::before,
 .jarvis-landing::after {
-  border: 1px solid rgba(245, 158, 11, 0.16);
   content: '';
   inset: clamp(14px, 2vw, 28px);
   pointer-events: none;
@@ -250,7 +249,6 @@ input:focus-visible {
 }
 
 .jarvis-landing::after {
-  border-color: rgba(245, 158, 11, 0.1);
   inset: clamp(42px, 6vw, 92px);
 }
 
@@ -679,7 +677,6 @@ input:focus-visible {
 }
 
 .obsidian-scroll-scene::before {
-  border: 1px solid rgba(245, 158, 11, 0.14);
   inset: clamp(14px, 2vw, 28px);
 }
 
@@ -3106,7 +3103,6 @@ input:focus-visible {
 }
 
 .chat-scroll-scene::before {
-  border: 1px solid rgba(245, 158, 11, 0.13);
   inset: clamp(12px, 2vw, 28px);
 }
 
@@ -3440,12 +3436,6 @@ input:focus-visible {
     #030303;
 }
 
-.jarvis-landing::before,
-.jarvis-landing::after,
-.chat-scroll-scene::before,
-.obsidian-scroll-scene::before {
-  border-color: rgb(var(--accent-rgb) / 0.16);
-}
 
 .jarvis-top-strip,
 .jarvis-command-bar button,
@@ -4864,7 +4854,7 @@ input {
 }
 
 .theme-white span { background: linear-gradient(135deg, #ffffff, #dbe4ef); }
-.theme-black span { background: linear-gradient(135deg, #020305, #293241); }
+
 .theme-gold span { background: linear-gradient(135deg, #ffe6a3, #b7791f); }
 .theme-silver span { background: linear-gradient(135deg, #f8fafc, #94a3b8); }
 

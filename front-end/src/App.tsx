@@ -447,6 +447,11 @@ export default function App() {
     pushActivity('Título criado pela primeira pergunta', 'emerald')
   }, [pushActivity])
 
+  const handleModelChange = useCallback((model: string) => {
+    setSelectedModel(model)
+    pushActivity(`IA alterada para: ${model}`, 'violet')
+  }, [pushActivity])
+
   const { messages, isProcessing, sendText, sendAudio, stopOutput, clearMessages, loadMessages } = useChat({
     sessionId: currentSessionId,
     selectedModel,
@@ -469,6 +474,7 @@ export default function App() {
   })
 
   const loadSessionData = useCallback(async (session: Session, announce = true) => {
+    stopOutput() // aborta fluxo anterior antes de mudar
     setCurrentSessionId(session.id)
     setCurrentSessionTitle(session.title)
     setCurrentSessionCreatedAt(session.created_at)
@@ -513,11 +519,40 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [loadSessionData, refreshCognitiveBrain, refreshSyncStatus])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // <--- Array vazio para garantir execução única na inicialização
 
   useEffect(() => {
     if (settingsOpen) refreshSyncStatus()
   }, [settingsOpen, refreshSyncStatus])
+
+  // Polling em tempo real do status do sistema (a cada 8 segundos)
+  useEffect(() => {
+    if (!bootDone) return
+    const interval = window.setInterval(async () => {
+      try {
+        const start = Date.now()
+        const config = await getBackendConfig()
+        const latency = Date.now() - start
+        
+        setSystemHealth(prev => {
+          const current = prev || { backend: false, ollama: false, database: false, model: '', backendLatency: null }
+          return {
+            ...current,
+            backend: true,
+            backendLatency: latency,
+            ollama: Boolean(config.models && config.models.length > 0),
+            model: config.model || current.model,
+            database: true
+          }
+        })
+      } catch (err) {
+        setSystemHealth(prev => prev ? { ...prev, backend: false, backendLatency: null } : null)
+      }
+    }, 8000)
+    
+    return () => clearInterval(interval)
+  }, [bootDone])
 
   useEffect(() => {
     const target = window.location.hash
@@ -888,7 +923,7 @@ export default function App() {
                   onMicToggle={toggleMic}
                   selectedModel={selectedModel}
                   models={availableModels}
-                  onModelChange={setSelectedModel}
+                  onModelChange={handleModelChange}
                   showQuickPrompts={false}
                   showModelSelect={false}
                   showMeta={false}
@@ -950,7 +985,7 @@ export default function App() {
             syncStatus={syncStatus}
             isSyncing={isSyncing}
             settings={settings}
-            onModelChange={setSelectedModel}
+            onModelChange={handleModelChange}
             onSyncNow={handleSyncNow}
             onSettingChange={updateSetting}
             onClose={() => setSettingsOpen(false)}
