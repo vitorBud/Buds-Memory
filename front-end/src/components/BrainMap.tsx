@@ -27,7 +27,7 @@ interface BrainMapProps {
   knowledgeGraph?: KnowledgeGraph | null
 }
 
-type MemoryKind = 'fonte' | 'mensagem' | 'memoria' | 'entidade' | 'topico' | 'sistema'
+type MemoryKind = 'fonte' | 'memoria' | 'entidade' | 'topico' | 'sistema'
 type MemoryPeriod = 'today' | 'yesterday' | 'week' | 'month' | 'all'
 
 interface MemoryNode {
@@ -48,6 +48,11 @@ interface MemoryNode {
 
 type SelectableNodeMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> & {
   userData: { nodeId: string }
+}
+
+type MemoryLabelSprite = THREE.Sprite & {
+  material: THREE.SpriteMaterial
+  userData: { nodeId: string; baseOpacity: number; baseScaleX: number; baseScaleY: number }
 }
 
 const STOP_WORDS = new Set([
@@ -93,7 +98,6 @@ const PERIODS: Array<{ id: MemoryPeriod; label: string }> = [
 
 const KIND_LABEL: Record<MemoryKind, string> = {
   fonte: 'Documento',
-  mensagem: 'Conversa',
   memoria: 'Memória salva',
   entidade: 'Conceito salvo',
   topico: 'Conceito',
@@ -102,7 +106,6 @@ const KIND_LABEL: Record<MemoryKind, string> = {
 
 const KIND_COLOR: Record<MemoryKind, string> = {
   fonte: '#d6a63d',
-  mensagem: '#62c77b',
   memoria: '#d7f7ff',
   entidade: '#c7b8ff',
   topico: '#7da7ff',
@@ -230,7 +233,6 @@ function positionNodes(nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 
 }
 
 function buildMemoryNodes(
-  messages: Message[],
   sources: KnowledgeSource[],
   cognitiveMemories: CognitiveMemory[] = [],
   graph?: KnowledgeGraph | null,
@@ -272,7 +274,10 @@ function buildMemoryNodes(
     })
   })
 
-  cognitiveMemories.forEach((memory, memoryIndex) => {
+  // Memórias cognitivas — somente acima do limiar de relevância
+  cognitiveMemories
+    .filter(memory => (memory.importance ?? 0) >= 0.4)
+    .forEach((memory, memoryIndex) => {
     const createdAt = parseDate(memory.created_at || memory.last_accessed, memoryIndex * 3_600_000)
     const tags = [...new Set([memory.memory_type, ...(memory.tags ?? []), ...getTopics(memory.content, 4)])]
       .map(prettifyTopic)
@@ -292,7 +297,11 @@ function buildMemoryNodes(
     })
   })
 
-  ;(graph?.entities ?? []).slice(0, 40).forEach((entity, entityIndex) => {
+  // Entidades do grafo cognitivo — somente confirmadas (importance >= 0.5, access >= 1)
+  ;(graph?.entities ?? [])
+    .filter(entity => (entity.importance ?? 0) >= 0.5 && (entity.access_count ?? 0) >= 1)
+    .slice(0, 50)
+    .forEach((entity, entityIndex) => {
     const createdAt = parseDate(entity.last_seen || entity.first_seen, entityIndex * 5_400_000)
     const entityTags = [entity.entity_type, ...getTopics(`${entity.name} ${entity.description ?? ''}`, 4)]
       .map(prettifyTopic)
@@ -312,24 +321,10 @@ function buildMemoryNodes(
     })
   })
 
-  messages
-    .filter(message => message.text !== '__thinking__')
-    .slice(-36)
-    .forEach((message, index) => {
-      const topics = getTopics(message.text, 5)
-      nodes.push({
-        id: `msg-${message.id ?? index}-${message.sender}`,
-        label: compactLabel(topics.join(' · ') || message.text, message.sender === 'user' ? 'Memória do usuário' : 'Memória da IA', 58),
-        summary: compactLabel(message.text, 'Registro de conversa', 180),
-        kind: 'mensagem',
-        weight: message.sender === 'user' ? 8 : 7,
-        createdAt: parseDate(message.created_at, index * 7_200_000),
-        source: message.sender === 'user' ? 'Usuário' : 'Nexus IA',
-        tags: topics,
-      })
-    })
+  // Mensagens brutas NÃO entram no Obsidian.
+  // O grafo representa conhecimento adquirido, não histórico de chat.
 
-  return positionNodes(nodes.slice(0, 72))
+  return positionNodes(nodes.slice(0, 80))
 }
 
 function filterNodesByPeriod(nodes: MemoryNode[], period: MemoryPeriod) {
@@ -350,6 +345,100 @@ function filterNodesByPeriod(nodes: MemoryNode[], period: MemoryPeriod) {
 
 function formatShortDate(date: Date) {
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+}
+
+function makeLabelLines(text: string) {
+  const clean = compactLabel(text, 'Memória', 44)
+  const words = clean.split(/\s+/)
+  const lines: string[] = []
+  let current = ''
+
+  words.forEach(word => {
+    const next = current ? `${current} ${word}` : word
+    if (next.length > 21 && current) {
+      lines.push(current)
+      current = word
+    } else {
+      current = next
+    }
+  })
+
+  if (current) lines.push(current)
+  return lines.slice(0, 2)
+}
+
+function createTextLabelSprite(node: MemoryNode, color: THREE.Color, textColor: THREE.Color): MemoryLabelSprite {
+  const lines = makeLabelLines(node.label)
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+  const fontSize = 25
+  const paddingX = 18
+  const paddingY = 10
+  const lineHeight = 29
+
+  if (!context) {
+    const fallbackTexture = new THREE.CanvasTexture(canvas)
+    const fallbackMaterial = new THREE.SpriteMaterial({ map: fallbackTexture, transparent: true, opacity: 0.55 })
+    const fallback = new THREE.Sprite(fallbackMaterial) as MemoryLabelSprite
+    fallback.userData = { nodeId: node.id, baseOpacity: 0.55, baseScaleX: 0.5, baseScaleY: 0.18 }
+    return fallback
+  }
+
+  context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, sans-serif`
+  const textWidth = Math.max(...lines.map(line => context.measureText(line).width), 72)
+  const width = Math.ceil((textWidth + paddingX * 2) * pixelRatio)
+  const height = Math.ceil((paddingY * 2 + lineHeight * lines.length) * pixelRatio)
+  canvas.width = width
+  canvas.height = height
+
+  context.scale(pixelRatio, pixelRatio)
+  context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, sans-serif`
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+
+  const cssWidth = width / pixelRatio
+  const cssHeight = height / pixelRatio
+  const radius = 14
+  context.beginPath()
+  context.roundRect(0.5, 0.5, cssWidth - 1, cssHeight - 1, radius)
+  context.fillStyle = `rgba(${Math.round(textColor.r * 255)}, ${Math.round(textColor.g * 255)}, ${Math.round(textColor.b * 255)}, 0.12)`
+  context.fill()
+  context.strokeStyle = `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, 0.38)`
+  context.lineWidth = 1
+  context.stroke()
+
+  lines.forEach((line, index) => {
+    const y = paddingY + lineHeight * index + lineHeight / 2
+    context.lineWidth = 5
+    context.strokeStyle = 'rgba(0, 0, 0, 0.5)'
+    context.strokeText(line, cssWidth / 2, y)
+    context.fillStyle = `rgba(${Math.round(textColor.r * 255)}, ${Math.round(textColor.g * 255)}, ${Math.round(textColor.b * 255)}, 0.92)`
+    context.fillText(line, cssWidth / 2, y)
+  })
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  texture.needsUpdate = true
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0.46,
+    depthWrite: false,
+    depthTest: false,
+  })
+  const sprite = new THREE.Sprite(material) as MemoryLabelSprite
+  const worldWidth = Math.min(1.24, Math.max(0.52, cssWidth / 155))
+  const worldHeight = worldWidth * (cssHeight / cssWidth)
+  sprite.scale.set(worldWidth, worldHeight, 1)
+  sprite.userData = {
+    nodeId: node.id,
+    baseOpacity: node.kind === 'fonte' || node.kind === 'memoria' ? 0.62 : 0.42,
+    baseScaleX: worldWidth,
+    baseScaleY: worldHeight,
+  }
+  return sprite
 }
 
 function ThreeMemoryGraph({
@@ -397,12 +486,13 @@ function ThreeMemoryGraph({
 
     const root = new THREE.Group()
     const nodesGroup = new THREE.Group()
+    const labelsGroup = new THREE.Group()
     const flowGroup = new THREE.Group()
     const ambientParticles = new THREE.Group()
     root.rotation.x = -0.18
     root.position.y = 0.45
     scene.add(root)
-    root.add(flowGroup, nodesGroup, ambientParticles)
+    root.add(flowGroup, nodesGroup, labelsGroup, ambientParticles)
 
     const style = getComputedStyle(document.documentElement)
     const accentHot = new THREE.Color(style.getPropertyValue('--accent-hot').trim() || '#ffffff')
@@ -411,6 +501,7 @@ function ThreeMemoryGraph({
 
     const disposables: Array<{ dispose: () => void }> = []
     const selectableMeshes: SelectableNodeMesh[] = []
+    const labelSprites: MemoryLabelSprite[] = []
 
     scene.add(new THREE.AmbientLight(0xffffff, 1.2))
     const keyLight = new THREE.PointLight(accentHot, 5.6, 24)
@@ -515,6 +606,14 @@ function ThreeMemoryGraph({
       mesh.userData = { nodeId: node.id }
       nodesGroup.add(mesh)
       selectableMeshes.push(mesh)
+
+      const label = createTextLabelSprite(node, color, textColor)
+      const labelLift = size + 0.16 + (index % 3) * 0.018
+      label.position.set(node.x, node.y + labelLift, node.z)
+      labelsGroup.add(label)
+      labelSprites.push(label)
+      if (label.material.map) disposables.push(label.material.map)
+      disposables.push(label.material)
 
       linePositions.push(0, 0, 0, node.x, node.y, node.z)
 
@@ -656,6 +755,17 @@ function ThreeMemoryGraph({
         mesh.scale.setScalar(active ? 1.22 : 1)
       })
 
+      labelSprites.forEach(sprite => {
+        const active = sprite.userData.nodeId === selectedIdRef.current
+        const targetOpacity = active ? 0.98 : sprite.userData.baseOpacity
+        const targetScale = active ? 1.16 : 1
+        sprite.material.opacity += (targetOpacity - sprite.material.opacity) * 0.12
+        sprite.scale.x += (sprite.userData.baseScaleX * targetScale - sprite.scale.x) * 0.12
+        sprite.scale.y += (sprite.userData.baseScaleY * targetScale - sprite.scale.y) * 0.12
+        sprite.visible = camera.position.distanceTo(sprite.position) < 12
+        sprite.renderOrder = active ? 4 : 2
+      })
+
       root.children.forEach(child => {
         if (child instanceof THREE.Mesh && child.geometry.type === 'TorusGeometry') {
           child.rotation.z += (child.userData.speed ?? 0.001)
@@ -692,8 +802,8 @@ export function BrainMap({
   knowledgeGraph = null,
 }: BrainMapProps) {
   const allNodes = useMemo(
-    () => buildMemoryNodes(messages, knowledgeSources, cognitiveMemories, knowledgeGraph),
-    [messages, knowledgeSources, cognitiveMemories, knowledgeGraph],
+    () => buildMemoryNodes(knowledgeSources, cognitiveMemories, knowledgeGraph),
+    [knowledgeSources, cognitiveMemories, knowledgeGraph],
   )
   const [selectedId, setSelectedId] = useState(allNodes[0]?.id ?? 'sistema-contexto')
   const [isStatsOpen, setIsStatsOpen] = useState(false)
@@ -739,7 +849,7 @@ export function BrainMap({
     }))
     const nodeEvents = allNodes.slice(0, 5).map(node => ({
       id: `node-${node.id}`,
-      label: node.kind === 'topico' ? 'Relação criada' : node.kind === 'mensagem' ? 'Memória criada' : 'Conhecimento consolidado',
+      label: node.kind === 'topico' ? 'Relação criada' : node.kind === 'memoria' ? 'Memória criada' : 'Conhecimento consolidado',
       text: node.label,
       date: node.createdAt,
     }))

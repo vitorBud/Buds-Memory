@@ -12,6 +12,7 @@ import {
   X,
   House,
 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { TopBar } from './components/TopBar'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
@@ -394,6 +395,20 @@ export default function App() {
     setActivityItems(prev => [item, ...prev].slice(0, 8))
   }, [])
 
+  const [toast, setToast] = useState<{ message: string; type: 'info' | 'success' } | null>(null)
+
+  const showToast = useCallback((message: string, type: 'info' | 'success' = 'info') => {
+    setToast({ message, type })
+  }, [])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => {
+      setToast(null)
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
   const refreshSyncStatus = useCallback(async () => {
     try {
       const status = await getSyncStatus()
@@ -449,8 +464,17 @@ export default function App() {
 
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model)
+    localStorage.setItem('nexus_selected_model', model)
     pushActivity(`IA alterada para: ${model}`, 'violet')
-  }, [pushActivity])
+
+    const friendlyNames: Record<string, string> = {
+      'qwen2.5-coder:3b': 'IA Modo Rápido (3B)',
+      'qwen2.5-coder:7b': 'IA Modo Padrão (7B)',
+      'qwen2.5-coder:14b': 'IA Modo Inteligente (14B)',
+    }
+    const label = friendlyNames[model] || model
+    showToast(`Modelo alterado para ${label}`, 'success')
+  }, [pushActivity, showToast])
 
   const { messages, isProcessing, sendText, sendAudio, stopOutput, clearMessages, loadMessages } = useChat({
     sessionId: currentSessionId,
@@ -511,7 +535,14 @@ export default function App() {
         if (cancelled) return
         const models = config.models?.length ? config.models : DEFAULT_MODELS
         setAvailableModels(models)
-        setSelectedModel(models.includes(config.model) ? config.model : models[0] || FALLBACK_MODEL)
+
+        const savedModel = localStorage.getItem('nexus_selected_model')
+        if (savedModel && models.includes(savedModel)) {
+          setSelectedModel(savedModel)
+        } else {
+          setSelectedModel(models.includes(config.model) ? config.model : models[0] || FALLBACK_MODEL)
+        }
+
         setGoogleSearchAvailable(Boolean(config.google_search_available))
       })
       .catch(console.error)
@@ -773,6 +804,28 @@ export default function App() {
   return (
     <div className="scroll-experience" ref={pageRef}>
       <NetworkStatus />
+
+      <div className="network-status-container">
+        <AnimatePresence>
+          {toast && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.95 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="network-status-toast online model-change-toast"
+            >
+              <div className="network-status-icon" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6' }}>
+                <BrainCircuit size={18} />
+              </div>
+              <div className="network-status-text">
+                <strong>Modelo Alterado</strong>
+                <span>{toast.message}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
       
       {/* Tela de boot — aparece até todos os serviços serem verificados */}
       {!bootDone && <BootScreen onDone={handleBootDone} />}

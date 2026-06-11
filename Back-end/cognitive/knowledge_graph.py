@@ -27,6 +27,10 @@ RELATION_TYPES = {
     "depends_on", "extends", "implements", "applies_to", "mentions",
 }
 
+# ── Limiar de exibição no grafo ────────────────────────────────────
+MIN_ENTITY_IMPORTANCE = 0.5  # entidades abaixo disso ficam em observação
+MIN_ENTITY_MENTIONS   = 1    # access_count mínimo para aparecer no grafo
+
 # ── Detecção automática de tecnologias ──────────────────────────────────────
 KNOWN_TECHNOLOGIES: dict[str, str] = {
     "python": "technology", "javascript": "technology", "typescript": "technology",
@@ -42,6 +46,18 @@ KNOWN_TECHNOLOGIES: dict[str, str] = {
     "css": "technology", "html": "technology", "sql": "technology",
     "numpy": "library", "pandas": "library", "scikit-learn": "library",
     "openai": "tool", "langchain": "library",
+}
+
+# ── Mapa de normalização / consolidação de aliases ───────────────────────
+_ALIAS_MAP: dict[str, str] = {
+    "js": "javascript", "javascript es6": "javascript", "vanillajs": "javascript",
+    "ts": "typescript", "reactjs": "react", "react.js": "react", "react js": "react",
+    "next": "next.js", "nextjs": "next.js", "next js": "next.js",
+    "node": "node.js", "nodejs": "node.js", "node js": "node.js",
+    "vuejs": "vue", "vue.js": "vue", "vue js": "vue", "py": "python",
+    "sqlite3": "sqlite", "postgres": "postgresql", "pg": "postgresql",
+    "flask api": "flask", "flask rest": "flask", "tailwindcss": "tailwind",
+    "tailwind css": "tailwind",
 }
 
 
@@ -214,11 +230,24 @@ def get_neighbors(name: str, depth: int = 1) -> dict:
 
 
 def get_full_graph(limit: int = 200) -> dict:
-    """Retorna o grafo completo para o Obsidian/BrainMap."""
+    """
+    Retorna o grafo filtrado para o Obsidian/BrainMap.
+
+    Só inclui entidades com:
+      - importance >= MIN_ENTITY_IMPORTANCE (padrão 0.5)
+      - access_count >= MIN_ENTITY_MENTIONS (padrão 1)
+    Isso garante que tecnologias mencionadas uma única vez fiquem em
+    observação e não poluam o grafo.
+    """
     with get_db_connection() as conn:
         entities = conn.execute(
-            "SELECT * FROM kg_entities ORDER BY importance DESC, access_count DESC LIMIT ?",
-            (limit,),
+            """
+            SELECT * FROM kg_entities
+            WHERE importance >= ? AND access_count >= ?
+            ORDER BY importance DESC, access_count DESC
+            LIMIT ?
+            """,
+            (MIN_ENTITY_IMPORTANCE, MIN_ENTITY_MENTIONS, limit),
         ).fetchall()
 
         entity_ids = [e["id"] for e in entities]
@@ -295,24 +324,83 @@ def get_most_connected(limit: int = 20) -> list[dict]:
 
 def detect_and_register(text: str, session_id: Optional[str] = None) -> list[str]:
     """
-    Detecta tecnologias/ferramentas no texto e registra automaticamente no grafo.
-    Retorna lista de entidades detectadas.
+    Detecta tecnologias no texto e registra no grafo.
+
+    Primeira detecção: importance=0.35 (abaixo do limiar de exibição).
+    Cada menção adicional incrementa +0.1, até 1.0.
+    Quando importance >= MIN_ENTITY_IMPORTANCE, a entidade passa a aparecer
+    no grafo do Obsidian.
     """
-    found = []
+    found: list[str] = []
     lower = text.lower()
 
     for tech, etype in KNOWN_TECHNOLOGIES.items():
+        # Resolve alias para nome canônico
+        canonical = _ALIAS_MAP.get(tech, tech)
         pattern = r"\b" + re.escape(tech) + r"\b"
         if re.search(pattern, lower):
-            upsert_entity(tech, etype, importance=0.6)
-            found.append(tech)
+            # Verifica se já existe com importância acima do limiar
+            existing = _get_entity_by_name(canonical)
+            if existing:
+                # Reforça a importância (+0.1 por menção)
+                new_imp = min(existing["importance"] + 0.1, 1.0)
+                upsert_entity(canonical, etype, importance=new_imp)
+            else:
+                # Primeira detecção: fica em observação (0.35, abaixo do limiar)
+                upsert_entity(canonical, etype, importance=0.35)
+            if canonical not in found:
+                found.append(canonical)
 
-    # Relaciona tecnologias detectadas entre si (co-mencionadas)
+    # Relaciona tecnologias co-mencionadas entre si
     for i, a in enumerate(found):
         for b in found[i + 1:]:
             add_relation(a, b, "related_to", 0.4)
 
     return found
+
+
+def consolidate_duplicates() -> dict:
+    """
+    Consolida entidades duplicadas/aliases no grafo.
+
+    Exemplo: 'reactjs', 'react.js', 'react js' → todos viram 'react'.
+    Transfere as relações para o nó canônico e remove os aliases.
+    """
+    merged = 0
+    with get_db_connection() as conn:
+        for alias, canonical in _ALIAS_MAP.items():
+            alias_row = conn.execute(
+                "SELECT id FROM kg_entities WHERE name=?", (alias,)
+            ).fetchone()
+            canonical_row = conn.execute(
+                "SELECT id FROM kg_entities WHERE name=?", (canonical,)
+            ).fetchone()
+
+            if not alias_row or not canonical_row:
+                continue
+
+            alias_id     = alias_row["id"]
+            canonical_id = canonical_row["id"]
+
+            # Redireciona relações do alias para o nó canônico
+            conn.execute(
+                "UPDATE kg_relations SET source_id=? WHERE source_id=?",
+                (canonical_id, alias_id),
+            )
+            conn.execute(
+                "UPDATE kg_relations SET target_id=? WHERE target_id=?",
+                (canonical_id, alias_id),
+            )
+            # Remove self-loops gerados
+            conn.execute(
+                "DELETE FROM kg_relations WHERE source_id=target_id"
+            )
+            # Remove entidade alias
+            conn.execute("DELETE FROM kg_entities WHERE id=?", (alias_id,))
+            conn.commit()
+            merged += 1
+
+    return {"aliases_merged": merged}
 
 
 def get_stats() -> dict:

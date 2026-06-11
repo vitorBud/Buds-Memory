@@ -4853,10 +4853,6 @@ input {
   width: 16px;
 }
 
-.theme-white span { background: linear-gradient(135deg, #ffffff, #dbe4ef); }
-
-.theme-gold span { background: linear-gradient(135deg, #ffe6a3, #b7791f); }
-.theme-silver span { background: linear-gradient(135deg, #f8fafc, #94a3b8); }
 
 .toggle-row i {
   background: var(--liquid-panel-soft);
@@ -7232,4 +7228,113 @@ input {
 .obsidian-stage-graph .thought-path-panel *,
 .obsidian-stage-graph .brain-hud * {
   pointer-events: none !important;
+}
+
+/* ─── Code Block Styles (Gemini Liquid Glass Style) ────────────────────────── */
+
+.code-block-container {
+  background: rgba(15, 15, 20, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  margin: 14px 0;
+  overflow: hidden;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(10, 10, 12, 0.5);
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.code-block-lang {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.5px;
+}
+
+.code-block-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.code-block-copy-btn:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.code-block-copy-btn:active {
+  transform: scale(0.96);
+}
+
+.code-block-pre {
+  margin: 0;
+  padding: 16px;
+  overflow-x: auto;
+  background: transparent;
+}
+
+.code-block-code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #e2e8f0;
+  white-space: pre;
+  display: block;
+  text-align: left;
+}
+
+/* Syntax Highlighting Colors */
+.token-comment {
+  color: #6e7681;
+  font-style: italic;
+}
+
+.token-string {
+  color: #a5d6ff;
+}
+
+.token-keyword {
+  color: #ff7b72;
+  font-weight: 600;
+}
+
+.token-type {
+  color: #79c0ff;
+}
+
+.token-number {
+  color: #d2a8ff;
+}
+
+.token-annotation {
+  color: #ff9b50;
+}
+
+.text-emerald {
+  color: #34d399 !important;
+}
+
+.network-status-toast.model-change-toast {
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 4px 24px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(139, 92, 246, 0.2);
 }

@@ -25,6 +25,12 @@ MEDIUM_TERM_DAYS_MIN = 30
 MEDIUM_TERM_DAYS_MAX = 90
 CONSOLIDATION_THRESHOLD = 0.65  # importância mínima para short→medium
 
+# Limites mínimos para salvar (filtro de segurança)
+MIN_CONTENT_LENGTH = 15   # número mínimo de caracteres no conteúdo
+MIN_SHORT_IMPORTANCE  = 0.20   # importância mínima para short-term
+MIN_MEDIUM_IMPORTANCE = 0.40   # importância mínima para medium-term
+MIN_LONG_IMPORTANCE   = 0.65   # importância mínima para long-term
+
 
 # ── Escrita ──────────────────────────────────────────────────────────────────
 
@@ -57,17 +63,32 @@ def save_memory(
 
 
 def save_short_term(content: str, session_id: Optional[str] = None,
-                    importance: float = 0.4, tags: Optional[list] = None) -> dict:
+                    importance: float = 0.4, tags: Optional[list] = None) -> Optional[dict]:
+    """Salva memória de curto prazo. Descarta conteúdo vazio ou pouco relevante."""
+    if len((content or "").strip()) < MIN_CONTENT_LENGTH:
+        return None
+    if importance < MIN_SHORT_IMPORTANCE:
+        return None
     return save_memory(content, "short", session_id, importance, tags)
 
 
 def save_medium_term(content: str, session_id: Optional[str] = None,
-                     importance: float = 0.6, tags: Optional[list] = None) -> dict:
+                     importance: float = 0.6, tags: Optional[list] = None) -> Optional[dict]:
+    """Salva memória de médio prazo. Exige importância mínima de 0.40."""
+    if len((content or "").strip()) < MIN_CONTENT_LENGTH:
+        return None
+    if importance < MIN_MEDIUM_IMPORTANCE:
+        return None
     return save_memory(content, "medium", session_id, importance, tags)
 
 
 def save_long_term(content: str, session_id: Optional[str] = None,
-                   importance: float = 0.85, tags: Optional[list] = None) -> dict:
+                   importance: float = 0.85, tags: Optional[list] = None) -> Optional[dict]:
+    """Salva memória permanente. Exige importância mínima de 0.65."""
+    if len((content or "").strip()) < MIN_CONTENT_LENGTH:
+        return None
+    if importance < MIN_LONG_IMPORTANCE:
+        return None
     return save_memory(content, "long", session_id, importance, tags)
 
 

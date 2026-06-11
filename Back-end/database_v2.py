@@ -33,6 +33,7 @@ def migrate():
         _create_insights(conn)
         _create_embeddings(conn)
         _create_sync_state(conn)
+        _migrate_embeddings_metadata(conn)
         _create_indexes(conn)
         conn.commit()
     print("[DB v2] Migração cognitiva concluída com sucesso.")
@@ -196,9 +197,21 @@ def _create_indexes(conn):
         "CREATE INDEX IF NOT EXISTS idx_timeline_type      ON timeline_events(event_type);",
         "CREATE INDEX IF NOT EXISTS idx_insights_read      ON insights(is_read);",
         "CREATE INDEX IF NOT EXISTS idx_embeddings_src     ON embeddings(source_table, source_id);",
+        "CREATE INDEX IF NOT EXISTS idx_embeddings_created ON embeddings(created_at);",
     ]
     for sql in indexes:
         conn.execute(sql)
+
+
+def _migrate_embeddings_metadata(conn):
+    """
+    Adiciona coluna chunk_metadata à tabela embeddings de forma idempotente.
+    Necessário para o Code Search Engine (RAG Avançado).
+    """
+    try:
+        conn.execute("ALTER TABLE embeddings ADD COLUMN chunk_metadata TEXT DEFAULT '{}'")
+    except Exception:
+        pass  # Coluna já existe — sem problema
 
 
 # ── Helpers de data ──────────────────────────────────────────────────────────

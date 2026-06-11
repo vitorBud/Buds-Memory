@@ -16,6 +16,26 @@ from typing import Optional
 from database_v2 import get_db_connection, now_iso
 
 
+def _freshness_score(created_at) -> float:
+    """Score de frescor baseado na data de criação (0.2 a 1.0)."""
+    if not created_at:
+        return 0.5
+    try:
+        import datetime
+        ts = datetime.datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        ts = ts.replace(tzinfo=None)
+        age_days = (datetime.datetime.now() - ts).days
+    except Exception:
+        return 0.5
+    if age_days <= 1:   return 1.0
+    if age_days <= 7:   return 0.9
+    if age_days <= 30:  return 0.7
+    if age_days <= 90:  return 0.55
+    if age_days <= 180: return 0.45
+    if age_days <= 365: return 0.35
+    return 0.2
+
+
 def global_search(query: str, limit: int = 30, session_id: Optional[str] = None) -> dict:
     """
     Busca unificada em todas as tabelas cognitivas.
@@ -73,14 +93,15 @@ def _search_sessions(tokens: list[str], limit: int) -> list[dict]:
 
     results = []
     for row in rows:
-        score = _score(row["title"], tokens, weight=1.2)
-        if score > 0:
+        base = _score(row["title"], tokens, weight=1.2)
+        if base > 0:
+            freshness = _freshness_score(row["created_at"])
             results.append({
                 "type": "session",
                 "id": row["id"],
                 "title": row["title"],
                 "content": row["title"],
-                "score": score,
+                "score": base * 0.80 + freshness * 0.20,
                 "created_at": row["created_at"],
                 "meta": {"session_id": row["id"]},
             })
@@ -103,15 +124,16 @@ def _search_messages(tokens: list[str], limit: int, session_id: Optional[str]) -
     for row in rows:
         if row["text"] == "__thinking__":
             continue
-        score = _score(row["text"], tokens)
-        if score > 0:
+        base = _score(row["text"], tokens)
+        if base > 0:
+            freshness = _freshness_score(row["created_at"])
             snippet = _snippet(row["text"], tokens)
             results.append({
                 "type": "message",
                 "id": row["id"],
                 "title": f"Mensagem ({row['sender']})",
                 "content": snippet,
-                "score": score,
+                "score": base * 0.80 + freshness * 0.20,
                 "created_at": row["created_at"],
                 "meta": {"session_id": row["session_id"], "sender": row["sender"]},
             })
@@ -127,14 +149,15 @@ def _search_knowledge_sources(tokens: list[str], limit: int) -> list[dict]:
     results = []
     for row in rows:
         haystack = f"{row['title']} {row['summary']} {row['topics']}"
-        score = _score(haystack, tokens, weight=1.1)
-        if score > 0:
+        base = _score(haystack, tokens, weight=1.1)
+        if base > 0:
+            freshness = _freshness_score(row["created_at"])
             results.append({
                 "type": "knowledge",
                 "id": row["id"],
                 "title": row["title"],
                 "content": _snippet(row["summary"], tokens),
-                "score": score,
+                "score": base * 0.75 + freshness * 0.25,
                 "created_at": row["created_at"],
                 "meta": {
                     "session_id": row["session_id"],
