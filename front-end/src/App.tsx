@@ -22,6 +22,7 @@ import { BrainMap } from './components/BrainMap'
 import { BootScreen } from './components/BootScreen'
 import type { SystemHealth } from './components/BootScreen'
 import { NetworkStatus } from './components/NetworkStatus'
+import { HomeBrain } from './components/HomeBrain'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, getCognitiveMemories, getKnowledgeGraph } from './services/api'
@@ -835,16 +836,24 @@ export default function App() {
 
       {activeView === 'home' && (
         <section className="home-landing" id="inicio" aria-label="Tela inicial Nexus IA">
-          <div className="home-glass-shell">
-            <div className="home-brand-mark" aria-hidden="true">
-              <span />
-              <i />
-            </div>
+          <div className="home-content-column">
             <div className="home-brand-copy">
               <span>Nexus IA</span>
               <h1>Assistente local inteligente</h1>
+            </div>
+            
+            <div className="home-brand-mark" aria-hidden="true">
+              <HomeBrain
+                theme={settings.theme}
+                aiState={aiState}
+                memoryCount={cognitiveMemories.length}
+              />
+            </div>
+
+            <div className="home-brand-copy">
               <p>Chat, memória Obsidian e configurações em uma experiência compacta para Mac.</p>
             </div>
+            
             <div className="home-status-grid" aria-label="Estado do sistema">
               <div>
                 <small>Modelo</small>
