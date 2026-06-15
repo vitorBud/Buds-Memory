@@ -25,7 +25,7 @@ import { NetworkStatus } from './components/NetworkStatus'
 import { HomeBrain } from './components/HomeBrain'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
-import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, getCognitiveMemories, getKnowledgeGraph } from './services/api'
+import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, pullCloudChats, getCognitiveMemories, getKnowledgeGraph } from './services/api'
 import type { AiState, Session, ActivityItem, InterfaceSettings, Message, KnowledgeSource, SyncStatus, CognitiveMemory, KnowledgeGraph } from './types'
 import { formatSessionDate } from './utils/formatters'
 
@@ -744,10 +744,29 @@ export default function App() {
     try {
       const result = await runSync()
       setSyncStatus(result.status)
-      pushActivity(`Sync Supabase: ${result.uploaded} registro(s)`, 'emerald')
+      const loadedSessions = await getSessions()
+      setSessions(loadedSessions)
+      pushActivity(`Sync Supabase: ${result.uploaded} enviados, ${result.pulled ?? 0} puxados`, 'emerald')
     } catch (err) {
       pushActivity('Falha no sync Supabase', 'rose')
       alert(err instanceof Error ? err.message : 'Falha ao sincronizar Supabase.')
+      void refreshSyncStatus()
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [pushActivity, refreshSyncStatus])
+
+  const handlePullCloudChats = useCallback(async () => {
+    setIsSyncing(true)
+    try {
+      const result = await pullCloudChats()
+      setSyncStatus(result.status)
+      const loadedSessions = await getSessions()
+      setSessions(loadedSessions)
+      pushActivity(`Chats baixados da nuvem: ${result.pulled ?? 0}`, 'emerald')
+    } catch (err) {
+      pushActivity('Falha ao baixar chats da nuvem', 'rose')
+      alert(err instanceof Error ? err.message : 'Falha ao baixar chats da nuvem.')
       void refreshSyncStatus()
     } finally {
       setIsSyncing(false)
@@ -851,7 +870,7 @@ export default function App() {
             </div>
 
             <div className="home-brand-copy">
-              <p>Chat, memória Obsidian e configurações em uma experiência compacta para Mac.</p>
+              <p>Chat, memória Obsidian e configurações em uma experiência compacta  e Windows.</p>
             </div>
             
             <div className="home-status-grid" aria-label="Estado do sistema">
@@ -1049,6 +1068,7 @@ export default function App() {
             settings={settings}
             onModelChange={handleModelChange}
             onSyncNow={handleSyncNow}
+            onPullCloudChats={handlePullCloudChats}
             onSettingChange={updateSetting}
             onClose={() => setSettingsOpen(false)}
           >

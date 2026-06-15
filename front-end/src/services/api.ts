@@ -89,12 +89,20 @@ export async function getSyncStatus(): Promise<SyncStatus> {
 }
 
 export async function runSync(): Promise<SyncRunResult> {
+  return runSyncWithMode('both')
+}
+
+export async function pullCloudChats(): Promise<SyncRunResult> {
+  return runSyncWithMode('pull')
+}
+
+async function runSyncWithMode(mode: 'both' | 'pull'): Promise<SyncRunResult> {
   let res: Response
   try {
     res = await fetch(`${getBase()}/sync/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ mode }),
     })
   } catch (err) {
     throw humanizeError(err)

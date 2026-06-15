@@ -37,6 +37,8 @@ SYNC_TABLES = [
     "insights",
 ]
 
+PULL_CHAT_TABLES = {"sessions", "messages"}
+
 
 def load_env_file(path: Path = ENV_FILE):
     if not path.exists():
@@ -105,9 +107,15 @@ def count_local_records() -> dict:
     return counts
 
 
-def run_sync(table: Optional[str] = None, limit: Optional[int] = None, dry_run: bool = False) -> dict:
+def run_sync(
+    table: Optional[str] = None,
+    limit: Optional[int] = None,
+    dry_run: bool = False,
+    mode: str = "both",
+) -> dict:
     config = get_supabase_config()
-    records = list(iter_sync_records(table=table, limit=limit))
+    mode = mode if mode in {"both", "push", "pull"} else "both"
+    records = [] if mode == "pull" else list(iter_sync_records(table=table, limit=limit))
 
     if dry_run:
         return {
@@ -121,23 +129,73 @@ def run_sync(table: Optional[str] = None, limit: Optional[int] = None, dry_run: 
         return _sync_result(False, "Sync desativado. Defina SUPABASE_SYNC_ENABLED=1.", 0)
     if not config["configured"]:
         return _sync_result(False, "Supabase não configurado. Defina SUPABASE_URL e SUPABASE_ANON_KEY.", 0)
-    if not records:
-        _set_state("last_sync_at", now_iso())
-        _set_state("last_sync_error", "")
-        return _sync_result(True, "Nada novo para sincronizar.", 0)
 
     try:
         uploaded = 0
-        for batch in _chunks(records, 100):
-            _post_batch(config, batch)
-            uploaded += len(batch)
+        if mode != "pull" and records:
+            for batch in _chunks(records, 100):
+                _post_batch(config, batch)
+                uploaded += len(batch)
+
+        pulled = 0
+        if mode != "push" and (not table or table in PULL_CHAT_TABLES):
+            pulled = pull_chat_records(config, limit=limit)
 
         _set_state("last_sync_at", now_iso())
         _set_state("last_sync_error", "")
-        return _sync_result(True, "Sincronização concluída.", uploaded)
+        if uploaded or pulled:
+            return _sync_result(True, "Sincronização concluída.", uploaded, pulled)
+        return _sync_result(True, "Nada novo para sincronizar.", 0, 0)
     except Exception as exc:
         _set_state("last_sync_error", str(exc))
-        return _sync_result(False, str(exc), 0)
+        return _sync_result(False, str(exc), 0, 0)
+
+
+def pull_chat_records(config: dict, limit: Optional[int] = None) -> int:
+    """Importa sessoes e mensagens remotas para o SQLite local."""
+    current_device_id = get_device_id()
+    remote_records = _fetch_remote_chat_records(config, limit=limit)
+    imported = 0
+
+    session_records = [
+        record for record in remote_records
+        if record.get("table_name") == "sessions" and record.get("device_id") != current_device_id
+    ]
+    message_records = [
+        record for record in remote_records
+        if record.get("table_name") == "messages" and record.get("device_id") != current_device_id
+    ]
+
+    with get_db_connection() as conn:
+        _ensure_sync_imports(conn)
+
+        for record in session_records:
+            if _import_session_record(conn, record):
+                imported += 1
+
+        for record in message_records:
+            if _import_message_record(conn, record):
+                imported += 1
+
+        conn.commit()
+
+    return imported
+
+
+def _fetch_remote_chat_records(config: dict, limit: Optional[int] = None) -> list[dict]:
+    url = f"{config['url']}/rest/v1/{config['table']}"
+    params = {
+        "select": "device_id,table_name,local_id,payload,updated_at",
+        "table_name": "in.(sessions,messages)",
+        "order": "updated_at.asc",
+    }
+    if limit:
+        params["limit"] = str(limit)
+
+    response = requests.get(url, headers=_supabase_headers(config), params=params, timeout=25)
+    if response.status_code >= 400:
+        raise RuntimeError(f"Supabase respondeu {response.status_code}: {response.text[:500]}")
+    return response.json() or []
 
 
 def iter_sync_records(table: Optional[str] = None, limit: Optional[int] = None) -> Iterable[dict]:
@@ -172,15 +230,19 @@ def iter_sync_records(table: Optional[str] = None, limit: Optional[int] = None) 
 
 def _post_batch(config: dict, batch: list[dict]):
     url = f"{config['url']}/rest/v1/{config['table']}?on_conflict=device_id,table_name,local_id"
-    headers = {
-        "apikey": config["key"],
-        "Authorization": f"Bearer {config['key']}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=minimal",
-    }
+    headers = _supabase_headers(config)
+    headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
     response = requests.post(url, headers=headers, json=batch, timeout=20)
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase respondeu {response.status_code}: {response.text[:500]}")
+
+
+def _supabase_headers(config: dict) -> dict:
+    return {
+        "apikey": config["key"],
+        "Authorization": f"Bearer {config['key']}",
+        "Content-Type": "application/json",
+    }
 
 
 def _serialize_row(row: dict) -> dict:
@@ -215,13 +277,109 @@ def _chunks(items: list, size: int):
         yield items[index:index + size]
 
 
-def _sync_result(success: bool, message: str, uploaded: int) -> dict:
+def _sync_result(success: bool, message: str, uploaded: int, pulled: int = 0) -> dict:
     return {
         "success": success,
         "message": message,
         "uploaded": uploaded,
+        "pulled": pulled,
         "status": get_status(),
     }
+
+
+def _import_session_record(conn, record: dict) -> bool:
+    payload = record.get("payload") or {}
+    session_id = str(payload.get("id") or "").strip()
+    title = str(payload.get("title") or "").strip()
+    created_at = str(payload.get("created_at") or record.get("updated_at") or now_iso())
+
+    if not session_id or not title:
+        return False
+
+    conn.execute(
+        """
+        INSERT INTO sessions (id, title, created_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            title=excluded.title,
+            created_at=COALESCE(sessions.created_at, excluded.created_at)
+        """,
+        (session_id, title, created_at),
+    )
+    return _mark_imported(conn, record)
+
+
+def _import_message_record(conn, record: dict) -> bool:
+    if _was_imported(conn, record):
+        return False
+
+    payload = record.get("payload") or {}
+    session_id = str(payload.get("session_id") or "").strip()
+    sender = str(payload.get("sender") or "").strip()
+    text = str(payload.get("text") or "")
+    audio_url = payload.get("audio_url")
+    created_at = str(payload.get("created_at") or record.get("updated_at") or now_iso())
+
+    if not session_id or sender not in {"user", "ia"} or not text:
+        return False
+
+    session_exists = conn.execute("SELECT 1 FROM sessions WHERE id=?", (session_id,)).fetchone()
+    if not session_exists:
+        conn.execute(
+            """
+            INSERT INTO sessions (id, title, created_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(id) DO NOTHING
+            """,
+            (session_id, "Conversa sincronizada", created_at),
+        )
+
+    duplicate = conn.execute(
+        """
+        SELECT 1 FROM messages
+        WHERE session_id=? AND sender=? AND text=? AND created_at=?
+        LIMIT 1
+        """,
+        (session_id, sender, text, created_at),
+    ).fetchone()
+    if duplicate:
+        return _mark_imported(conn, record)
+
+    conn.execute(
+        """
+        INSERT INTO messages (session_id, sender, text, audio_url, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (session_id, sender, text, audio_url, created_at),
+    )
+    return _mark_imported(conn, record)
+
+
+def _was_imported(conn, record: dict) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1 FROM sync_imports
+        WHERE device_id=? AND table_name=? AND local_id=?
+        LIMIT 1
+        """,
+        (record.get("device_id"), record.get("table_name"), record.get("local_id")),
+    ).fetchone()
+    return bool(row)
+
+
+def _mark_imported(conn, record: dict) -> bool:
+    if _was_imported(conn, record):
+        return False
+
+    conn.execute(
+        """
+        INSERT INTO sync_imports (device_id, table_name, local_id, imported_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(device_id, table_name, local_id) DO NOTHING
+        """,
+        (record.get("device_id"), record.get("table_name"), record.get("local_id"), now_iso()),
+    )
+    return True
 
 
 def _get_state(key: str) -> Optional[str]:
@@ -251,5 +409,17 @@ def _ensure_sync_state(conn):
             key        TEXT PRIMARY KEY,
             value      TEXT NOT NULL,
             updated_at TEXT NOT NULL
+        );
+    """)
+
+
+def _ensure_sync_imports(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sync_imports (
+            device_id   TEXT NOT NULL,
+            table_name  TEXT NOT NULL,
+            local_id    TEXT NOT NULL,
+            imported_at TEXT NOT NULL,
+            PRIMARY KEY (device_id, table_name, local_id)
         );
     """)

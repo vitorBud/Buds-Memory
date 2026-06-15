@@ -5692,9 +5692,21 @@ input {
   width: 100%;
 }
 
+.sync-download-button {
+  background: color-mix(in srgb, var(--accent), transparent 88%);
+  border-color: color-mix(in srgb, var(--accent), transparent 62%);
+  box-shadow: none;
+  color: var(--accent);
+  margin-top: 8px;
+}
+
 .sync-now-button:not(:disabled):hover {
   box-shadow: 0 20px 54px color-mix(in srgb, var(--accent-hot), transparent 74%);
   transform: translateY(-1px);
+}
+
+.sync-download-button:not(:disabled):hover {
+  box-shadow: 0 14px 36px color-mix(in srgb, var(--accent), transparent 82%);
 }
 
 .sync-now-button:disabled {

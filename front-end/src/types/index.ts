@@ -144,6 +144,7 @@ export interface SyncRunResult {
   success: boolean
   message: string
   uploaded: number
+  pulled?: number
   dry_run?: boolean
   records_found?: number
   status: SyncStatus

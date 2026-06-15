@@ -275,6 +275,7 @@ def run_sync():
             table=data.get("table"),
             limit=data.get("limit"),
             dry_run=bool(data.get("dry_run")),
+            mode=data.get("mode", "both"),
         )
         status = 200 if result.get("success") else 400
         return jsonify(result), status

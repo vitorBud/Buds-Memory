@@ -1,4 +1,4 @@
-import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, Cpu, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Volume2, X } from 'lucide-react'
+import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, CloudDownload, Cpu, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Volume2, X } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { AiState, InterfaceSettings, SyncStatus, ThemeMode } from '../types'
 
@@ -15,6 +15,7 @@ interface StatusPanelProps {
   settings: InterfaceSettings
   onModelChange: (model: string) => void
   onSyncNow: () => void
+  onPullCloudChats: () => void
   onSettingChange: <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => void
   onClose: () => void
   children?: ReactNode
@@ -90,6 +91,7 @@ export function StatusPanel({
   settings,
   onModelChange,
   onSyncNow,
+  onPullCloudChats,
   onSettingChange,
   onClose,
   children,
@@ -221,6 +223,16 @@ export function StatusPanel({
         >
           <RefreshCw size={14} className={isSyncing ? 'is-spinning' : ''} />
           <span>{isSyncing ? 'Sincronizando' : 'Sincronizar agora'}</span>
+        </button>
+
+        <button
+          type="button"
+          className="sync-now-button sync-download-button"
+          onClick={onPullCloudChats}
+          disabled={isSyncing || !syncStatus?.supabase_configured || !syncStatus?.online_sync_enabled}
+        >
+          <CloudDownload size={14} />
+          <span>{isSyncing ? 'Baixando' : 'Baixar chats da nuvem'}</span>
         </button>
       </div>
 
