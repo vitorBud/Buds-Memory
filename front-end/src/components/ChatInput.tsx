@@ -96,7 +96,7 @@ export function ChatInput({
           onChange={e => !isRecording && setText(e.target.value)}
           onKeyDown={handleKey}
           placeholder="Digite um comando ou mensagem"
-          disabled={isProcessing || isRecording}
+          disabled={isRecording}
           rows={1}
         />
 
