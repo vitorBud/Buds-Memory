@@ -18,6 +18,9 @@ import re
 from typing import Optional
 from database_v2 import get_db_connection, now_iso
 
+SUMMARY_TRIGGER_MESSAGES = 50
+SUMMARY_UPDATE_EVERY = 12
+
 
 # ── Resumo de sessão ──────────────────────────────────────────────────────────
 
@@ -75,6 +78,90 @@ def summarize_session(session_id: str, use_llm: bool = False) -> dict:
         "first_question": first_question,
         "summary": summary_text,
     }
+
+
+def get_conversation_summary(session_id: str) -> Optional[dict]:
+    """Retorna o resumo persistente da conversa, se existir."""
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM conversation_summaries WHERE session_id=?",
+            (session_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def maybe_update_conversation_summary(session_id: str, use_llm: bool = False) -> Optional[dict]:
+    """
+    Gera/atualiza resumo persistente quando a conversa passa do limiar.
+    Usa estratégia incremental determinística para não travar o chat.
+    """
+    with get_db_connection() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) as n FROM messages WHERE session_id=? AND text != '__thinking__'",
+            (session_id,),
+        ).fetchone()["n"]
+        existing = conn.execute(
+            "SELECT * FROM conversation_summaries WHERE session_id=?",
+            (session_id,),
+        ).fetchone()
+
+    if count < SUMMARY_TRIGGER_MESSAGES:
+        return dict(existing) if existing else None
+
+    if existing and count - int(existing["message_count"] or 0) < SUMMARY_UPDATE_EVERY:
+        return dict(existing)
+
+    session_summary = summarize_session(session_id, use_llm=use_llm)
+    if session_summary.get("error"):
+        return None
+
+    previous = existing["summary"] if existing else ""
+    summary_text = _merge_persistent_summary(previous, session_summary["summary"])
+    ts = now_iso()
+
+    with get_db_connection() as conn:
+        if existing:
+            conn.execute(
+                """
+                UPDATE conversation_summaries
+                SET summary=?, updated_at=?, message_count=?
+                WHERE session_id=?
+                """,
+                (summary_text, ts, count, session_id),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO conversation_summaries
+                  (session_id, summary, created_at, updated_at, message_count)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (session_id, summary_text, ts, ts, count),
+            )
+        conn.commit()
+
+    return get_conversation_summary(session_id)
+
+
+def _merge_persistent_summary(previous: str, current: str) -> str:
+    """Compacta resumo anterior + novo em um bloco curto e estável."""
+    parts = []
+    if previous:
+        parts.append(previous.strip())
+    if current:
+        parts.append(current.strip())
+
+    text = "\n".join(parts)
+    lines = []
+    seen = set()
+    for line in text.splitlines():
+        clean = line.strip()
+        key = clean.lower()
+        if clean and key not in seen:
+            lines.append(clean)
+            seen.add(key)
+
+    return "\n".join(lines[-14:])[:2400]
 
 
 def _build_session_summary_text(

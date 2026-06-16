@@ -40,26 +40,43 @@ def save_memory(
     session_id: Optional[str] = None,
     importance: float = 0.5,
     tags: Optional[list] = None,
+    is_core: bool = False,
+    locked: bool = False,
+    user_confirmed: bool = False,
+    origin_type: str = "conversation",
+    origin_id: Optional[str] = None,
+    source_table: Optional[str] = None,
+    source_id: Optional[int] = None,
 ) -> dict:
     """Salva uma memória no nível indicado com expiração automática."""
     tags = tags or []
-    expires_at = _compute_expiry(memory_type, importance)
+    if is_core:
+        memory_type = "long"
+        locked = True
+        user_confirmed = True if user_confirmed is None else user_confirmed
+        importance = max(float(importance), 0.95)
+    expires_at = None if is_core or locked else _compute_expiry(memory_type, importance)
 
     with get_db_connection() as conn:
         cursor = conn.execute(
             """
             INSERT INTO memories
-              (session_id, content, memory_type, importance, last_accessed, expires_at, tags, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (session_id, content, memory_type, importance, last_accessed, expires_at, tags, created_at,
+               is_core, locked, user_confirmed, origin_type, origin_id, source_table, source_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (session_id, content, memory_type, importance, now_iso(), expires_at,
-             json_dumps(tags), now_iso()),
+             json_dumps(tags), now_iso(), int(is_core), int(locked), int(user_confirmed),
+             origin_type, origin_id, source_table, source_id),
         )
         conn.commit()
         row_id = cursor.lastrowid
 
     return {"id": row_id, "memory_type": memory_type, "content": content,
-            "importance": importance, "tags": tags, "expires_at": expires_at}
+            "importance": importance, "tags": tags, "expires_at": expires_at,
+            "is_core": is_core, "locked": locked, "user_confirmed": user_confirmed,
+            "origin_type": origin_type, "origin_id": origin_id,
+            "source_table": source_table, "source_id": source_id}
 
 
 def save_short_term(content: str, session_id: Optional[str] = None,
@@ -157,8 +174,9 @@ def recall(query: str, memory_types: Optional[list] = None, limit: int = 8) -> l
     scored = []
     for mem in candidates:
         score = _text_score(mem["content"] + " " + " ".join(mem.get("tags", [])), tokens)
-        if score > 0:
-            scored.append((score * 0.6 + mem["importance"] * 0.4, mem))
+        if score > 0 or mem.get("is_core"):
+            core_boost = 2.0 if mem.get("is_core") else 0.0
+            scored.append((score * 0.6 + mem["importance"] * 0.4 + core_boost, mem))
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
@@ -184,7 +202,7 @@ def consolidate_session(session_id: str) -> dict:
         rows = conn.execute(
             """
             SELECT id, importance FROM memories
-            WHERE session_id = ? AND memory_type = 'short' AND importance >= ?
+            WHERE session_id = ? AND memory_type = 'short' AND importance >= ? AND COALESCE(is_core, 0) = 0
             """,
             (session_id, CONSOLIDATION_THRESHOLD),
         ).fetchall()
@@ -201,7 +219,7 @@ def consolidate_session(session_id: str) -> dict:
         rows = conn.execute(
             """
             SELECT id FROM memories
-            WHERE session_id = ? AND memory_type = 'medium' AND importance >= 0.85
+            WHERE session_id = ? AND memory_type = 'medium' AND importance >= 0.85 AND COALESCE(is_core, 0) = 0
             """,
             (session_id,),
         ).fetchall()
@@ -222,11 +240,82 @@ def prune_expired() -> int:
     """Remove memórias expiradas. Retorna quantas foram removidas."""
     with get_db_connection() as conn:
         cursor = conn.execute(
-            "DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?",
+            """
+            DELETE FROM memories
+            WHERE expires_at IS NOT NULL
+              AND expires_at < ?
+              AND COALESCE(is_core, 0) = 0
+              AND COALESCE(locked, 0) = 0
+            """,
             (now_iso(),),
         )
         conn.commit()
         return cursor.rowcount
+
+
+def update_memory(memory_id: int, **updates) -> Optional[dict]:
+    """Edita conteúdo, importância, tags, origem e flags de memória."""
+    allowed = {
+        "content", "memory_type", "importance", "tags", "is_core", "locked",
+        "user_confirmed", "origin_type", "origin_id", "source_table", "source_id", "expires_at",
+    }
+    values = {}
+    for key, value in updates.items():
+        if key not in allowed:
+            continue
+        if key in {"is_core", "locked", "user_confirmed"}:
+            value = int(bool(value))
+        elif key == "tags":
+            value = json_dumps(value if isinstance(value, list) else [])
+        values[key] = value
+
+    if not values:
+        return get_memory(memory_id)
+
+    if values.get("is_core"):
+        values["locked"] = 1
+        values["memory_type"] = "long"
+        values["expires_at"] = None
+        values["importance"] = max(float(values.get("importance", 0.95)), 0.95)
+
+    set_clause = ", ".join(f"{key}=?" for key in values)
+    with get_db_connection() as conn:
+        conn.execute(f"UPDATE memories SET {set_clause} WHERE id=?", list(values.values()) + [memory_id])
+        conn.commit()
+    return get_memory(memory_id)
+
+
+def set_core(memory_id: int, enabled: bool = True, user_confirmed: bool = True) -> Optional[dict]:
+    """Fixa/desfixa uma memória como Core Memory."""
+    if enabled:
+        return update_memory(
+            memory_id,
+            is_core=True,
+            locked=True,
+            user_confirmed=user_confirmed,
+            memory_type="long",
+            importance=0.95,
+        )
+    return update_memory(memory_id, is_core=False, locked=False, user_confirmed=user_confirmed)
+
+
+def delete_memory(memory_id: int, force: bool = False) -> bool:
+    """Remove memória, protegendo Core/locked salvo quando force=True."""
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT locked, is_core FROM memories WHERE id=?", (memory_id,)).fetchone()
+        if not row:
+            return False
+        if not force and (row["locked"] or row["is_core"]):
+            raise ValueError("Memória protegida. Desfixe ou use force=true para remover.")
+        cursor = conn.execute("DELETE FROM memories WHERE id=?", (memory_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_memory(memory_id: int) -> Optional[dict]:
+    with get_db_connection() as conn:
+        row = conn.execute("SELECT * FROM memories WHERE id=?", (memory_id,)).fetchone()
+    return _row_to_dict(row) if row else None
 
 
 def get_stats() -> dict:
@@ -237,6 +326,7 @@ def get_stats() -> dict:
                 SUM(CASE WHEN memory_type = 'short'  THEN 1 ELSE 0 END) as short_count,
                 SUM(CASE WHEN memory_type = 'medium' THEN 1 ELSE 0 END) as medium_count,
                 SUM(CASE WHEN memory_type = 'long'   THEN 1 ELSE 0 END) as long_count,
+                SUM(CASE WHEN COALESCE(is_core, 0) = 1 THEN 1 ELSE 0 END) as core_count,
                 AVG(importance) as avg_importance
             FROM memories
             WHERE expires_at IS NULL OR expires_at > ?
@@ -247,7 +337,7 @@ def get_stats() -> dict:
 # ── Helpers internos ─────────────────────────────────────────────────────────
 
 def _compute_expiry(memory_type: str, importance: float) -> Optional[str]:
-    if memory_type == "long":
+    if memory_type in {"long", "core"}:
         return None
     if memory_type == "medium":
         days = _medium_days(importance)
@@ -286,4 +376,6 @@ def _bump_access(ids: list[int]):
 def _row_to_dict(row) -> dict:
     d = dict(row)
     d["tags"] = json_loads(d.get("tags") or "[]", fallback=[])
+    for key in ("is_core", "locked", "user_confirmed"):
+        d[key] = bool(d.get(key, 0))
     return d

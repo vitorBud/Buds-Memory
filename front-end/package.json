@@ -53,6 +53,20 @@
     ],
     "extraResources": [
       {
+        "from": "public/models",
+        "to": "NexusAssets/models",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "public/textures",
+        "to": "NexusAssets/textures",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "../Back-end",
         "to": "Back-end",
         "filter": [

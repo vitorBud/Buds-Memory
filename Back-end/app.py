@@ -31,7 +31,9 @@ from storage import get_data_dir
 import database_v2
 from cognitive_api import cognitive_bp
 from cognitive import detector as cognitive_detector
+from cognitive import knowledge_graph
 from cognitive import rag as cognitive_rag
+from cognitive import summarizer as cognitive_summarizer
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR.parent / "front-end" / "dist"
@@ -153,6 +155,46 @@ def summarize_imported_text(text: str) -> str:
     return summary[:700].rstrip() + ("..." if len(summary) > 700 else "")
 
 
+def analyze_imported_document(content: str, source_type: str, source_name: str, topics: list[str]) -> dict:
+    """Gera metadados úteis para segundo cérebro sem bloquear em LLM."""
+    clean = clean_imported_text(content)
+    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", clean) if part.strip()]
+    executive = " ".join(sentences[:5])[:1400].strip()
+    technical_bits = []
+    tech_entities = cognitive_detector.detect_technologies(clean)
+    detected_entities = sorted(set(tech_entities + topics[:8]))
+
+    if tech_entities:
+        technical_bits.append(f"Tecnologias detectadas: {', '.join(tech_entities[:12])}.")
+    if topics:
+        technical_bits.append(f"Tópicos principais: {', '.join(topics[:12])}.")
+    technical_bits.append("Trechos representativos: " + " ".join(sentences[:8])[:1800])
+
+    questions = [
+        "O que este documento ensina?",
+        "Quais são os principais tópicos?",
+        "Quais tecnologias ou ferramentas aparecem?",
+        "Como posso aplicar este conteúdo no meu projeto?",
+    ]
+    if source_type == "pdf":
+        questions.insert(1, "Faça um resumo do PDF por partes.")
+    if tech_entities:
+        questions.append(f"Explique a relação entre {tech_entities[0]} e este documento.")
+
+    return {
+        "executive_summary": executive or summarize_imported_text(clean),
+        "technical_summary": "\n".join(technical_bits)[:2600],
+        "suggested_questions": questions[:6],
+        "detected_entities": detected_entities[:20],
+        "metadata": {
+            "source_type": source_type,
+            "source_name": source_name,
+            "char_count": len(clean),
+            "estimated_tokens": max(1, len(clean) // 4),
+        },
+    }
+
+
 def extract_pdf_text_from_stream(stream) -> str:
     """Extrai texto de um stream PDF usando PyPDF2 quando disponível."""
     try:
@@ -196,6 +238,7 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
         return history, title_update, ""
 
     history = database.get_recent_session_messages(session_id, limit=12)
+    conversation_summary = cognitive_summarizer.get_conversation_summary(session_id)
     if not history:
         title = database.make_title_from_message(user_text)
         title_update = database.update_session_title(session_id, title)
@@ -206,6 +249,13 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
     rag_context = cognitive_rag.build_rag_context(retrieval_query, session_id=session_id, top_k=4)
     if rag_context:
         knowledge_context = f"{knowledge_context}\n\n{rag_context}" if knowledge_context else rag_context
+    if conversation_summary and conversation_summary.get("summary"):
+        summary_context = (
+            "Resumo persistente da conversa longa:\n"
+            f"{conversation_summary['summary']}\n"
+            f"(mensagens resumidas: {conversation_summary.get('message_count', 0)})"
+        )
+        knowledge_context = f"{summary_context}\n\n{knowledge_context}" if knowledge_context else summary_context
     return history, title_update, knowledge_context
 
 
@@ -481,6 +531,7 @@ def import_session_knowledge(session_id):
         content = content[:30000]
         topics = extract_topics(content)
         summary = summarize_imported_text(content)
+        intelligence = analyze_imported_document(content, source_type, source_name, topics)
         if not has_custom_title:
             title = make_learning_title(topics, summary, fallback=fallback_title or make_knowledge_title(source_name))
         item = database.add_knowledge_source(
@@ -491,9 +542,16 @@ def import_session_knowledge(session_id):
             summary=summary,
             content=content,
             topics=topics,
+            executive_summary=intelligence["executive_summary"],
+            technical_summary=intelligence["technical_summary"],
+            suggested_questions=intelligence["suggested_questions"],
+            detected_entities=intelligence["detected_entities"],
+            metadata_json=intelligence["metadata"],
         )
         try:
             item["rag_chunks"] = cognitive_rag.index_document(item["id"], content, session_id=session_id)
+            for entity in intelligence["detected_entities"][:8]:
+                knowledge_graph.upsert_entity(entity, "concept", importance=0.55, metadata={"source": "knowledge_import"})
         except Exception as rag_error:
             print(f"[RAG] Indexação ignorada para knowledge_source {item['id']}: {rag_error}")
             item["rag_chunks"] = 0
@@ -571,6 +629,7 @@ def chat():
                 user_text=user_text,
                 ai_text=reply,
             )
+            cognitive_summarizer.maybe_update_conversation_summary(session_id)
 
         return jsonify({
             "user_text": user_text,
@@ -684,6 +743,7 @@ def chat_stream():
                     user_text=user_text,
                     ai_text=full_response.strip(),
                 )
+                cognitive_summarizer.maybe_update_conversation_summary(session_id)
 
         except Exception as e:
             yield sse_event({'type': 'error', 'content': str(e)})

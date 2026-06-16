@@ -9,6 +9,8 @@ interface HomeBrainProps {
   memoryCount: number
 }
 
+type NexusBridge = { assetBase?: string }
+
 // Representação de cores Three.js baseadas no tema selecionado
 function getThemeColors(theme: ThemeMode) {
   switch (theme) {
@@ -71,23 +73,53 @@ function createFallbackGlowTexture(glowColorStr: string) {
 
 // Resolve assets em dev, web build e Electron empacotado com base relativa.
 function getPublicAssetPath(path: string) {
-  return `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`
+  const normalizedPath = path.replace(/^\//, '')
+  const bridge = (window as unknown as { nexus?: NexusBridge }).nexus
+
+  if (bridge?.assetBase) {
+    return `${bridge.assetBase}${normalizedPath}`
+  }
+
+  if (window.location.protocol === 'file:') {
+    return new URL(normalizedPath, window.location.href).href
+  }
+
+  return `${import.meta.env.BASE_URL}${normalizedPath}`
 }
 
-// Cria um cérebro simples quando o modelo 3D não estiver disponível.
+// Cria um cérebro procedural denso quando o modelo 3D não estiver disponível.
 function createFallbackBrainPoints() {
   const points: THREE.Vector3[] = []
-  for (let i = 0; i < 1500; i++) {
-    const theta = Math.acos(1 - 2 * Math.random())
-    const phi = Math.random() * Math.PI * 2
-    const r = 0.65 + Math.random() * 0.25
-    const sideBias = Math.sin(phi) > 0 ? 0.16 : -0.16
+
+  const addLobe = (centerX: number, centerY: number, centerZ: number, scaleX: number, scaleY: number, scaleZ: number, amount: number) => {
+    for (let i = 0; i < amount; i++) {
+      const theta = Math.acos(1 - 2 * Math.random())
+      const phi = Math.random() * Math.PI * 2
+      const r = 0.72 + Math.random() * 0.3
+      const wrinkle = 1 + Math.sin(phi * 7 + theta * 5) * 0.08
+
+      points.push(new THREE.Vector3(
+        centerX + r * Math.sin(theta) * Math.cos(phi) * scaleX * wrinkle,
+        centerY + r * Math.cos(theta) * scaleY,
+        centerZ + r * Math.sin(theta) * Math.sin(phi) * scaleZ * wrinkle
+      ))
+    }
+  }
+
+  addLobe(-0.36, 0.05, 0, 0.82, 0.72, 0.58, 1250)
+  addLobe(0.36, 0.05, 0, 0.82, 0.72, 0.58, 1250)
+  addLobe(0, -0.38, -0.02, 0.42, 0.32, 0.34, 420)
+
+  for (let i = 0; i < 280; i++) {
+    const t = i / 280
+    const angle = t * Math.PI * 5.5
     points.push(new THREE.Vector3(
-      r * Math.sin(theta) * Math.cos(phi) * 1.25 + sideBias,
-      r * Math.cos(theta) * 0.92,
-      r * Math.sin(theta) * Math.sin(phi) * 0.72
+      Math.sin(angle) * (0.09 + t * 0.08),
+      -0.72 - t * 0.42,
+      Math.cos(angle) * (0.08 + t * 0.06)
     ))
   }
+
   return points
 }
 
@@ -139,7 +171,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
     // 1. Scene & Camera
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100)
-    camera.position.z = 2.4
+    camera.position.z = 3.15
 
     // 2. Renderer
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
@@ -253,7 +285,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
           box.getCenter(center)
 
           const maxDim = Math.max(size.x, size.y, size.z)
-          const scaleFactor = 2.3 / maxDim // tamanho final aproximado
+          const scaleFactor = 2.05 / maxDim // tamanho final aproximado, com respiro para não cortar no enquadramento
 
           for (let i = 0; i < tempPositions.length; i++) {
             const p = tempPositions[i]
@@ -407,7 +439,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
     }
 
     // 5. Carrega o modelo OBJ
-    const fallbackTimer = window.setTimeout(buildFallbackModel, 1800)
+    const fallbackTimer = window.setTimeout(buildFallbackModel, 9000)
     objLoader.load(
       getPublicAssetPath('/models/BrainUVs.obj'),
       handleModelReady,
@@ -802,7 +834,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
   }, [])
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'visible' }}>
       {loading && (
         <div style={{
           position: 'absolute',
@@ -819,7 +851,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
           Inicializando Cérebro...
         </div>
       )}
-      <div ref={containerRef} className="home-brain-canvas-container" style={{ width: '100%', height: '100%', opacity: loading ? 0 : 1, transition: 'opacity 0.5s ease' }} />
+      <div ref={containerRef} className="home-brain-canvas-container" style={{ width: '100%', height: '100%', opacity: loading ? 0 : 1, transition: 'opacity 0.5s ease', overflow: 'visible' }} />
     </div>
   )
 }

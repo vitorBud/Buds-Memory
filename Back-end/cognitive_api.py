@@ -23,6 +23,7 @@ from cognitive import (
     summarizer,
     search,
     detector,
+    codebase_indexer,
 )
 import database_v2 as dbv2
 from database_v2 import get_db_connection
@@ -57,6 +58,7 @@ def health():
         "memory": memory.get_stats(),
         "graph": knowledge_graph.get_stats(),
         "rag": rag.get_stats(),
+        "codebase": codebase_indexer.get_stats(),
         "projects": projects.get_stats(),
         "timeline": timeline.get_stats(),
         "insights": insights.get_stats(),
@@ -99,8 +101,59 @@ def save_memory():
     importance = float(body.get("importance", 0.6))
     tags = body.get("tags") or []
 
-    result = memory.save_memory(content, mem_type, session_id, importance, tags)
+    result = memory.save_memory(
+        content,
+        mem_type,
+        session_id,
+        importance,
+        tags,
+        is_core=bool(body.get("is_core", False)),
+        locked=bool(body.get("locked", False)),
+        user_confirmed=bool(body.get("user_confirmed", False)),
+        origin_type=body.get("origin_type", "manual"),
+        origin_id=body.get("origin_id"),
+        source_table=body.get("source_table"),
+        source_id=body.get("source_id"),
+    )
     return _ok(result, 201)
+
+
+@cognitive_bp.patch("/memory/<int:memory_id>")
+def update_memory(memory_id: int):
+    """Edita uma memória existente."""
+    body = request.get_json(silent=True) or {}
+    try:
+        result = memory.update_memory(memory_id, **body)
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    if not result:
+        return _err("Memória não encontrada.", 404)
+    return _ok(result)
+
+
+@cognitive_bp.delete("/memory/<int:memory_id>")
+def delete_memory(memory_id: int):
+    """Remove uma memória, protegendo Core Memory salvo force=true."""
+    force = request.args.get("force") == "true"
+    try:
+        ok = memory.delete_memory(memory_id, force=force)
+    except ValueError as exc:
+        return _err(str(exc), 409)
+    if not ok:
+        return _err("Memória não encontrada.", 404)
+    return _ok({"success": True})
+
+
+@cognitive_bp.patch("/memory/<int:memory_id>/core")
+def set_core_memory(memory_id: int):
+    """Fixa/desfixa uma memória como Core Memory."""
+    body = request.get_json(silent=True) or {}
+    enabled = bool(body.get("enabled", True))
+    user_confirmed = bool(body.get("user_confirmed", True))
+    result = memory.set_core(memory_id, enabled=enabled, user_confirmed=user_confirmed)
+    if not result:
+        return _err("Memória não encontrada.", 404)
+    return _ok(result)
 
 
 @cognitive_bp.get("/memory/recall")
@@ -416,6 +469,25 @@ def summary_session(session_id: str):
     return _ok(result)
 
 
+@cognitive_bp.get("/summary/session/<session_id>/persistent")
+def persistent_summary(session_id: str):
+    """Retorna o resumo persistente salvo de uma conversa."""
+    result = summarizer.get_conversation_summary(session_id)
+    if not result:
+        return _ok({"session_id": session_id, "summary": "", "message_count": 0})
+    return _ok(result)
+
+
+@cognitive_bp.post("/summary/session/<session_id>/persistent")
+def update_persistent_summary(session_id: str):
+    """Força atualização do resumo persistente de uma conversa."""
+    use_llm = request.args.get("llm") == "true"
+    result = summarizer.maybe_update_conversation_summary(session_id, use_llm=use_llm)
+    if not result:
+        return _err("Resumo ainda não disponível para esta conversa.", 404)
+    return _ok(result)
+
+
 @cognitive_bp.get("/summary/daily")
 def summary_daily():
     """Resumo do dia."""
@@ -513,6 +585,41 @@ def rag_context():
     top_k = _int_param("top_k", 6)
     context = rag.build_rag_context(query, session_id=session_id, top_k=top_k)
     return _ok({"context": context, "query": query})
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# CODEBASE INDEXER
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.post("/codebase/index")
+def index_codebase():
+    """Indexa uma pasta de projeto local para busca estrutural de código."""
+    body = request.get_json(silent=True) or {}
+    project_root = (body.get("project_root") or "").strip()
+    if not project_root:
+        return _err("Campo 'project_root' é obrigatório.")
+    try:
+        result = codebase_indexer.index_codebase(
+            project_root,
+            max_files=int(body.get("max_files", 900)),
+        )
+    except Exception as exc:
+        return _err(str(exc), 400)
+    return _ok(result, 201)
+
+
+@cognitive_bp.get("/codebase/search")
+def search_codebase():
+    """Busca funções, classes, rotas, imports e arquivos indexados."""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return _err("Parâmetro 'q' é obrigatório.")
+    project_root = request.args.get("project_root")
+    limit = _int_param("limit", 12)
+    return _ok({
+        "query": query,
+        "results": codebase_indexer.search_codebase(query, project_root=project_root, limit=limit),
+    })
 
 
 # ════════════════════════════════════════════════════════════════════════════

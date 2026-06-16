@@ -3,6 +3,7 @@ from pathlib import Path
 import uuid
 import datetime
 import re
+import json
 from storage import get_database_path
 
 BASE = Path(__file__).resolve().parent
@@ -221,19 +222,52 @@ def get_recent_session_messages(session_id, limit=12):
         ).fetchall()
         return [dict(row) for row in rows]
 
-def add_knowledge_source(session_id, title, source_type, source_name, summary, content, topics):
+def add_knowledge_source(
+    session_id,
+    title,
+    source_type,
+    source_name,
+    summary,
+    content,
+    topics,
+    executive_summary="",
+    technical_summary="",
+    suggested_questions=None,
+    detected_entities=None,
+    metadata_json=None,
+):
     created_at = datetime.datetime.now().isoformat()
     topics_text = ",".join(topics or [])
+    suggested_questions = suggested_questions or []
+    detected_entities = detected_entities or []
+    metadata_json = metadata_json or {}
     with get_db_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO knowledge_sources
-            (session_id, title, source_type, source_name, summary, content, topics, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-            """,
-            (session_id, title, source_type, source_name, summary, content, topics_text, created_at)
-        )
+        try:
+            cursor.execute(
+                """
+                INSERT INTO knowledge_sources
+                (session_id, title, source_type, source_name, summary, content, topics, created_at,
+                 executive_summary, technical_summary, suggested_questions, detected_entities, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    session_id, title, source_type, source_name, summary, content, topics_text, created_at,
+                    executive_summary, technical_summary,
+                    json.dumps(suggested_questions, ensure_ascii=False),
+                    json.dumps(detected_entities, ensure_ascii=False),
+                    json.dumps(metadata_json, ensure_ascii=False),
+                )
+            )
+        except Exception:
+            cursor.execute(
+                """
+                INSERT INTO knowledge_sources
+                (session_id, title, source_type, source_name, summary, content, topics, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (session_id, title, source_type, source_name, summary, content, topics_text, created_at)
+            )
         conn.commit()
         item_id = cursor.lastrowid
 
@@ -246,6 +280,11 @@ def add_knowledge_source(session_id, title, source_type, source_name, summary, c
         "summary": summary,
         "content": content,
         "topics": topics or [],
+        "executive_summary": executive_summary,
+        "technical_summary": technical_summary,
+        "suggested_questions": suggested_questions,
+        "detected_entities": detected_entities,
+        "metadata": metadata_json,
         "created_at": created_at,
     }
 
@@ -265,8 +304,27 @@ def get_session_knowledge(session_id, limit=20):
     for row in rows:
         item = dict(row)
         item["topics"] = [topic for topic in item.get("topics", "").split(",") if topic]
+        item["suggested_questions"] = _safe_json_list(item.get("suggested_questions"))
+        item["detected_entities"] = _safe_json_list(item.get("detected_entities"))
+        item["metadata"] = _safe_json_dict(item.get("metadata_json"))
         items.append(item)
     return items
+
+
+def _safe_json_list(raw):
+    try:
+        value = json.loads(raw or "[]")
+        return value if isinstance(value, list) else []
+    except Exception:
+        return []
+
+
+def _safe_json_dict(raw):
+    try:
+        value = json.loads(raw or "{}")
+        return value if isinstance(value, dict) else {}
+    except Exception:
+        return {}
 
 def build_knowledge_context(session_id, limit=4, query=None):
     sources = get_session_knowledge(session_id, limit=limit)

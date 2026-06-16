@@ -10,14 +10,18 @@ import {
   FileText,
   GitBranch,
   Layers3,
+  LockKeyhole,
   MousePointer2,
   Network,
+  Pin,
   Radio,
   ScanSearch,
   Sparkles,
+  Trash2,
   X,
   ZoomIn,
 } from 'lucide-react'
+import { deleteCognitiveMemory, setCoreMemory, updateCognitiveMemory } from '../services/api'
 import type { CognitiveMemory, KnowledgeGraph, KnowledgeSource, Message } from '../types'
 
 interface BrainMapProps {
@@ -25,6 +29,7 @@ interface BrainMapProps {
   knowledgeSources?: KnowledgeSource[]
   cognitiveMemories?: CognitiveMemory[]
   knowledgeGraph?: KnowledgeGraph | null
+  onRefresh?: () => Promise<void> | void
 }
 
 type MemoryKind = 'fonte' | 'memoria' | 'entidade' | 'topico' | 'sistema'
@@ -44,6 +49,10 @@ interface MemoryNode {
   createdAt: Date
   source: string
   tags: string[]
+  memoryId?: number
+  isCore?: boolean
+  locked?: boolean
+  originType?: string | null
 }
 
 type SelectableNodeMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> & {
@@ -287,13 +296,17 @@ function buildMemoryNodes(
 
     nodes.push({
       id: `memoria-${memory.id}`,
-      label: compactLabel(memory.content, `Memória ${memory.memory_type}`, 68),
+      label: compactLabel(memory.content, memory.is_core ? 'Core Memory' : `Memória ${memory.memory_type}`, 68),
       summary: memory.content,
       kind: 'memoria',
-      weight: 9 + Math.round(importance * 8) + Math.min(memory.access_count ?? 0, 4),
+      weight: (memory.is_core ? 18 : 9) + Math.round(importance * 8) + Math.min(memory.access_count ?? 0, 4),
       createdAt,
-      source: `Memória ${memory.memory_type}`,
+      source: memory.origin_type ? `Origem: ${memory.origin_type}` : `Memória ${memory.memory_type}`,
       tags,
+      memoryId: memory.id,
+      isCore: Boolean(memory.is_core),
+      locked: Boolean(memory.locked),
+      originType: memory.origin_type,
     })
   })
 
@@ -800,6 +813,7 @@ export function BrainMap({
   knowledgeSources = [],
   cognitiveMemories = [],
   knowledgeGraph = null,
+  onRefresh,
 }: BrainMapProps) {
   const allNodes = useMemo(
     () => buildMemoryNodes(knowledgeSources, cognitiveMemories, knowledgeGraph),
@@ -809,9 +823,14 @@ export function BrainMap({
   const [isStatsOpen, setIsStatsOpen] = useState(false)
   const [period, setPeriod] = useState<MemoryPeriod>('all')
   const [thoughtMode, setThoughtMode] = useState(false)
+  const [memoryAction, setMemoryAction] = useState<string | null>(null)
+  const [memoryError, setMemoryError] = useState('')
   const nodes = useMemo(() => filterNodesByPeriod(allNodes, period), [allNodes, period])
   const visibleNodes = nodes.length ? nodes : allNodes.slice(0, 8)
   const selectedNode = visibleNodes.find(node => node.id === selectedId) ?? visibleNodes[0]
+  const selectedMemory = selectedNode?.memoryId
+    ? cognitiveMemories.find(memory => memory.id === selectedNode.memoryId)
+    : null
   const handleSelectNode = useCallback((id: string) => setSelectedId(id), [])
   const activeMessages = messages.filter(message => message.text !== '__thinking__')
   const learnedCount = knowledgeSources.length
@@ -863,6 +882,41 @@ export function BrainMap({
       setSelectedId(visibleNodes[0]?.id ?? allNodes[0]?.id ?? 'sistema-contexto')
     }
   }, [allNodes, selectedId, visibleNodes])
+
+  const runMemoryAction = useCallback(async (label: string, action: () => Promise<void>) => {
+    setMemoryAction(label)
+    setMemoryError('')
+    try {
+      await action()
+      await onRefresh?.()
+    } catch (error) {
+      setMemoryError(error instanceof Error ? error.message : 'Não foi possível atualizar a memória.')
+    } finally {
+      setMemoryAction(null)
+    }
+  }, [onRefresh])
+
+  const handleToggleCore = useCallback(() => {
+    if (!selectedMemory) return
+    void runMemoryAction(selectedMemory.is_core ? 'desfixando' : 'fixando', async () => {
+      await setCoreMemory(selectedMemory.id, !selectedMemory.is_core)
+    })
+  }, [runMemoryAction, selectedMemory])
+
+  const handleDeleteMemory = useCallback(() => {
+    if (!selectedMemory) return
+    void runMemoryAction('excluindo', async () => {
+      await deleteCognitiveMemory(selectedMemory.id, Boolean(selectedMemory.is_core || selectedMemory.locked))
+      setSelectedId('sistema-contexto')
+    })
+  }, [runMemoryAction, selectedMemory])
+
+  const handleImportanceChange = useCallback((nextImportance: number) => {
+    if (!selectedMemory) return
+    void runMemoryAction('salvando', async () => {
+      await updateCognitiveMemory(selectedMemory.id, { importance: nextImportance })
+    })
+  }, [runMemoryAction, selectedMemory])
 
   return (
     <div className="brain-card memory-brain-card">
@@ -1016,7 +1070,10 @@ export function BrainMap({
 
             <div className="brain-detail">
               <span>Nó ativo</span>
-              <strong>{selectedNode?.label ?? 'Nexus Core'}</strong>
+              <strong>
+                {selectedNode?.isCore && <LockKeyhole size={14} />}
+                {selectedNode?.label ?? 'Nexus Core'}
+              </strong>
               <p>{selectedNode?.summary ?? 'Selecione uma memória para ver o que foi guardado.'}</p>
               <div className="memory-meta-grid">
                 <small>Origem: {selectedNode?.source ?? 'Nexus Core'}</small>
@@ -1024,6 +1081,32 @@ export function BrainMap({
                 <small>Importância: {selectedNode?.weight ?? 0}</small>
                 <small>Tipo: {selectedNode ? KIND_LABEL[selectedNode.kind] : 'Sistema'}</small>
               </div>
+              {selectedMemory && (
+                <div className="memory-curation-actions">
+                  <button type="button" onClick={handleToggleCore} disabled={Boolean(memoryAction)}>
+                    <Pin size={13} />
+                    {selectedMemory.is_core ? 'Desfixar Core Memory' : 'Fixar como Core Memory'}
+                  </button>
+                  <label>
+                    Importância
+                    <input
+                      type="range"
+                      min="0.2"
+                      max="1"
+                      step="0.05"
+                      value={selectedMemory.importance ?? 0.5}
+                      disabled={Boolean(memoryAction)}
+                      onChange={event => handleImportanceChange(Number(event.target.value))}
+                    />
+                  </label>
+                  <button type="button" className="danger" onClick={handleDeleteMemory} disabled={Boolean(memoryAction)}>
+                    <Trash2 size={13} />
+                    Excluir
+                  </button>
+                  {memoryAction && <small>Atualizando memória...</small>}
+                  {memoryError && <small className="error-text">{memoryError}</small>}
+                </div>
+              )}
             </div>
 
             <div className="brain-signal-panel">
@@ -1067,11 +1150,11 @@ export function BrainMap({
               <span className="eyebrow">Memórias salvas</span>
               {cognitiveMemories.length ? cognitiveMemories.slice(0, 8).map(memory => (
                 <button key={memory.id} type="button" onClick={() => setSelectedId(`memoria-${memory.id}`)}>
-                  <Database size={14} />
+                  {memory.is_core ? <LockKeyhole size={14} /> : <Database size={14} />}
                   <span>
                     <strong>{compactLabel(memory.content, `Memória ${memory.memory_type}`, 86)}</strong>
                     <small>
-                      {memory.memory_type} · importância {Math.round((memory.importance ?? 0) * 100)}%
+                      {memory.is_core ? 'Core Memory' : memory.memory_type} · importância {Math.round((memory.importance ?? 0) * 100)}%
                     </small>
                   </span>
                 </button>

@@ -32,7 +32,11 @@ def migrate():
         _create_timeline(conn)
         _create_insights(conn)
         _create_embeddings(conn)
+        _create_conversation_summaries(conn)
+        _create_codebase_index(conn)
         _create_sync_state(conn)
+        _migrate_memories_core_columns(conn)
+        _migrate_knowledge_source_intelligence(conn)
         _migrate_embeddings_metadata(conn)
         _create_indexes(conn)
         conn.commit()
@@ -173,6 +177,44 @@ def _create_embeddings(conn):
     """)
 
 
+def _create_conversation_summaries(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS conversation_summaries (
+            session_id    TEXT PRIMARY KEY,
+            summary       TEXT NOT NULL,
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL,
+            message_count INTEGER DEFAULT 0,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+    """)
+
+
+def _create_codebase_index(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS codebase_index (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_root   TEXT NOT NULL,
+            relative_path  TEXT NOT NULL,
+            file_name      TEXT NOT NULL,
+            language       TEXT,
+            kind           TEXT NOT NULL DEFAULT 'file',
+            symbol_name    TEXT,
+            signature      TEXT,
+            imports        TEXT DEFAULT '[]',
+            dependencies   TEXT DEFAULT '[]',
+            routes         TEXT DEFAULT '[]',
+            hooks          TEXT DEFAULT '[]',
+            classes        TEXT DEFAULT '[]',
+            functions      TEXT DEFAULT '[]',
+            summary        TEXT,
+            content        TEXT,
+            metadata       TEXT DEFAULT '{}',
+            indexed_at     TEXT NOT NULL
+        );
+    """)
+
+
 def _create_sync_state(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sync_state (
@@ -198,9 +240,44 @@ def _create_indexes(conn):
         "CREATE INDEX IF NOT EXISTS idx_insights_read      ON insights(is_read);",
         "CREATE INDEX IF NOT EXISTS idx_embeddings_src     ON embeddings(source_table, source_id);",
         "CREATE INDEX IF NOT EXISTS idx_embeddings_created ON embeddings(created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_codebase_project   ON codebase_index(project_root);",
+        "CREATE INDEX IF NOT EXISTS idx_codebase_path      ON codebase_index(relative_path);",
+        "CREATE INDEX IF NOT EXISTS idx_codebase_symbol    ON codebase_index(symbol_name);",
+        "CREATE INDEX IF NOT EXISTS idx_codebase_language  ON codebase_index(language);",
+        "CREATE INDEX IF NOT EXISTS idx_core_memories      ON memories(is_core, locked);",
+        "CREATE INDEX IF NOT EXISTS idx_summary_session    ON conversation_summaries(session_id);",
     ]
     for sql in indexes:
         conn.execute(sql)
+
+
+def _add_column_if_missing(conn, table: str, column: str, definition: str):
+    try:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    except Exception:
+        pass
+
+
+def _migrate_memories_core_columns(conn):
+    """Adiciona metadados de Core Memory e origem sem tocar nos dados atuais."""
+    _add_column_if_missing(conn, "memories", "is_core", "INTEGER DEFAULT 0")
+    _add_column_if_missing(conn, "memories", "locked", "INTEGER DEFAULT 0")
+    _add_column_if_missing(conn, "memories", "user_confirmed", "INTEGER DEFAULT 0")
+    _add_column_if_missing(conn, "memories", "origin_type", "TEXT DEFAULT 'conversation'")
+    _add_column_if_missing(conn, "memories", "origin_id", "TEXT")
+    _add_column_if_missing(conn, "memories", "source_table", "TEXT")
+    _add_column_if_missing(conn, "memories", "source_id", "INTEGER")
+
+
+def _migrate_knowledge_source_intelligence(conn):
+    """Expande knowledge_sources para análise de documento sem quebrar a API antiga."""
+    _add_column_if_missing(conn, "knowledge_sources", "executive_summary", "TEXT DEFAULT ''")
+    _add_column_if_missing(conn, "knowledge_sources", "technical_summary", "TEXT DEFAULT ''")
+    _add_column_if_missing(conn, "knowledge_sources", "suggested_questions", "TEXT DEFAULT '[]'")
+    _add_column_if_missing(conn, "knowledge_sources", "detected_entities", "TEXT DEFAULT '[]'")
+    _add_column_if_missing(conn, "knowledge_sources", "metadata_json", "TEXT DEFAULT '{}'")
 
 
 def _migrate_embeddings_metadata(conn):

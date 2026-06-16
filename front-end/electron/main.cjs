@@ -1,7 +1,8 @@
-const { app, BrowserWindow, dialog, shell } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, net, protocol, shell } = require('electron')
 const { spawn } = require('node:child_process')
 const path = require('node:path')
 const fs = require('node:fs')
+const { pathToFileURL } = require('node:url')
 
 const BACKEND_URL = 'http://127.0.0.1:5050'
 const API_CONFIG_URL = `${BACKEND_URL}/api/config`
@@ -16,6 +17,18 @@ app.setName('Nexus IA')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'nexus-asset',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
+  },
+])
 
 // ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -164,6 +177,20 @@ function resolveBackendDir() {
     return path.join(process.resourcesPath, 'Back-end')
   }
   return path.resolve(__dirname, '..', '..', 'Back-end')
+}
+
+function registerAssetProtocol() {
+  protocol.handle('nexus-asset', (request) => {
+    const assetRoot = path.join(process.resourcesPath, 'NexusAssets')
+    const requestedPath = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '')
+    const filePath = path.normalize(path.join(assetRoot, requestedPath))
+
+    if (!filePath.startsWith(assetRoot)) {
+      return new Response('Asset path inválido', { status: 403 })
+    }
+
+    return net.fetch(pathToFileURL(filePath).toString())
+  })
 }
 
 function resolvePythonExecutable(backendDir) {
@@ -330,6 +357,15 @@ function createWindow() {
   })
 }
 
+ipcMain.handle('nexus:pick-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Selecionar codebase',
+    properties: ['openDirectory'],
+  })
+  if (result.canceled || !result.filePaths.length) return null
+  return result.filePaths[0]
+})
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 
 function stopBackend() {
@@ -350,6 +386,7 @@ process.on('unhandledRejection', error => {
 
 app.whenReady().then(async () => {
   logLine('[Electron] app pronto. packaged=', app.isPackaged, 'resources=', process.resourcesPath)
+  registerAssetProtocol()
 
   // Mostra tela de loading enquanto o backend sobe
   createSplash()

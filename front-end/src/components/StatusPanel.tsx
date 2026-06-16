@@ -1,5 +1,6 @@
-import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, CloudDownload, Cpu, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Volume2, X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, CloudDownload, Code2, Cpu, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Volume2, X } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { indexCodebase } from '../services/api'
 import type { AiState, InterfaceSettings, SyncStatus, ThemeMode } from '../types'
 
 interface StatusPanelProps {
@@ -65,6 +66,8 @@ const MODEL_OPTIONS: Record<string, { label: string; hint: string }> = {
   'qwen2.5-coder:14b': { label: 'Mais potente', hint: 'melhor raciocínio, exige mais do Mac' },
 }
 
+type NexusBridge = { pickFolder?: () => Promise<string | null>; isDesktop?: boolean }
+
 function formatSyncDate(value?: string | null) {
   if (!value) return 'Nunca'
   const date = new Date(value)
@@ -96,6 +99,35 @@ export function StatusPanel({
   onClose,
   children,
 }: StatusPanelProps) {
+  const [codebasePath, setCodebasePath] = useState('')
+  const [codebaseStatus, setCodebaseStatus] = useState('')
+  const [isIndexingCodebase, setIsIndexingCodebase] = useState(false)
+
+  const pickCodebaseFolder = async () => {
+    const bridge = (window as unknown as { nexus?: NexusBridge }).nexus
+    if (!bridge?.pickFolder) return
+    const path = await bridge.pickFolder()
+    if (path) setCodebasePath(path)
+  }
+
+  const runCodebaseIndex = async () => {
+    const path = codebasePath.trim()
+    if (!path) {
+      setCodebaseStatus('Informe ou selecione uma pasta.')
+      return
+    }
+    setIsIndexingCodebase(true)
+    setCodebaseStatus('Indexando projeto...')
+    try {
+      const result = await indexCodebase(path)
+      setCodebaseStatus(`${result.indexed_files} arquivos e ${result.indexed_rows} símbolos indexados.`)
+    } catch (error) {
+      setCodebaseStatus(error instanceof Error ? error.message : 'Não foi possível indexar a codebase.')
+    } finally {
+      setIsIndexingCodebase(false)
+    }
+  }
+
   return (
     <aside className="settings-panel">
       <div className="settings-drawer-head">
@@ -175,6 +207,32 @@ export function StatusPanel({
               </button>
             )
           })}
+        </div>
+      </div>
+
+      <div className="panel-block">
+        <div className="panel-heading">
+          <span>Codebase</span>
+          <Code2 size={15} />
+        </div>
+        <div className="codebase-index-card">
+          <span>Ensinar um projeto ao Nexus</span>
+          <div>
+            <input
+              type="text"
+              value={codebasePath}
+              onChange={(event) => setCodebasePath(event.target.value)}
+              placeholder="/Users/vitor/projeto"
+            />
+            <button type="button" onClick={pickCodebaseFolder} title="Selecionar pasta">
+              <FolderOpen size={14} />
+            </button>
+          </div>
+          <button type="button" onClick={runCodebaseIndex} disabled={isIndexingCodebase}>
+            <RefreshCw size={14} className={isIndexingCodebase ? 'is-spinning' : ''} />
+            {isIndexingCodebase ? 'Indexando' : 'Indexar codebase'}
+          </button>
+          {codebaseStatus && <small>{codebaseStatus}</small>}
         </div>
       </div>
 

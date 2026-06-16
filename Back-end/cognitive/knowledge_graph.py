@@ -25,6 +25,21 @@ ENTITY_TYPES = {"technology", "project", "concept", "person", "event", "tool", "
 RELATION_TYPES = {
     "uses", "part_of", "learned_in", "related_to", "created",
     "depends_on", "extends", "implements", "applies_to", "mentions",
+    "usa", "implementa", "depende_de", "faz_parte_de", "criado_em",
+    "aprendido_em", "documentado_em", "mencionado_em",
+}
+
+RELATION_ALIASES = {
+    "uses": "usa",
+    "use": "usa",
+    "utiliza": "usa",
+    "part_of": "faz_parte_de",
+    "depends_on": "depende_de",
+    "depends": "depende_de",
+    "implements": "implementa",
+    "learned_in": "aprendido_em",
+    "created": "criado_em",
+    "mentions": "mencionado_em",
 }
 
 # ── Limiar de exibição no grafo ────────────────────────────────────
@@ -127,7 +142,7 @@ def add_relation(
     strength: float = 0.5,
 ) -> Optional[dict]:
     """Cria ou reforça relação entre duas entidades."""
-    relation_type = relation_type if relation_type in RELATION_TYPES else "related_to"
+    relation_type = _normalize_relation_type(relation_type)
 
     source = _get_entity_by_name(source_name)
     target = _get_entity_by_name(target_name)
@@ -351,10 +366,13 @@ def detect_and_register(text: str, session_id: Optional[str] = None) -> list[str
             if canonical not in found:
                 found.append(canonical)
 
-    # Relaciona tecnologias co-mencionadas entre si
+    relation_type = _infer_relation_type(lower)
+
+    # Relaciona tecnologias co-mencionadas entre si.
+    # Quando há pista textual, evita usar apenas related_to.
     for i, a in enumerate(found):
         for b in found[i + 1:]:
-            add_relation(a, b, "related_to", 0.4)
+            add_relation(a, b, relation_type, 0.45 if relation_type != "related_to" else 0.4)
 
     return found
 
@@ -420,7 +438,30 @@ def get_stats() -> dict:
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _clean_name(name: str) -> str:
-    return re.sub(r"\s+", " ", (name or "").strip()).lower()
+    clean = re.sub(r"\s+", " ", (name or "").strip()).lower()
+    return _ALIAS_MAP.get(clean, clean)
+
+
+def _normalize_relation_type(relation_type: str) -> str:
+    clean = (relation_type or "related_to").strip().lower()
+    clean = RELATION_ALIASES.get(clean, clean)
+    return clean if clean in RELATION_TYPES else "related_to"
+
+
+def _infer_relation_type(text: str) -> str:
+    if re.search(r"\b(depende|dependencia|dependência|requires?|require)\b", text):
+        return "depende_de"
+    if re.search(r"\b(implementa|implementando|implements?|built with)\b", text):
+        return "implementa"
+    if re.search(r"\b(usa|usar|usando|utiliza|utilizando|uses?)\b", text):
+        return "usa"
+    if re.search(r"\b(documenta|documentado|docs?|manual)\b", text):
+        return "documentado_em"
+    if re.search(r"\b(aprendi|aprendeu|aprendido|learned)\b", text):
+        return "aprendido_em"
+    if re.search(r"\b(menciona|mencionado|cita|mentions?)\b", text):
+        return "mencionado_em"
+    return "related_to"
 
 
 def _get_entity_by_name(name: str):

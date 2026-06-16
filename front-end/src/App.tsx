@@ -1082,6 +1082,7 @@ export default function App() {
               knowledgeSources={knowledgeSources}
               cognitiveMemories={cognitiveMemories}
               knowledgeGraph={knowledgeGraph}
+              onRefresh={refreshCognitiveBrain}
             />
           </div>
         </div>

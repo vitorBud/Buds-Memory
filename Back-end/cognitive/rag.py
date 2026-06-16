@@ -913,6 +913,7 @@ def build_rag_context(
     Retorna contexto formatado com citações de origem para injetar no prompt.
     Aplica: hybrid_search → cognitive ranking → context compression.
     """
+    core_context = _core_memory_context(query, limit=4)
     results = hybrid_search(query, top_k=top_k, session_id=session_id)
     metadata_matches = _metadata_search(query, session_id=session_id, top_k=2)
     if metadata_matches:
@@ -931,12 +932,17 @@ def build_rag_context(
         if any(kw in query.lower() for kw in ["função", "function", "def ", "class ", "import", "codigo", "código"]):
             results = code_search(query, top_k=top_k)
 
-    if not results:
-        return ""
+    codebase_context = _codebase_context(query, top_k=4)
 
-    lines = [
-        "Trechos relevantes da base de conhecimento (use como contexto prioritário):",
-    ]
+    if not results:
+        fallback_lines = [part for part in (core_context, codebase_context) if part]
+        return "\n\n".join(fallback_lines)
+
+    lines = []
+    if core_context:
+        lines.append(core_context)
+
+    lines.append("Trechos relevantes da base de conhecimento (use como contexto prioritário):")
     for i, res in enumerate(results, 1):
         source_label = res.get("source_label", f"Fonte #{res['source_id']}")
         freshness    = _freshness_score(res.get("created_at"))
@@ -955,6 +961,10 @@ def build_rag_context(
         "Cite a fonte entre colchetes (ex: [Fonte 1]). "
         "Não invente informações além do que está nesses trechos."
     )
+
+    if codebase_context:
+        lines.append(codebase_context)
+
     return "\n".join(lines)
 
 
@@ -966,6 +976,80 @@ def _tokenize(text: str) -> list[str]:
     clean = re.sub(r"[^\w\s]", " ", (text or "").lower())
     stop = {"que", "voce", "você", "sobre", "qual", "quais", "como", "para", "com", "uma", "das", "dos"}
     return [w for w in clean.split() if len(w) > 2 and w not in stop]
+
+
+def _core_memory_context(query: str, limit: int = 4) -> str:
+    """Monta contexto prioritário com Core Memories protegidas."""
+    tokens = set(_tokenize(query))
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM memories
+            WHERE COALESCE(is_core, 0) = 1
+              AND (expires_at IS NULL OR expires_at > ?)
+            ORDER BY importance DESC, last_accessed DESC
+            LIMIT 24
+            """,
+            (now_iso(),),
+        ).fetchall()
+
+    scored = []
+    for row in rows:
+        content = row["content"] or ""
+        tags = _parse_topics(row["tags"])
+        signal = f"{content} {' '.join(tags)}".lower()
+        overlap = sum(1 for token in tokens if token in signal)
+        scored.append((overlap, row, tags))
+
+    scored.sort(key=lambda item: (item[0], item[1]["importance"]), reverse=True)
+    picked = scored[:limit]
+    if not picked:
+        return ""
+
+    lines = ["Core Memories confirmadas (prioridade máxima, não contradizer sem evidência explícita):"]
+    for index, (_, row, tags) in enumerate(picked, 1):
+        tag_text = f" Tags: {', '.join(tags[:5])}." if tags else ""
+        lines.append(f"[Core {index}] {row['content']}{tag_text}")
+    return "\n".join(lines)
+
+
+def _looks_like_code_query(query: str) -> bool:
+    lower = (query or "").lower()
+    return any(term in lower for term in [
+        "função", "funcao", "function", "classe", "class", "arquivo", "rota",
+        "endpoint", "hook", "componente", "component", "import", "onde está",
+        "onde esta", "login", "api", "bug", "erro", "código", "codigo",
+    ])
+
+
+def _codebase_context(query: str, top_k: int = 4) -> str:
+    """Busca no índice da codebase quando a pergunta parece técnica."""
+    if not _looks_like_code_query(query):
+        return ""
+
+    try:
+        from cognitive import codebase_indexer
+        results = codebase_indexer.search_codebase(query, limit=top_k)
+    except Exception:
+        return ""
+
+    if not results:
+        return ""
+
+    lines = ["\nTrechos do índice de codebase (use para perguntas sobre arquivos, funções e arquitetura):"]
+    for index, item in enumerate(results, 1):
+        symbol = f"::{item.get('symbol_name')}" if item.get("symbol_name") else ""
+        language = item.get("language") or "texto"
+        summary = item.get("summary") or ""
+        lines.append(f"[Código {index}] {item.get('relative_path')}{symbol} ({language}) — {summary}")
+        details = []
+        for key, label in (("functions", "Funções"), ("classes", "Classes"), ("hooks", "Hooks"), ("routes", "Rotas")):
+            values = item.get(key) or []
+            if values:
+                details.append(f"{label}: {', '.join(values[:8])}")
+        if details:
+            lines.append("; ".join(details))
+    return "\n".join(lines)
 
 
 def _parse_topics(raw) -> list[str]:

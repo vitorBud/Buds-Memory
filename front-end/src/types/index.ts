@@ -30,6 +30,11 @@ export interface KnowledgeSource {
   summary: string
   content?: string
   topics: string[]
+  executive_summary?: string
+  technical_summary?: string
+  suggested_questions?: string[]
+  detected_entities?: string[]
+  metadata?: Record<string, unknown>
   created_at: string
 }
 
@@ -102,7 +107,34 @@ export interface CognitiveMemory {
   last_accessed?: string | null
   expires_at?: string | null
   tags: string[]
+  is_core?: boolean
+  locked?: boolean
+  user_confirmed?: boolean
+  origin_type?: string | null
+  origin_id?: string | null
+  source_table?: string | null
+  source_id?: number | null
   created_at: string
+}
+
+export interface CodebaseIndexResult {
+  id: number
+  project_root: string
+  relative_path: string
+  file_name: string
+  language: string
+  kind: string
+  symbol_name?: string | null
+  signature?: string | null
+  imports: string[]
+  dependencies: string[]
+  routes: string[]
+  hooks: string[]
+  classes: string[]
+  functions: string[]
+  summary: string
+  score: number
+  indexed_at: string
 }
 
 export interface KnowledgeGraphEntity {

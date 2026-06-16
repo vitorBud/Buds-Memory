@@ -7,6 +7,7 @@ import type {
   Message,
   BackendConfig,
   ChatStreamEvent,
+  CodebaseIndexResult,
   CognitiveMemory,
   KnowledgeGraph,
   KnowledgeSource,
@@ -120,6 +121,59 @@ export async function getCognitiveMemories(limit = 200): Promise<CognitiveMemory
 
 export async function getKnowledgeGraph(limit = 240): Promise<KnowledgeGraph> {
   return fetchJsonWithStartupRetry<KnowledgeGraph>(`${getBase()}/cognitive/graph?limit=${limit}`)
+}
+
+export async function updateCognitiveMemory(
+  id: number,
+  updates: Partial<Pick<CognitiveMemory, 'content' | 'memory_type' | 'importance' | 'tags' | 'origin_type'>>,
+): Promise<CognitiveMemory> {
+  const res = await fetch(`${getBase()}/cognitive/memory/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `updateCognitiveMemory: ${res.status}`)
+  return data
+}
+
+export async function setCoreMemory(id: number, enabled: boolean): Promise<CognitiveMemory> {
+  const res = await fetch(`${getBase()}/cognitive/memory/${id}/core`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled, user_confirmed: true }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `setCoreMemory: ${res.status}`)
+  return data
+}
+
+export async function deleteCognitiveMemory(id: number, force = false): Promise<void> {
+  const res = await fetch(`${getBase()}/cognitive/memory/${id}?force=${String(force)}`, {
+    method: 'DELETE',
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `deleteCognitiveMemory: ${res.status}`)
+}
+
+export async function indexCodebase(projectRoot: string, maxFiles = 900): Promise<{ indexed_files: number; indexed_rows: number; project_root: string }> {
+  const res = await fetch(`${getBase()}/cognitive/codebase/index`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_root: projectRoot, max_files: maxFiles }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `indexCodebase: ${res.status}`)
+  return data
+}
+
+export async function searchCodebase(query: string, projectRoot?: string, limit = 12): Promise<CodebaseIndexResult[]> {
+  const params = new URLSearchParams({ q: query, limit: String(limit) })
+  if (projectRoot) params.set('project_root', projectRoot)
+  const data = await fetchJsonWithStartupRetry<{ results: CodebaseIndexResult[] }>(
+    `${getBase()}/cognitive/codebase/search?${params.toString()}`,
+  )
+  return data.results
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────
