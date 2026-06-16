@@ -212,11 +212,24 @@ def stt_local(wav_path: Path) -> str:
 # ====== LLM local via HTTP (Ollama) ======
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
-OLLAMA_MODELS = [
-    "qwen2.5-coder:3b",
-    "qwen2.5-coder:7b",
-    "qwen2.5-coder:14b",
-]
+
+def get_ollama_models() -> list[str]:
+    default_models = [
+        "qwen2.5-coder:3b",
+        "qwen2.5-coder:7b",
+        "qwen2.5-coder:14b",
+    ]
+    try:
+        response = requests.get("http://localhost:11434/api/tags", timeout=2)
+        if response.status_code == 200:
+            data = response.json()
+            models = [item["name"] for item in data.get("models", []) if "name" in item]
+            if models:
+                return models
+    except Exception:
+        pass
+    return default_models
+
 OLLAMA_OPTIONS = {
     "temperature": 0.42,
     "top_p": 0.88,
@@ -433,7 +446,14 @@ def build_prompt(user_text: str, history=None, web_context: Optional[str] = None
 
 
 def resolve_ollama_model(model: Optional[str] = None) -> str:
-    return model if model in OLLAMA_MODELS else OLLAMA_MODEL
+    models = get_ollama_models()
+    if model in models:
+        return model
+    if OLLAMA_MODEL in models:
+        return OLLAMA_MODEL
+    if models:
+        return models[0]
+    return OLLAMA_MODEL
 
 
 def post_ollama(payload: dict, *, stream: bool):

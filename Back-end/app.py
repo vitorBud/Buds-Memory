@@ -17,7 +17,7 @@ from agenty import (
     tts_piper,
     OUT_DIR,
     OLLAMA_MODEL,
-    OLLAMA_MODELS,
+    get_ollama_models,
     format_web_context,
     is_google_search_configured,
     resolve_ollama_model,
@@ -302,9 +302,11 @@ def get_sessions():
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """Retorna configurações públicas usadas pelo Front-end."""
+    models = get_ollama_models()
+    default_model = OLLAMA_MODEL if OLLAMA_MODEL in models else (models[0] if models else OLLAMA_MODEL)
     return jsonify({
-        "model": OLLAMA_MODEL,
-        "models": OLLAMA_MODELS,
+        "model": default_model,
+        "models": models,
         "ollama_url": "http://localhost:11434",
         "google_search_available": is_google_search_configured(),
         "data_dir": str(get_data_dir()),
