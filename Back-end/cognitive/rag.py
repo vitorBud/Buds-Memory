@@ -101,6 +101,16 @@ _QUERY_ALIASES: dict[str, list[str]] = {
     "memory":       ["memoria", "lembrar", "historico"],
     "deploy":       ["deployar", "publicar", "producao", "production"],
     "git":          ["commit", "push", "branch", "versionamento"],
+    "pdf":          ["documento", "arquivo", "material", "fonte importada"],
+    "documento":    ["pdf", "arquivo", "material", "conteúdo importado"],
+    "arquivo":      ["pdf", "documento", "material importado"],
+    "aprendeu":     ["aprendizado", "resumo", "conteúdo", "tópicos"],
+    "aprendizado":  ["aprendeu", "resumo", "conteúdo", "conhecimento"],
+}
+
+_VAGUE_QUERY_TERMS = {
+    "isso", "isto", "esse", "essa", "ele", "ela", "eles", "elas", "nele", "nela",
+    "disso", "desse", "dessa", "pdf", "arquivo", "documento", "material", "aprendeu",
 }
 
 # ── Code Search: padrões de detecção ─────────────────────────────────────────
@@ -676,9 +686,23 @@ def bm25_search(
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
     with get_db_connection() as conn:
-        rows = conn.execute(
-            f"SELECT * FROM embeddings {where}", params
-        ).fetchall()
+        if session_id:
+            extra = " AND " if where else " WHERE "
+            rows = conn.execute(
+                f"""
+                SELECT e.*
+                FROM embeddings e
+                LEFT JOIN knowledge_sources k
+                  ON e.source_id = k.id AND e.source_table = 'knowledge_sources'
+                {where}
+                {extra}(k.session_id = ? OR e.source_table != 'knowledge_sources')
+                """,
+                params + [session_id],
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"SELECT * FROM embeddings {where}", params
+            ).fetchall()
 
     if not rows:
         return []
@@ -890,6 +914,18 @@ def build_rag_context(
     Aplica: hybrid_search → cognitive ranking → context compression.
     """
     results = hybrid_search(query, top_k=top_k, session_id=session_id)
+    metadata_matches = _metadata_search(query, session_id=session_id, top_k=2)
+    if metadata_matches:
+        existing = {
+            f"{res.get('source_table')}:{res.get('source_id')}:{res.get('chunk_index')}"
+            for res in results
+        }
+        for item in metadata_matches:
+            key = f"{item.get('source_table')}:{item.get('source_id')}:{item.get('chunk_index')}"
+            if key not in existing:
+                results.append(item)
+                existing.add(key)
+        results = results[:top_k]
     if not results:
         # Fallback: busca de código se a query parece técnica
         if any(kw in query.lower() for kw in ["função", "function", "def ", "class ", "import", "codigo", "código"]):
@@ -906,6 +942,12 @@ def build_rag_context(
         freshness    = _freshness_score(res.get("created_at"))
         freshness_tag = " ★Recente" if freshness >= 0.9 else ""
         lines.append(f"\n[Fonte {i} — {source_label}{freshness_tag}]")
+        source_topics = res.get("source_topics") or []
+        source_summary = res.get("source_summary") or ""
+        if source_topics:
+            lines.append(f"Tópicos da fonte: {', '.join(source_topics[:8])}")
+        if source_summary:
+            lines.append(f"Resumo da fonte: {source_summary[:500]}")
         lines.append(res["chunk_text"])
 
     lines.append(
@@ -922,7 +964,87 @@ def build_rag_context(
 
 def _tokenize(text: str) -> list[str]:
     clean = re.sub(r"[^\w\s]", " ", (text or "").lower())
-    return [w for w in clean.split() if len(w) > 2]
+    stop = {"que", "voce", "você", "sobre", "qual", "quais", "como", "para", "com", "uma", "das", "dos"}
+    return [w for w in clean.split() if len(w) > 2 and w not in stop]
+
+
+def _parse_topics(raw) -> list[str]:
+    """Aceita tópicos salvos como JSON novo ou texto antigo separado por vírgulas."""
+    if isinstance(raw, list):
+        return [str(topic).strip() for topic in raw if str(topic).strip()]
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    parsed = json_loads(text, fallback=None)
+    if isinstance(parsed, list):
+        return [str(topic).strip() for topic in parsed if str(topic).strip()]
+    return [topic.strip() for topic in text.split(",") if topic.strip()]
+
+
+def _metadata_search(query: str, session_id: Optional[str], top_k: int = 2) -> list[dict]:
+    """Busca por título, tópico e resumo da fonte para perguntas vagas sobre PDFs/arquivos."""
+    if not session_id:
+        return []
+
+    tokens = _tokenize(query)
+    if not tokens:
+        return []
+
+    query_lower = (query or "").lower()
+    is_vague = len(tokens) <= 5 or any(term in query_lower for term in _VAGUE_QUERY_TERMS)
+
+    with get_db_connection() as conn:
+        sources = conn.execute(
+            """
+            SELECT id, title, source_type, source_name, summary, content, topics, created_at
+            FROM knowledge_sources
+            WHERE session_id=?
+            ORDER BY id DESC
+            LIMIT 12
+            """,
+            (session_id,),
+        ).fetchall()
+
+    scored = []
+    for source in sources:
+        topics = _parse_topics(source["topics"])
+        signal = " ".join([
+            source["title"] or "",
+            source["source_name"] or "",
+            source["summary"] or "",
+            " ".join(topics),
+        ]).lower()
+        score = sum(signal.count(token) for token in tokens)
+        if is_vague and any(word in signal for word in tokens):
+            score += 2
+        if is_vague and score == 0:
+            score = 0.25
+        if score <= 0:
+            continue
+
+        content = re.sub(r"\s+", " ", source["content"] or "").strip()
+        chunk_text = content[:900]
+        if not chunk_text:
+            continue
+        scored.append({
+            "score": min(score / 6, 1.0),
+            "bm25_score": min(score / 6, 1.0),
+            "chunk_text": chunk_text,
+            "source_table": "knowledge_sources",
+            "source_id": source["id"],
+            "chunk_index": 0,
+            "created_at": source["created_at"],
+            "source_label": source["title"] or source["source_name"] or "Documento",
+            "source_type": source["source_type"],
+            "source_summary": source["summary"] or "",
+            "source_topics": topics,
+            "importance": min(0.5 + len(topics) * 0.05, 0.95),
+            "graph_connections": 0,
+            "access_count": 0,
+        })
+
+    scored.sort(key=lambda item: (item["score"], _freshness_score(item.get("created_at"))), reverse=True)
+    return scored[:top_k]
 
 
 def _enrich_results(results: list[dict]) -> list[dict]:
@@ -945,17 +1067,19 @@ def _enrich_results(results: list[dict]) -> list[dict]:
             if table == "knowledge_sources":
                 rows = conn.execute(
                     f"""
-                    SELECT id, title, source_type, source_name, topics, created_at
+                    SELECT id, title, source_type, source_name, summary, topics, created_at
                     FROM knowledge_sources WHERE id IN ({placeholders})
                     """,
                     ids,
                 ).fetchall()
                 for row in rows:
-                    topics = json_loads(row["topics"] or "[]", fallback=[])
+                    topics = _parse_topics(row["topics"])
                     importance = min(0.4 + len(topics) * 0.05, 0.95)
                     meta[f"knowledge_sources:{row['id']}"] = {
                         "source_label":       row["title"] or row["source_name"] or "Documento",
                         "source_type":        row["source_type"],
+                        "source_summary":     row["summary"] or "",
+                        "source_topics":      topics,
                         "importance":         importance,
                         "created_at":         row["created_at"],
                         "graph_connections":  0,

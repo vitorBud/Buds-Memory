@@ -201,11 +201,65 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
         title_update = database.update_session_title(session_id, title)
 
     database.add_message(session_id, "user", user_text)
-    knowledge_context = database.build_knowledge_context(session_id, query=user_text)
-    rag_context = cognitive_rag.build_rag_context(user_text, session_id=session_id, top_k=6)
+    retrieval_query = build_contextual_retrieval_query(user_text, history, session_id)
+    knowledge_context = database.build_knowledge_context(session_id, query=retrieval_query)
+    rag_context = cognitive_rag.build_rag_context(retrieval_query, session_id=session_id, top_k=4)
     if rag_context:
         knowledge_context = f"{knowledge_context}\n\n{rag_context}" if knowledge_context else rag_context
     return history, title_update, knowledge_context
+
+
+VAGUE_REFERENCE_WORDS = {
+    "isso", "isto", "esse", "essa", "ele", "ela", "eles", "elas", "nele", "nela",
+    "disso", "desse", "dessa", "aquilo", "lá", "la", "aqui", "tambem", "também",
+}
+
+
+def is_vague_user_text(text: str) -> bool:
+    """Detecta perguntas dependentes de contexto, comuns em conversa natural."""
+    lower = (text or "").lower().strip()
+    words = re.findall(r"[a-zA-ZÀ-ÿ0-9_+-]+", lower)
+    if len(words) <= 4:
+        return True
+    if any(word in VAGUE_REFERENCE_WORDS for word in words):
+        return True
+    return bool(re.search(r"\b(e sobre|e o|e a|o pdf|do pdf|o arquivo|esse arquivo|o documento|aprendeu)\b", lower))
+
+
+def build_contextual_retrieval_query(user_text: str, history: list[dict], session_id: Optional[str]) -> str:
+    """
+    Amplia perguntas vagas com histórico e títulos de conhecimento.
+    A pergunta original continua intacta para o LLM; isso só melhora a busca/RAG.
+    """
+    user_text = (user_text or "").strip()
+    if not session_id:
+        return user_text
+
+    parts = [user_text]
+    if is_vague_user_text(user_text):
+        recent_user_messages = [
+            str(item.get("text", "")).strip()
+            for item in history[-6:]
+            if item.get("sender") == "user" and str(item.get("text", "")).strip()
+        ]
+        if recent_user_messages:
+            parts.append("Contexto recente: " + " ".join(recent_user_messages[-3:]))
+
+    try:
+        sources = database.get_session_knowledge(session_id, limit=8)
+    except Exception:
+        sources = []
+
+    if sources and (is_vague_user_text(user_text) or re.search(r"\b(pdf|arquivo|documento|aprendeu|material)\b", user_text.lower())):
+        source_signals = []
+        for source in sources[:6]:
+            topics = ", ".join(source.get("topics") or [])
+            source_signals.append(
+                f"{source.get('title', '')} {source.get('source_name', '')} {topics} {source.get('summary', '')[:260]}"
+            )
+        parts.append("Materiais importados disponíveis: " + " ".join(source_signals))
+
+    return "\n".join(part for part in parts if part.strip())[:3000]
 
 
 # ====== ROTA PRINCIPAL - SERVE O FRONT-END ======
@@ -298,6 +352,16 @@ def get_requested_web_search() -> bool:
     value = request.form.get("web_search")
     if value is None:
         value = data.get("web_search")
+    return str(value).lower() in {"1", "true", "yes", "sim"}
+
+
+def get_requested_tts() -> bool:
+    """Lê se o front-end quer receber arquivos de áudio gerados pelo backend."""
+    data = request.get_json(silent=True) if request.is_json else {}
+    data = data or {}
+    value = request.form.get("tts")
+    if value is None:
+        value = data.get("tts", False)
     return str(value).lower() in {"1", "true", "yes", "sim"}
 
 
@@ -427,7 +491,7 @@ def import_session_knowledge(session_id):
             topics=topics,
         )
         try:
-            item["rag_chunks"] = cognitive_rag.index_document(item["id"], content)
+            item["rag_chunks"] = cognitive_rag.index_document(item["id"], content, session_id=session_id)
         except Exception as rag_error:
             print(f"[RAG] Indexação ignorada para knowledge_source {item['id']}: {rag_error}")
             item["rag_chunks"] = 0
@@ -448,6 +512,7 @@ def chat():
     session_id = request.form.get("session_id") or (request.json.get("session_id") if request.is_json else None)
     selected_model = get_requested_model()
     should_search_web = get_requested_web_search()
+    should_generate_tts = get_requested_tts()
     
     user_text = ""
     # Se receber um arquivo de áudio
@@ -527,6 +592,7 @@ def chat_stream():
     session_id = request.form.get("session_id") or (request.json.get("session_id") if request.is_json else None)
     selected_model = get_requested_model()
     should_search_web = get_requested_web_search()
+    should_generate_tts = get_requested_tts()
     
     user_text = ""
     if 'audio' in request.files:
@@ -568,9 +634,13 @@ def chat_stream():
             for token in llm_ollama_stream(user_text, history, selected_model, web_context, knowledge_context):
                 # Envia o token de texto gerado para o Front-end imprimir na tela
                 yield sse_event({'type': 'token', 'content': token})
-                buffer += token
                 full_response += token
                 
+                if not should_generate_tts:
+                    continue
+
+                buffer += token
+
                 # Split de sentenças por pontuação seguida de espaço
                 parts = re.split(r'(?<=[.!?\n])\s+', buffer)
                 if len(parts) > 1:
@@ -590,7 +660,7 @@ def chat_stream():
                     buffer = parts[-1]
             
             # Processa o que restou no buffer
-            if buffer.strip():
+            if should_generate_tts and buffer.strip():
                 sentence_clean = buffer.strip()
                 audio_filename = f"reply_{int(time.time())}_{sentence_idx}.wav"
                 audio_url = gerar_audio_url(sentence_clean, audio_filename)

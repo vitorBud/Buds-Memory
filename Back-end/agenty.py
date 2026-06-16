@@ -2,6 +2,7 @@ import subprocess
 import time
 import json
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -217,11 +218,11 @@ OLLAMA_MODELS = [
     "qwen2.5-coder:14b",
 ]
 OLLAMA_OPTIONS = {
-    "temperature": 0.6,
-    "top_p": 0.90,
+    "temperature": 0.42,
+    "top_p": 0.88,
     "repeat_penalty": 1.18,
     "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "4096")),
-    "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "768")),
+    "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "384")),
 }
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "2m")
 GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
@@ -233,13 +234,78 @@ SYSTEM_STYLE = (
     "com conversas, código, estudos, documentos, memória e organização de conhecimento. "
     "Quando perguntarem quem você é, responda com segurança que você é o Nexus IA, sem dizer que é ChatGPT, OpenAI, Qwen, Ollama "
     "ou outro modelo base, a menos que o usuário pergunte explicitamente sobre detalhes técnicos do motor. "
-    "Seu estilo de conversa deve ser prestativo, claro e educado, parecido com o ChatGPT. "
-    "Responda sempre em português do Brasil, com precisão, naturalidade e objetividade. "
+    "Seu estilo de conversa deve ser prestativo, claro e educado, parecido com o ChatGPT: natural, contextual, direto e cooperativo. "
+    "Responda sempre em português do Brasil. Entenda mensagens informais, erros de digitação, gírias e frases incompletas; "
+    "reconstrua a intenção provável usando o histórico antes de pedir esclarecimento. "
+    "Por padrão, responda de forma curta e útil. Só faça respostas longas quando o usuário pedir explicação detalhada, tutorial, análise profunda, lista completa ou passo a passo. "
+    "Nunca responda com fragmentos, palavras cortadas ou abreviações sem sentido. Mesmo em respostas curtas, forme frases completas. "
+    "Para cumprimentos como 'eai chat tudo bem', responda de forma natural e amigável em 1 ou 2 frases, e pergunte como pode ajudar. "
     "Quando for útil, organize a resposta em passos curtos ou tópicos, sem ironia, grosseria ou sarcasmo. "
-    "Se faltar contexto, faça uma pergunta simples antes de assumir algo arriscado. "
+    "Se faltar contexto essencial, faça uma pergunta simples; se a intenção for provável, responda e sinalize a suposição em uma frase curta. "
     "Ao analisar código, use apenas o trecho e o erro fornecidos pelo usuário; não invente bugs, arquivos, funções, "
     "logs ou requisitos que não foram mostrados. Se fizer uma hipótese, marque claramente como hipótese."
 )
+
+
+DETAIL_KEYWORDS = {
+    "explique", "detalhe", "detalhado", "profundo", "completo", "tutorial", "passo a passo",
+    "me ensine", "aprenda", "analise", "análise", "resuma tudo", "documente", "compare",
+}
+
+SHORT_REPLY_KEYWORDS = {
+    "sim", "não", "nao", "ok", "boa", "beleza", "valeu", "obrigado", "obrigada",
+    "certo", "entendi", "qual", "onde", "quando", "quem", "pode", "tem como",
+}
+
+
+def infer_response_profile(user_text: str) -> dict:
+    """Define o tamanho esperado da resposta sem depender do front-end."""
+    text = (user_text or "").strip()
+    lower = text.lower()
+    word_count = len(re.findall(r"\w+", lower))
+
+    asks_for_detail = any(keyword in lower for keyword in DETAIL_KEYWORDS)
+    has_code = "```" in text or re.search(r"\b(def|class|function|const|let|var|import|from|return)\b", text)
+    asks_for_code_fix = bool(re.search(r"\b(erro|bug|corrig|arruma|conserta|traceback|exception)\b", lower))
+
+    if asks_for_detail:
+        return {
+            "name": "detalhada",
+            "num_predict": 760,
+            "instruction": (
+                "O usuário pediu profundidade. Responda com estrutura clara, mas evite enrolação. "
+                "Use seções curtas e exemplos apenas quando ajudarem."
+            ),
+        }
+
+    if has_code or asks_for_code_fix:
+        return {
+            "name": "tecnica",
+            "num_predict": 560,
+            "instruction": (
+                "Resposta técnica objetiva: explique a causa provável, mostre a correção e cite riscos. "
+                "Não invente arquivos, logs ou bugs não fornecidos."
+            ),
+        }
+
+    if word_count <= 18 or any(keyword in lower for keyword in SHORT_REPLY_KEYWORDS):
+        return {
+            "name": "curta",
+            "num_predict": 260,
+            "instruction": (
+                "Resposta curta, mas completa: 1 a 4 frases naturais, sem cortar palavras. "
+                "Não despeje contexto, listas longas ou explicações extras sem pedido."
+            ),
+        }
+
+    return {
+        "name": "normal",
+        "num_predict": 420,
+        "instruction": (
+            "Resposta média e conversacional: seja direto, cubra o necessário e pare. "
+            "Use tópicos somente se melhorar a leitura."
+        ),
+    }
 
 
 def is_google_search_configured() -> bool:
@@ -310,8 +376,16 @@ def format_web_context(results) -> str:
 
 def build_prompt(user_text: str, history=None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None) -> str:
     history = history or []
+    response_profile = infer_response_profile(user_text)
     lines = [
         SYSTEM_STYLE,
+        "",
+        "Contrato de resposta desta mensagem:",
+        f"- Perfil: {response_profile['name']}",
+        f"- {response_profile['instruction']}",
+        "- Responda exatamente à pergunta atual, usando o histórico para entender referências vagas.",
+        "- Não transforme uma pergunta simples em aula longa.",
+        "- Se usar contexto importado/RAG, use só os trechos necessários para responder.",
         "",
         "Histórico recente da conversa:",
     ]
@@ -383,6 +457,8 @@ def post_ollama(payload: dict, *, stream: bool):
 def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None) -> str:
     prompt = build_prompt(user_text, history, web_context, knowledge_context)
     selected_model = resolve_ollama_model(model)
+    response_profile = infer_response_profile(user_text)
+    options = {**OLLAMA_OPTIONS, "num_predict": response_profile["num_predict"]}
 
     r = post_ollama(
         {
@@ -390,7 +466,7 @@ def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_co
             "prompt": prompt,
             "stream": False,
             "keep_alive": OLLAMA_KEEP_ALIVE,
-            "options": OLLAMA_OPTIONS,
+            "options": options,
         },
         stream=False,
     )
@@ -403,6 +479,8 @@ def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_co
 def llm_ollama_stream(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None):
     prompt = build_prompt(user_text, history, web_context, knowledge_context)
     selected_model = resolve_ollama_model(model)
+    response_profile = infer_response_profile(user_text)
+    options = {**OLLAMA_OPTIONS, "num_predict": response_profile["num_predict"]}
 
     r = post_ollama(
         {
@@ -410,7 +488,7 @@ def llm_ollama_stream(user_text: str, history=None, model: Optional[str] = None,
             "prompt": prompt,
             "stream": True,
             "keep_alive": OLLAMA_KEEP_ALIVE,
-            "options": OLLAMA_OPTIONS,
+            "options": options,
         },
         stream=True,
     )

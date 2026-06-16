@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { streamChat } from '../services/api'
 import type { Message, AiState, Session, ChatStreamEvent } from '../types'
 
@@ -12,6 +12,72 @@ interface UseChatOptions {
   onMsgCountChange: (n: number) => void
   onSessionUpdate?: (session: Session) => void
   autoPlayAudio?: boolean
+}
+
+const PREFER_BROWSER_VOICE = true
+const MALE_PT_VOICE_HINTS = [
+  'felipe',
+  'daniel',
+  'joao',
+  'joão',
+  'lucas',
+  'bruno',
+  'thiago',
+  'male',
+  'masculino',
+]
+const ROBOTIC_VOICE_HINTS = ['compact', 'eloquence', 'novelty']
+
+function normalizeVoiceText(text: string) {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function scoreVoice(voice: SpeechSynthesisVoice) {
+  const lang = normalizeVoiceText(voice.lang || '')
+  const name = normalizeVoiceText(voice.name || '')
+  let score = 0
+
+  if (lang === 'pt-br') score += 90
+  else if (lang.startsWith('pt')) score += 60
+  if (MALE_PT_VOICE_HINTS.some(hint => name.includes(normalizeVoiceText(hint)))) score += 35
+  if (name.includes('premium') || name.includes('enhanced')) score += 10
+  if (ROBOTIC_VOICE_HINTS.some(hint => name.includes(hint))) score -= 25
+
+  return score
+}
+
+function pickPreferredVoice() {
+  if (!('speechSynthesis' in window)) return null
+
+  const voices = window.speechSynthesis.getVoices()
+  return voices
+    .filter(voice => normalizeVoiceText(voice.lang || '').startsWith('pt'))
+    .sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] ?? voices[0] ?? null
+}
+
+function extractCompleteSentences(buffer: string) {
+  const sentences: string[] = []
+  const regex = /([^.!?\n]+[.!?]+)(?:\s+|$)/g
+  let match: RegExpExecArray | null
+  let lastIndex = 0
+
+  while ((match = regex.exec(buffer))) {
+    const sentence = match[1].trim()
+    if (sentence.length > 2) sentences.push(sentence)
+    lastIndex = regex.lastIndex
+  }
+
+  return {
+    sentences,
+    rest: buffer.slice(lastIndex),
+  }
+}
+
+function canUseBrowserVoice() {
+  return PREFER_BROWSER_VOICE && 'speechSynthesis' in window
 }
 
 // Hook central do chat: envia texto/áudio, controla streaming, voz e interrupção da resposta.
@@ -30,28 +96,70 @@ export function useChat({
   const [isProcessing, setIsProcessing] = useState(false)
   const audioQueueRef = useRef<string[]>([])
   const isPlayingRef  = useRef(false)
+  const speechQueueRef = useRef<string[]>([])
+  const isSpeechPlayingRef = useRef(false)
+  const preferredVoiceRef = useRef<SpeechSynthesisVoice | null>(null)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const activeAbortRef = useRef<AbortController | null>(null)
   const msgCountRef = useRef(0)
   const streamIdRef = useRef(-1)
 
-  function speakText(text: string) {
+  useEffect(() => {
+    if (!('speechSynthesis' in window)) return
+
+    const refreshVoice = () => {
+      preferredVoiceRef.current = pickPreferredVoice()
+    }
+
+    refreshVoice()
+    window.speechSynthesis.addEventListener?.('voiceschanged', refreshVoice)
+
+    return () => {
+      window.speechSynthesis.removeEventListener?.('voiceschanged', refreshVoice)
+    }
+  }, [])
+
+  function playNextSpeech() {
+    if (!('speechSynthesis' in window)) return
+
+    if (speechQueueRef.current.length === 0) {
+      isSpeechPlayingRef.current = false
+      if (!isProcessing) onStateChange('idle')
+      return
+    }
+
+    const cleanText = speechQueueRef.current.shift()!
+    const utterance = new SpeechSynthesisUtterance(cleanText)
+    const voice = preferredVoiceRef.current ?? pickPreferredVoice()
+    preferredVoiceRef.current = voice
+
+    if (voice) utterance.voice = voice
+    utterance.lang = voice?.lang || 'pt-BR'
+    utterance.rate = 1.07
+    utterance.pitch = 0.86
+    utterance.volume = 1
+    isSpeechPlayingRef.current = true
+    onStateChange('speaking')
+    utterance.onend = () => playNextSpeech()
+    utterance.onerror = () => playNextSpeech()
+    window.speechSynthesis.speak(utterance)
+  }
+
+  function queueSpeech(text: string) {
     const cleanText = text.trim()
     if (!cleanText || !('speechSynthesis' in window)) return
 
+    speechQueueRef.current.push(cleanText.replace(/\s+/g, ' '))
+    if (!isSpeechPlayingRef.current) playNextSpeech()
+  }
+
+  function speakText(text: string) {
+    if (!text.trim() || !('speechSynthesis' in window)) return
+
     window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(cleanText)
-    utterance.lang = 'pt-BR'
-    utterance.rate = 1
-    utterance.pitch = 1
-    onStateChange('speaking')
-    utterance.onend = () => {
-      if (!isProcessing) onStateChange('idle')
-    }
-    utterance.onerror = () => {
-      if (!isProcessing) onStateChange('idle')
-    }
-    window.speechSynthesis.speak(utterance)
+    speechQueueRef.current = []
+    isSpeechPlayingRef.current = false
+    queueSpeech(text)
   }
 
   // ── Audio Queue ────────────────────────────────────────────────────────────
@@ -79,9 +187,11 @@ export function useChat({
     activeAbortRef.current?.abort()
     activeAbortRef.current = null
     audioQueueRef.current = []
+    speechQueueRef.current = []
     currentAudioRef.current?.pause()
     currentAudioRef.current = null
     isPlayingRef.current = false
+    isSpeechPlayingRef.current = false
     window.speechSynthesis?.cancel()
     setMessages(prev => prev
       .map(msg => msg.streaming ? { ...msg, streaming: false } : msg)
@@ -171,7 +281,9 @@ export function useChat({
 
     const start = Date.now()
     let streamedText = ''
+    let speechBuffer = ''
     let receivedAudio = false
+    const useBrowserVoice = autoPlayAudio && canUseBrowserVoice()
     const controller = new AbortController()
     activeAbortRef.current = controller
 
@@ -180,16 +292,26 @@ export function useChat({
         if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
+          if (useBrowserVoice) {
+            speechBuffer += event.content
+            const extracted = extractCompleteSentences(speechBuffer)
+            extracted.sentences.forEach(queueSpeech)
+            speechBuffer = extracted.rest
+          }
         } else if (event.type === 'web_search') {
           appendWebSearchStatus(assistantMessageId, event)
         } else if (event.type === 'session_update' && event.session) {
           onSessionUpdate?.(event.session)
-        } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio) {
+        } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio && !useBrowserVoice) {
           receivedAudio = true
           queueAudio(event.url)
         } else if (event.type === 'done') {
           finalizeStreaming(assistantMessageId)
-          if (autoPlayAudio && !receivedAudio) speakText(streamedText)
+          if (useBrowserVoice) {
+            if (speechBuffer.trim()) queueSpeech(speechBuffer)
+          } else if (autoPlayAudio && !receivedAudio) {
+            speakText(streamedText)
+          }
           onLatency(Date.now() - start)
         } else if (event.type === 'error') {
           console.error('[Chat] SSE error:', event.content)
@@ -207,7 +329,7 @@ export function useChat({
     } finally {
       if (activeAbortRef.current === controller) activeAbortRef.current = null
       setIsProcessing(false)
-      if (!isPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
+      if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
     }
   }
 
@@ -220,7 +342,9 @@ export function useChat({
     const assistantMessageId = createAssistantPlaceholder()
     const start = Date.now()
     let streamedText = ''
+    let speechBuffer = ''
     let receivedAudio = false
+    const useBrowserVoice = autoPlayAudio && canUseBrowserVoice()
     const controller = new AbortController()
     activeAbortRef.current = controller
 
@@ -240,16 +364,26 @@ export function useChat({
         } else if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
+          if (useBrowserVoice) {
+            speechBuffer += event.content
+            const extracted = extractCompleteSentences(speechBuffer)
+            extracted.sentences.forEach(queueSpeech)
+            speechBuffer = extracted.rest
+          }
         } else if (event.type === 'web_search') {
           appendWebSearchStatus(assistantMessageId, event)
         } else if (event.type === 'session_update' && event.session) {
           onSessionUpdate?.(event.session)
-        } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio) {
+        } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio && !useBrowserVoice) {
           receivedAudio = true
           queueAudio(event.url)
         } else if (event.type === 'done') {
           finalizeStreaming(assistantMessageId)
-          if (autoPlayAudio && !receivedAudio) speakText(streamedText)
+          if (useBrowserVoice) {
+            if (speechBuffer.trim()) queueSpeech(speechBuffer)
+          } else if (autoPlayAudio && !receivedAudio) {
+            speakText(streamedText)
+          }
           onLatency(Date.now() - start)
         }
       }, controller.signal)
@@ -264,7 +398,7 @@ export function useChat({
     } finally {
       if (activeAbortRef.current === controller) activeAbortRef.current = null
       setIsProcessing(false)
-      if (!isPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
+      if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
     }
   }
 

@@ -268,7 +268,7 @@ def get_session_knowledge(session_id, limit=20):
         items.append(item)
     return items
 
-def build_knowledge_context(session_id, limit=5, query=None):
+def build_knowledge_context(session_id, limit=4, query=None):
     sources = get_session_knowledge(session_id, limit=limit)
     if not sources:
         return ""
@@ -299,9 +299,9 @@ def build_knowledge_context(session_id, limit=5, query=None):
             key=lambda item: item[0],
             reverse=True,
         )
-        selected_chunks = [chunk for score, chunk in ranked_chunks if score > 0][:3]
+        selected_chunks = [chunk for score, chunk in ranked_chunks if score > 0][:2]
         if not selected_chunks:
-            selected_chunks = chunks[:2]
+            selected_chunks = chunks[:1]
 
         topics = ", ".join(source.get("topics") or [])
         excerpts = "\n".join(
@@ -312,7 +312,7 @@ def build_knowledge_context(session_id, limit=5, query=None):
             f"{index}. {source.get('title')}\n"
             f"Tipo: {source.get('source_type')} · Origem: {source.get('source_name') or 'manual'}\n"
             f"Tópicos: {topics or 'não detectados'}\n"
-            f"Resumo: {source.get('summary')}\n"
+            f"Resumo: {(source.get('summary') or '')[:520]}\n"
             f"Trechos úteis para a pergunta:\n{excerpts}"
         )
     return "\n\n".join(lines)

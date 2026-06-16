@@ -204,7 +204,7 @@ export async function importKnowledge(
 // ── Chat Streaming (SSE via ReadableStream) ─────────────────────────────────
 
 export async function streamChat(
-  payload: { text?: string; audio?: Blob; sessionId?: string; model?: string; webSearch?: boolean },
+  payload: { text?: string; audio?: Blob; sessionId?: string; model?: string; webSearch?: boolean; tts?: boolean },
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -221,6 +221,7 @@ export async function streamChat(
       if (payload.sessionId) body.append('session_id', payload.sessionId)
       if (payload.model) body.append('model', payload.model)
       if (payload.webSearch) body.append('web_search', 'true')
+      body.append('tts', String(Boolean(payload.tts)))
     }
 
     const fetchOptions: RequestInit = payload.audio
@@ -233,6 +234,7 @@ export async function streamChat(
             session_id: payload.sessionId,
             model: payload.model,
             web_search: payload.webSearch,
+            tts: Boolean(payload.tts),
           }),
           signal,
         }

@@ -6,6 +6,7 @@ import {
   FileCode2,
   ListChecks,
   MessageSquare,
+  Mic2,
   Pencil,
   Settings as SettingsIcon,
   Upload,
@@ -23,6 +24,7 @@ import { BootScreen } from './components/BootScreen'
 import type { SystemHealth } from './components/BootScreen'
 import { NetworkStatus } from './components/NetworkStatus'
 import { HomeBrain } from './components/HomeBrain'
+import { VoiceMode } from './components/VoiceMode'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, pullCloudChats, getCognitiveMemories, getKnowledgeGraph } from './services/api'
@@ -34,7 +36,7 @@ const DESKTOP_THEME_BOOT_KEY = 'nexus-desktop-theme-boot-v1'
 const FALLBACK_MODEL = 'qwen2.5-coder:3b'
 const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
-type AppView = 'home' | 'chat' | 'obsidian'
+type AppView = 'home' | 'chat' | 'voice' | 'obsidian'
 
 const DEFAULT_SETTINGS: InterfaceSettings = {
   theme: 'white',
@@ -365,6 +367,7 @@ export default function App() {
 
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (window.location.hash === '#chat') return 'chat'
+    if (window.location.hash === '#voice') return 'voice'
     if (window.location.hash === '#obsidian') return 'obsidian'
     // No desktop Electron, abre direto no chat para o usuário ver o histórico
     const isDesktopApp = Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
@@ -489,13 +492,18 @@ export default function App() {
     autoPlayAudio: settings.autoPlayAudio,
   })
 
-  const { isRecording, seconds, toggle: toggleMic } = useRecorder({
+  const { isRecording, seconds, volume: micVolume, toggle: toggleMic, cancel: cancelRecording } = useRecorder({
     onStop: async (blob) => {
       pushActivity('Audio gravado e enviado para STT', 'amber')
       await sendAudio(blob)
       pushActivity('Resposta gerada pelo LLM', 'violet')
     },
     onStateChange: setAiState,
+    autoStopOnSilence: activeView === 'voice',
+    silenceSeconds: activeView === 'voice' ? 0.78 : 1.15,
+    speechThreshold: activeView === 'voice' ? 0.06 : 0.075,
+    maxSeconds: activeView === 'voice' ? 45 : 30,
+    noSpeechTimeoutSeconds: activeView === 'voice' ? 7 : 10,
   })
 
   const loadSessionData = useCallback(async (session: Session, announce = true) => {
@@ -589,6 +597,7 @@ export default function App() {
   useEffect(() => {
     const target = window.location.hash
     if (target === '#chat') setActiveView('chat')
+    if (target === '#voice') setActiveView('voice')
     if (target === '#obsidian') setActiveView('obsidian')
   }, [])
 
@@ -787,6 +796,21 @@ export default function App() {
     window.setTimeout(() => setChatRevealActive(false), 1900)
   }
 
+  const handleOpenVoice = () => {
+    setSettings(prev => prev.autoPlayAudio ? prev : { ...prev, autoPlayAudio: true })
+    setActiveView('voice')
+    window.history.replaceState(null, '', '#voice')
+    window.scrollTo({ top: 0 })
+  }
+
+  const handleExitVoice = () => {
+    cancelRecording()
+    stopOutput()
+    setActiveView('chat')
+    window.history.replaceState(null, '', '#chat')
+    window.scrollTo({ top: 0 })
+  }
+
   const handleOpenObsidian = () => {
     setActiveView('obsidian')
     window.history.replaceState(null, '', '#obsidian')
@@ -809,6 +833,10 @@ export default function App() {
       <button type="button" className={activeView === 'chat' ? 'is-active' : ''} onClick={handleSmoothScrollToChat}>
         <MessageSquare size={14} />
         <span>Chat</span>
+      </button>
+      <button type="button" className={activeView === 'voice' ? 'is-active' : ''} onClick={handleOpenVoice}>
+        <Mic2 size={14} />
+        <span>Voz</span>
       </button>
       <button type="button" className={activeView === 'obsidian' ? 'is-active' : ''} onClick={handleOpenObsidian}>
         <BrainCircuit size={14} />
@@ -1018,6 +1046,19 @@ export default function App() {
         </div>
 
       </section>
+      )}
+
+      {activeView === 'voice' && (
+        <VoiceMode
+          aiState={aiState}
+          theme={settings.theme}
+          isRecording={isRecording}
+          recSeconds={seconds}
+          micVolume={micVolume}
+          isProcessing={isProcessing}
+          onMicToggle={toggleMic}
+          onExit={handleExitVoice}
+        />
       )}
 
       {activeView === 'obsidian' && (
