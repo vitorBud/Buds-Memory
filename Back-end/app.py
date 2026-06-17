@@ -32,6 +32,7 @@ import database_v2
 from cognitive_api import cognitive_bp
 from cognitive import detector as cognitive_detector
 from cognitive import knowledge_graph
+from cognitive import memory as cognitive_memory
 from cognitive import rag as cognitive_rag
 from cognitive import summarizer as cognitive_summarizer
 
@@ -237,7 +238,7 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
     if not session_id:
         return history, title_update, ""
 
-    history = database.get_recent_session_messages(session_id, limit=12)
+    history = database.get_recent_session_messages(session_id, limit=20)
     conversation_summary = cognitive_summarizer.get_conversation_summary(session_id)
     if not history:
         title = database.make_title_from_message(user_text)
@@ -256,6 +257,58 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
             f"(mensagens resumidas: {conversation_summary.get('message_count', 0)})"
         )
         knowledge_context = f"{summary_context}\n\n{knowledge_context}" if knowledge_context else summary_context
+
+    # ── Memórias de médio e longo prazo (cross-session) ──────────────────────
+    # Sempre injeta memórias de longo prazo mais importantes (identidade do usuário)
+    # e busca as de médio prazo que são relevantes para a pergunta atual.
+    try:
+        # 1. Memórias permanentes (long) — sempre incluídas, ordenadas por importância
+        long_memories = cognitive_memory.get_memories(
+            memory_types=["long"],
+            include_expired=False,
+            limit=8,
+        )
+        long_memories.sort(key=lambda m: m.get("importance", 0), reverse=True)
+
+        # 2. Memórias de médio prazo relevantes para a query atual
+        medium_memories = cognitive_memory.recall(
+            retrieval_query,
+            memory_types=["medium"],
+            limit=4,
+        )
+
+        # Combina sem duplicar (prioriza long, complementa com medium)
+        seen_ids = {m["id"] for m in long_memories}
+        combined = list(long_memories)
+        for mem in medium_memories:
+            if mem["id"] not in seen_ids:
+                combined.append(mem)
+                seen_ids.add(mem["id"])
+
+        if combined:
+            import re as _re
+            mem_lines = []
+            for mem in combined[:10]:
+                # Limpa metadados ruidosos que confundem o modelo
+                content = mem['content'].strip()
+                # Remove "(relacionado a: ...)" e variantes
+                content = _re.sub(r'\s*\(relacionado a:[^)]*\)', '', content)
+                # Remove prefixos de logging: "Usuário disse:", "Usuário estou", "Usuário é"
+                content = _re.sub(r'^Usuário\s+(disse\s*:|estou\s+|é\s+|tem\s+)', '', content, flags=_re.IGNORECASE)
+                # Capitaliza primeira letra
+                content = content.strip()
+                if content:
+                    content = content[0].upper() + content[1:]
+                    mem_lines.append(f"- {content}")
+            mem_block = (
+                "Memórias persistentes do usuário (de conversas anteriores):\n"
+                + "\n".join(mem_lines)
+            )
+            knowledge_context = f"{mem_block}\n\n{knowledge_context}" if knowledge_context else mem_block
+    except Exception as mem_err:
+        print(f"[Memory] Falha ao recuperar memórias persistentes: {mem_err}")
+
+
     return history, title_update, knowledge_context
 
 

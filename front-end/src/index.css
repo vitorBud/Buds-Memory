@@ -5524,6 +5524,127 @@ input {
   font-size: 16px;
 }
 
+/* ── Seção de perfil do usuário ────────────────────────────────────────────── */
+.brain-user-profile-section {
+  background:
+    linear-gradient(135deg, rgba(var(--accent-hot-rgb) / 0.08), transparent 48%),
+    var(--liquid-panel-soft);
+  border: 1px solid color-mix(in srgb, var(--accent-hot), transparent 62%);
+  border-radius: 18px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.brain-profile-memories {
+  display: grid;
+  gap: 6px;
+}
+
+.brain-profile-chip {
+  align-items: center;
+  background: color-mix(in srgb, var(--liquid-panel), transparent 14%);
+  border: 1px solid var(--liquid-border);
+  border-radius: 12px;
+  color: var(--text);
+  display: grid;
+  font-size: 12px;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 7px 10px;
+}
+
+.brain-profile-chip.is-core {
+  background: color-mix(in srgb, var(--accent-hot), transparent 88%);
+  border-color: color-mix(in srgb, var(--accent-hot), transparent 52%);
+}
+
+.brain-profile-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brain-profile-chip small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* ── Label de seção com ícone ──────────────────────────────────────────────── */
+.brain-section-label {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 6px;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+
+.brain-section-label span {
+  color: var(--muted);
+  flex: 1;
+}
+
+.brain-section-label small {
+  background: color-mix(in srgb, var(--liquid-panel), transparent 14%);
+  border: 1px solid var(--liquid-border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  padding: 1px 7px;
+  text-transform: none;
+}
+
+/* ── Badges de tipo de memória ─────────────────────────────────────────────── */
+.memory-type-badge {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 7px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.memory-type-badge.type-long {
+  background: color-mix(in srgb, var(--accent-hot), transparent 82%);
+  border: 1px solid color-mix(in srgb, var(--accent-hot), transparent 52%);
+  color: var(--accent-hot);
+}
+
+.memory-type-badge.type-medium {
+  background: color-mix(in srgb, #60a5fa, transparent 84%);
+  border: 1px solid color-mix(in srgb, #60a5fa, transparent 56%);
+  color: #93c5fd;
+}
+
+.memory-type-badge.type-short {
+  background: color-mix(in srgb, #a3e635, transparent 86%);
+  border: 1px solid color-mix(in srgb, #a3e635, transparent 60%);
+  color: #bef264;
+}
+
+.memory-type-badge.type-core {
+  background: color-mix(in srgb, var(--accent-hot), transparent 72%);
+  border: 1px solid color-mix(in srgb, var(--accent-hot), transparent 38%);
+  color: var(--accent-hot);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-hot), transparent 80%);
+}
+
+.memory-type-badge.type-source {
+  background: color-mix(in srgb, #d6a63d, transparent 84%);
+  border: 1px solid color-mix(in srgb, #d6a63d, transparent 56%);
+  color: #f0c060;
+}
+
 .learned-source-list {
   display: grid;
   gap: 8px;

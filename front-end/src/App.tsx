@@ -520,7 +520,7 @@ export default function App() {
     loadMessages(msgs)
     setKnowledgeSources(sources)
     if (announce) pushActivity(`Conversa carregada: ${session.title}`, 'violet')
-  }, [clearMessages, loadMessages, pushActivity])
+  }, [clearMessages, loadMessages, pushActivity, stopOutput])
 
   useEffect(() => {
     let cancelled = false
@@ -537,8 +537,10 @@ export default function App() {
       })
       .catch(console.error)
 
-    refreshSyncStatus()
-    refreshCognitiveBrain()
+    window.queueMicrotask(() => {
+      void refreshSyncStatus()
+      void refreshCognitiveBrain()
+    })
     getBackendConfig()
       .then(config => {
         if (cancelled) return
@@ -563,7 +565,9 @@ export default function App() {
   }, []) // <--- Array vazio para garantir execução única na inicialização
 
   useEffect(() => {
-    if (settingsOpen) refreshSyncStatus()
+    if (settingsOpen) {
+      window.queueMicrotask(() => void refreshSyncStatus())
+    }
   }, [settingsOpen, refreshSyncStatus])
 
   // Polling em tempo real do status do sistema (a cada 8 segundos)
@@ -586,7 +590,7 @@ export default function App() {
             database: true
           }
         })
-      } catch (err) {
+      } catch {
         setSystemHealth(prev => prev ? { ...prev, backend: false, backendLatency: null } : null)
       }
     }, 8000)
@@ -596,9 +600,11 @@ export default function App() {
 
   useEffect(() => {
     const target = window.location.hash
-    if (target === '#chat') setActiveView('chat')
-    if (target === '#voice') setActiveView('voice')
-    if (target === '#obsidian') setActiveView('obsidian')
+    window.queueMicrotask(() => {
+      if (target === '#chat') setActiveView('chat')
+      if (target === '#voice') setActiveView('voice')
+      if (target === '#obsidian') setActiveView('obsidian')
+    })
   }, [])
 
   useEffect(() => {

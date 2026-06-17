@@ -444,7 +444,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
       getPublicAssetPath('/models/BrainUVs.obj'),
       handleModelReady,
       undefined,
-      (err: any) => {
+      (err: unknown) => {
         if (disposed) return
         console.error('Erro ao carregar modelo BrainUVs.obj, usando fallback.', err)
         buildFallbackModel()
@@ -563,7 +563,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     // 11. Render Loop
-    let clock = new THREE.Clock()
+    const clock = new THREE.Clock()
     let frameId: number
 
     const animate = () => {

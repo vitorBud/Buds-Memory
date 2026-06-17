@@ -234,8 +234,8 @@ OLLAMA_OPTIONS = {
     "temperature": 0.42,
     "top_p": 0.88,
     "repeat_penalty": 1.18,
-    "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "4096")),
-    "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "384")),
+    "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "12288")),
+    "num_predict": int(os.getenv("OLLAMA_NUM_PREDICT", "-1")),
 }
 OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "2m")
 GOOGLE_SEARCH_URL = "https://www.googleapis.com/customsearch/v1"
@@ -243,20 +243,15 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGLE_SEARCH_API_KEY
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID") or os.getenv("GOOGLE_SEARCH_ENGINE_ID")
 
 SYSTEM_STYLE = (
-    "Sua identidade fixa é Nexus IA. Você é o chat Nexus, um assistente local inteligente criado para ajudar o usuário "
-    "com conversas, código, estudos, documentos, memória e organização de conhecimento. "
-    "Quando perguntarem quem você é, responda com segurança que você é o Nexus IA, sem dizer que é ChatGPT, OpenAI, Qwen, Ollama "
-    "ou outro modelo base, a menos que o usuário pergunte explicitamente sobre detalhes técnicos do motor. "
-    "Seu estilo de conversa deve ser prestativo, claro e educado, parecido com o ChatGPT: natural, contextual, direto e cooperativo. "
-    "Responda sempre em português do Brasil. Entenda mensagens informais, erros de digitação, gírias e frases incompletas; "
-    "reconstrua a intenção provável usando o histórico antes de pedir esclarecimento. "
-    "Por padrão, responda de forma curta e útil. Só faça respostas longas quando o usuário pedir explicação detalhada, tutorial, análise profunda, lista completa ou passo a passo. "
+    "Sua identidade fixa é Nexus IA. Você é um assistente local inteligente criado por Vitor para ajudar com conversas, código, estudos, documentos, memória e organização de conhecimento. "
+    "Quando perguntarem quem VOCÊ é: responda que é o Nexus IA, sem revelar o modelo base (Qwen, Ollama, etc.) a menos que o usuário pergunte explicitamente. "
+    "Quando o usuário perguntar sobre SI MESMO ('quem sou eu?', 'você me conhece?', 'sabe meu nome?'): use EXCLUSIVAMENTE as informações do bloco PERFIL DO USUÁRIO que aparecem antes desta mensagem. Se não houver perfil, diga honestamente que ainda não tem informações salvas sobre ele e peça para se apresentar. "
+    "REGRA CRÍTICA — repetição: NUNCA mencione Python, TypeScript, React ou qualquer dado do perfil do usuário a não ser que a pergunta atual seja diretamente sobre esse assunto. Não termine frases com 'Estou aqui para ajudar com Python, TypeScript...' ou variações. Isso é proibido. "
+    "Responda sempre em português do Brasil. Entenda mensagens informais, erros de digitação, gírias e frases incompletas; reconstrua a intenção provável usando o histórico antes de pedir esclarecimento. "
+    "Estilo: natural, direto e cooperativo. Por padrão, respostas curtas e úteis. Só faça respostas longas quando o usuário pedir detalhe, tutorial, análise ou passo a passo. "
     "Nunca responda com fragmentos, palavras cortadas ou abreviações sem sentido. Mesmo em respostas curtas, forme frases completas. "
-    "Para cumprimentos como 'eai chat tudo bem', responda de forma natural e amigável em 1 ou 2 frases, e pergunte como pode ajudar. "
-    "Quando for útil, organize a resposta em passos curtos ou tópicos, sem ironia, grosseria ou sarcasmo. "
-    "Se faltar contexto essencial, faça uma pergunta simples; se a intenção for provável, responda e sinalize a suposição em uma frase curta. "
-    "Ao analisar código, use apenas o trecho e o erro fornecidos pelo usuário; não invente bugs, arquivos, funções, "
-    "logs ou requisitos que não foram mostrados. Se fizer uma hipótese, marque claramente como hipótese."
+    "Para cumprimentos como 'eai chat', responda de forma natural em 1 ou 2 frases e pergunte como pode ajudar — sem listar tecnologias. "
+    "Ao analisar código, use apenas o trecho e o erro fornecidos; não invente bugs, arquivos ou logs. Se fizer hipótese, marque como hipótese."
 )
 
 
@@ -284,19 +279,19 @@ def infer_response_profile(user_text: str) -> dict:
     if asks_for_detail:
         return {
             "name": "detalhada",
-            "num_predict": 760,
+            "num_predict": -1,  # sem limite — resposta completa até o num_ctx
             "instruction": (
-                "O usuário pediu profundidade. Responda com estrutura clara, mas evite enrolação. "
-                "Use seções curtas e exemplos apenas quando ajudarem."
+                "O usuário pediu profundidade. Responda com estrutura clara e completa, sem cortar no meio. "
+                "Use seções e exemplos práticos quando ajudarem."
             ),
         }
 
     if has_code or asks_for_code_fix:
         return {
             "name": "tecnica",
-            "num_predict": 560,
+            "num_predict": -1,  # sem limite — código pode ser longo
             "instruction": (
-                "Resposta técnica objetiva: explique a causa provável, mostre a correção e cite riscos. "
+                "Resposta técnica completa: explique a causa, mostre a correção inteira sem cortar. "
                 "Não invente arquivos, logs ou bugs não fornecidos."
             ),
         }
@@ -304,18 +299,18 @@ def infer_response_profile(user_text: str) -> dict:
     if word_count <= 18 or any(keyword in lower for keyword in SHORT_REPLY_KEYWORDS):
         return {
             "name": "curta",
-            "num_predict": 260,
+            "num_predict": 400,
             "instruction": (
-                "Resposta curta, mas completa: 1 a 4 frases naturais, sem cortar palavras. "
-                "Não despeje contexto, listas longas ou explicações extras sem pedido."
+                "Resposta curta, mas COMPLETA: 1 a 4 frases naturais. "
+                "Não corte no meio de uma frase."
             ),
         }
 
     return {
         "name": "normal",
-        "num_predict": 420,
+        "num_predict": 800,
         "instruction": (
-            "Resposta média e conversacional: seja direto, cubra o necessário e pare. "
+            "Resposta conversacional completa: seja direto, cubra o necessário e não pare no meio. "
             "Use tópicos somente se melhorar a leitura."
         ),
     }
@@ -387,12 +382,55 @@ def format_web_context(results) -> str:
     return "\n\n".join(lines)
 
 
+def _extract_user_profile(knowledge_context: Optional[str]) -> tuple[str, str]:
+    """
+    Separa as memórias persistentes do usuário do restante do knowledge_context.
+    Retorna (profile_block, remaining_context).
+    """
+    if not knowledge_context:
+        return "", ""
+
+    profile_marker = "Memórias persistentes do usuário (de conversas anteriores):"
+    if profile_marker not in knowledge_context:
+        return "", knowledge_context
+
+    parts = knowledge_context.split(profile_marker, 1)
+    before = parts[0].strip()
+    after_marker = parts[1].strip()
+
+    # O bloco de memórias vai até a primeira linha em branco dupla
+    mem_end = after_marker.find("\n\n")
+    if mem_end == -1:
+        profile_block = after_marker.strip()
+        remaining = before
+    else:
+        profile_block = after_marker[:mem_end].strip()
+        rest_after = after_marker[mem_end:].strip()
+        remaining = (before + "\n\n" + rest_after).strip() if rest_after else before
+
+    return profile_block, remaining
+
+
 def build_prompt(user_text: str, history=None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None) -> str:
     history = history or []
     response_profile = infer_response_profile(user_text)
-    lines = [
-        SYSTEM_STYLE,
-        "",
+
+    # Separa perfil pessoal do restante do contexto de conhecimento
+    user_profile_block, knowledge_remainder = _extract_user_profile(knowledge_context)
+
+    lines = [SYSTEM_STYLE, ""]
+
+    # ── Perfil do usuário no topo (prioridade máxima para modelo 3B) ──────────
+    if user_profile_block:
+        lines.extend([
+            "### PERFIL DO USUÁRIO (informações salvas de conversas anteriores) ###",
+            "Use OBRIGATORIAMENTE estas informações ao responder perguntas sobre o usuário:",
+            user_profile_block,
+            "### FIM DO PERFIL ###",
+            "",
+        ])
+
+    lines.extend([
         "Contrato de resposta desta mensagem:",
         f"- Perfil: {response_profile['name']}",
         f"- {response_profile['instruction']}",
@@ -401,10 +439,10 @@ def build_prompt(user_text: str, history=None, web_context: Optional[str] = None
         "- Se usar contexto importado/RAG, use só os trechos necessários para responder.",
         "",
         "Histórico recente da conversa:",
-    ]
+    ])
 
     if history:
-        for item in history[-12:]:
+        for item in history[-20:]:
             sender = item.get("sender", "")
             role = "Usuário" if sender == "user" else "Assistente"
             text = str(item.get("text", "")).strip()
@@ -424,11 +462,11 @@ def build_prompt(user_text: str, history=None, web_context: Optional[str] = None
             "Use a busca apenas quando ela ajudar a responder. Se os resultados forem insuficientes, diga isso claramente.",
         ])
 
-    if knowledge_context:
+    if knowledge_remainder:
         lines.extend([
             "",
             "Base de conhecimento importada:",
-            knowledge_context,
+            knowledge_remainder,
             "",
             "Regra para PDFs e conhecimento importado: se o usuário perguntar de forma vaga, como 'o que você aprendeu do PDF', "
             "'resuma o PDF', 'e sobre Python?' ou mencionar um assunto presente nos títulos/tópicos/trechos, use primeiro a base importada. "
@@ -437,12 +475,16 @@ def build_prompt(user_text: str, history=None, web_context: Optional[str] = None
             "Não invente detalhes fora desse material; se o material for parcial, avise que a resposta está limitada ao conteúdo importado.",
         ])
 
+    # Lembrete anti-repetição imediatamente antes da resposta (mais eficaz para LLMs)
     lines.extend([
+        "",
+        "[LEMBRETE FINAL: responda SOMENTE a pergunta abaixo. NÃO mencione Python, TypeScript, React, Engenharia de Software ou dados do perfil, a menos que a pergunta seja diretamente sobre esses temas. NÃO ofereça ajuda com listas de assuntos.]",
         "",
         f"Usuário: {user_text}",
         "Assistente:",
     ])
     return "\n".join(lines)
+
 
 
 def resolve_ollama_model(model: Optional[str] = None) -> str:

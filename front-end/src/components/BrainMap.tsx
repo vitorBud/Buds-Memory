@@ -879,7 +879,9 @@ export function BrainMap({
 
   useEffect(() => {
     if (!visibleNodes.some(node => node.id === selectedId)) {
-      setSelectedId(visibleNodes[0]?.id ?? allNodes[0]?.id ?? 'sistema-contexto')
+      window.queueMicrotask(() => {
+        setSelectedId(visibleNodes[0]?.id ?? allNodes[0]?.id ?? 'sistema-contexto')
+      })
     }
   }, [allNodes, selectedId, visibleNodes])
 
@@ -922,30 +924,30 @@ export function BrainMap({
     <div className="brain-card memory-brain-card">
       <div className="brain-card-header obsidian-glass-hud">
         <div>
-          <span className="eyebrow">Nexus Core</span>
-          <strong>Cérebro digital vivo</strong>
+          <span className="eyebrow">Nexus · Second Brain</span>
+          <strong>Mapa cognitivo</strong>
         </div>
         <div className="brain-header-actions">
           <span><Radio size={12} /> ao vivo</span>
-          <span><GitBranch size={12} /> {visibleNodes.length}</span>
+          <span><GitBranch size={12} /> {visibleNodes.length} nós</span>
           <button
             type="button"
             className={thoughtMode ? 'is-active' : ''}
             onClick={() => setThoughtMode(value => !value)}
-            title="Modo pensamento"
+            title="Modo pensamento — traça o caminho de raciocínio"
           >
             <BrainCircuit size={14} />
           </button>
-          <button type="button" onClick={() => setIsStatsOpen(true)} title="Abrir estatísticas do cérebro">
+          <button type="button" onClick={() => setIsStatsOpen(true)} title="Abrir painel de memória">
             <BarChart3 size={14} />
           </button>
         </div>
       </div>
 
-      <div className="obsidian-timeline obsidian-glass-hud" aria-label="Linha do tempo de aprendizado">
+      <div className="obsidian-timeline obsidian-glass-hud" aria-label="Filtro por período">
         <div>
           <CalendarDays size={13} />
-          <span>Timeline</span>
+          <span>Período</span>
         </div>
         {PERIODS.map(option => (
           <button
@@ -970,32 +972,32 @@ export function BrainMap({
         <div className="nexus-core-readout">
           <span>Nexus Core</span>
           <strong>{allNodes.length}</strong>
-          <em>memórias vivas</em>
+          <em>nós ativos</em>
         </div>
 
         <div className="brain-hud memory-hud">
-          <span>Memória selecionada</span>
+          <span>Selecionado</span>
           <strong>{selectedNode?.label ?? 'Nexus'}</strong>
           <em>{selectedNode ? KIND_LABEL[selectedNode.kind] : 'Sistema'}</em>
         </div>
 
         <div className="brain-vault-status">
           <Layers3 size={13} />
-          <span>Conexões cognitivas</span>
+          <span>Conexões</span>
           <strong>{totalConnections}</strong>
         </div>
       </div>
 
       <div className="brain-controls obsidian-glass-hud">
-        <span><MousePointer2 size={12} /> arraste para girar</span>
-        <span><ZoomIn size={12} /> scroll para zoom</span>
+        <span><MousePointer2 size={12} /> arrastar · girar</span>
+        <span><ZoomIn size={12} /> scroll · zoom</span>
         <button type="button" onClick={() => setIsStatsOpen(true)}>
-          <Activity size={12} /> abrir cérebro aprendido
+          <Activity size={12} /> memória da IA
         </button>
       </div>
 
       <div className="thought-path-panel obsidian-glass-hud">
-        <span>Modo Pensamento</span>
+        <span>Fluxo de raciocínio</span>
         <ol>
           <li className={thoughtMode ? 'is-active' : ''}>Pergunta</li>
           <li className={thoughtMode ? 'is-active' : ''}>Busca</li>
@@ -1009,83 +1011,113 @@ export function BrainMap({
           <motion.div
             className="brain-stats-popover"
             role="dialog"
-            aria-label="Estatísticas e memórias aprendidas"
+            aria-label="Painel de memória cognitiva"
             initial={{ opacity: 0, x: 28, scale: 0.98 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: 28, scale: 0.98 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
           >
+            {/* ── Cabeçalho ─────────────────────────────────────────── */}
             <div className="brain-stats-popover-head">
               <div>
-                <span className="eyebrow">Cérebro aprendido</span>
-                <strong>Memória da IA</strong>
+                <span className="eyebrow">Nexus · Second Brain</span>
+                <strong>Painel de memória</strong>
               </div>
-              <button type="button" onClick={() => setIsStatsOpen(false)} aria-label="Fechar estatísticas" title="Fechar">
+              <button type="button" onClick={() => setIsStatsOpen(false)} aria-label="Fechar" title="Fechar">
                 <X size={16} />
               </button>
             </div>
 
+            {/* ── Perfil do usuário ──────────────────────────────────── */}
+            {cognitiveMemories.filter(m => m.memory_type === 'long' || m.is_core).length > 0 && (
+              <div className="brain-user-profile-section">
+                <div className="brain-section-label">
+                  <LockKeyhole size={13} />
+                  <span>Perfil salvo</span>
+                  <small>{cognitiveMemories.filter(m => m.memory_type === 'long' || m.is_core).length} memórias permanentes</small>
+                </div>
+                <div className="brain-profile-memories">
+                  {cognitiveMemories
+                    .filter(m => m.memory_type === 'long' || m.is_core)
+                    .slice(0, 5)
+                    .map(memory => (
+                    <div key={memory.id} className={`brain-profile-chip ${memory.is_core ? 'is-core' : ''}`}>
+                      {memory.is_core ? <Pin size={11} /> : <Database size={11} />}
+                      <span>{compactLabel(memory.content, 'Memória', 72)}</span>
+                      <small>{Math.round((memory.importance ?? 0) * 100)}%</small>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── Métricas principais ────────────────────────────────── */}
             <div className="brain-stats">
               <div className="brain-stat-card">
-                <span>Memórias totais</span>
+                <span>Nós totais</span>
                 <strong>{allNodes.length}</strong>
-                <small>pontos do cérebro visual</small>
+                <small>grafo ativo</small>
               </div>
               <div className="brain-stat-card">
-                <span>Memórias salvas</span>
+                <span>Memórias</span>
                 <strong>{savedMemoryCount}</strong>
-                <small>registros reais do banco</small>
+                <small>banco cognitivo</small>
               </div>
               <div className="brain-stat-card">
-                <span>Aprendizados</span>
+                <span>Docs</span>
                 <strong>{learnedCount}</strong>
-                <small>documentos, páginas ou pesquisas</small>
+                <small>importados</small>
               </div>
               <div className="brain-stat-card">
                 <span>Conceitos</span>
                 <strong>{graphEntityCount}</strong>
-                <small>entidades do grafo cognitivo</small>
+                <small>no grafo</small>
               </div>
               <div className="brain-stat-card">
                 <span>Relações</span>
                 <strong>{graphEdgeCount}</strong>
-                <small>conexões reais do grafo</small>
+                <small>cognitivas</small>
               </div>
               <div className="brain-stat-card">
                 <span>Tokens</span>
-                <strong>{processedTokens}</strong>
-                <small>conteúdo processado na sessão</small>
+                <strong>{processedTokens > 999 ? `${(processedTokens / 1000).toFixed(1)}k` : processedTokens}</strong>
+                <small>processados</small>
               </div>
               <div className="brain-stat-card">
-                <span>Atividade</span>
+                <span>Densidade</span>
                 <strong>{memoryLoad}%</strong>
-                <small>densidade atual do mapa</small>
+                <small>do mapa</small>
               </div>
               <div className="brain-stat-card">
-                <span>Precisão</span>
+                <span>Qualidade</span>
                 <strong>{Math.min(99, 82 + learnedCount * 3)}%</strong>
-                <small>qualidade contextual estimada</small>
+                <small>contextual</small>
               </div>
             </div>
 
+            {/* ── Nó selecionado ─────────────────────────────────────── */}
             <div className="brain-detail">
-              <span>Nó ativo</span>
+              <div className="brain-section-label">
+                <Network size={13} />
+                <span>Nó selecionado</span>
+                {selectedNode && <small>{KIND_LABEL[selectedNode.kind]}</small>}
+              </div>
               <strong>
                 {selectedNode?.isCore && <LockKeyhole size={14} />}
                 {selectedNode?.label ?? 'Nexus Core'}
               </strong>
-              <p>{selectedNode?.summary ?? 'Selecione uma memória para ver o que foi guardado.'}</p>
+              <p>{selectedNode?.summary ?? 'Selecione um nó no grafo para ver detalhes.'}</p>
               <div className="memory-meta-grid">
                 <small>Origem: {selectedNode?.source ?? 'Nexus Core'}</small>
                 <small>Data: {selectedNode ? formatShortDate(selectedNode.createdAt) : '--'}</small>
-                <small>Importância: {selectedNode?.weight ?? 0}</small>
-                <small>Tipo: {selectedNode ? KIND_LABEL[selectedNode.kind] : 'Sistema'}</small>
+                <small>Peso: {selectedNode?.weight ?? 0}</small>
+                <small>Tipo: {selectedNode ? KIND_LABEL[selectedNode.kind] : '--'}</small>
               </div>
               {selectedMemory && (
                 <div className="memory-curation-actions">
                   <button type="button" onClick={handleToggleCore} disabled={Boolean(memoryAction)}>
                     <Pin size={13} />
-                    {selectedMemory.is_core ? 'Desfixar Core Memory' : 'Fixar como Core Memory'}
+                    {selectedMemory.is_core ? 'Desfixar Core' : 'Fixar como Core'}
                   </button>
                   <label>
                     Importância
@@ -1103,12 +1135,13 @@ export function BrainMap({
                     <Trash2 size={13} />
                     Excluir
                   </button>
-                  {memoryAction && <small>Atualizando memória...</small>}
+                  {memoryAction && <small>Atualizando...</small>}
                   {memoryError && <small className="error-text">{memoryError}</small>}
                 </div>
               )}
             </div>
 
+            {/* ── Sinapses ───────────────────────────────────────────── */}
             <div className="brain-signal-panel">
               <div>
                 <Activity size={13} />
@@ -1122,70 +1155,91 @@ export function BrainMap({
               </div>
               <div>
                 <Database size={13} />
-                <span>Conversas</span>
+                <span>Mensagens</span>
                 <strong>{activeMessages.length}</strong>
               </div>
               <div className="brain-signal-bars" aria-hidden="true">
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
+                <span /><span /><span /><span /><span />
               </div>
             </div>
 
-            <div className="recent-learning-strip">
-              <span className="eyebrow">Aprendizados recentes</span>
-              {recentLearning.map(item => (
-                <div key={item.id}>
+            {/* ── Aprendizados recentes ──────────────────────────────── */}
+            {recentLearning.length > 0 && (
+              <div className="recent-learning-strip">
+                <div className="brain-section-label">
                   <Sparkles size={13} />
-                  <strong>{item.label}</strong>
-                  <p>{item.text}</p>
-                  <small>{formatShortDate(item.date)}</small>
+                  <span>Atividade recente</span>
+                  <small>{recentLearning.length} eventos</small>
                 </div>
-              ))}
-            </div>
+                {recentLearning.map(item => (
+                  <div key={item.id}>
+                    <Sparkles size={13} />
+                    <strong>{item.label}</strong>
+                    <p>{item.text}</p>
+                    <small>{formatShortDate(item.date)}</small>
+                  </div>
+                ))}
+              </div>
+            )}
 
+            {/* ── Memórias cognitivas ────────────────────────────────── */}
             <div className="learned-source-list">
-              <span className="eyebrow">Memórias salvas</span>
+              <div className="brain-section-label">
+                <Database size={13} />
+                <span>Memórias salvas</span>
+                <small>{cognitiveMemories.length} registros</small>
+              </div>
               {cognitiveMemories.length ? cognitiveMemories.slice(0, 8).map(memory => (
                 <button key={memory.id} type="button" onClick={() => setSelectedId(`memoria-${memory.id}`)}>
                   {memory.is_core ? <LockKeyhole size={14} /> : <Database size={14} />}
                   <span>
                     <strong>{compactLabel(memory.content, `Memória ${memory.memory_type}`, 86)}</strong>
                     <small>
-                      {memory.is_core ? 'Core Memory' : memory.memory_type} · importância {Math.round((memory.importance ?? 0) * 100)}%
+                      <span className={`memory-type-badge type-${memory.memory_type}`}>
+                        {memory.is_core ? 'core' : memory.memory_type}
+                      </span>
+                      {' '}· {Math.round((memory.importance ?? 0) * 100)}% relevância
                     </small>
                   </span>
                 </button>
               )) : (
-                <p>Nenhuma memória cognitiva salva ainda.</p>
+                <p>Nenhuma memória cognitiva salva ainda. Converse com o Nexus para ele começar a aprender.</p>
               )}
             </div>
 
+            {/* ── Fontes importadas ──────────────────────────────────── */}
             <div className="learned-source-list">
-              <span className="eyebrow">Fontes importadas</span>
+              <div className="brain-section-label">
+                <FileText size={13} />
+                <span>Documentos indexados</span>
+                <small>{knowledgeSources.length} fontes</small>
+              </div>
               {knowledgeSources.length ? knowledgeSources.slice(0, 6).map(source => {
                 const title = getLearningTitle(source)
-                const detail = source.summary || source.topics?.slice(0, 4).join(' · ') || 'Aprendizado salvo na memória.'
+                const topics = source.topics?.slice(0, 3).join(' · ') || ''
                 return (
                   <button key={source.id} type="button" onClick={() => setSelectedId(`fonte-${source.id}`)}>
                     <FileText size={14} />
                     <span>
                       <strong>{title}</strong>
-                      <small>{compactLabel(detail, 'Resumo indisponível', 120)}</small>
+                      <small>
+                        <span className="memory-type-badge type-source">{source.source_type}</span>
+                        {topics && ` · ${topics}`}
+                      </small>
                     </span>
                   </button>
                 )
               }) : (
-                <p>Nenhum PDF, página ou pesquisa importada ainda.</p>
+                <p>Nenhum PDF, página ou pesquisa importada. Use o botão ↑ no chat para importar.</p>
               )}
             </div>
 
+            {/* ── Índice de nós ─────────────────────────────────────── */}
             <div className="concept-list">
-              <div className="panel-heading compact">
-                <span>Memórias recentes</span>
+              <div className="brain-section-label">
                 <ScanSearch size={13} />
+                <span>Índice de nós</span>
+                <small>top {Math.min(allNodes.length, 10)}</small>
               </div>
               {allNodes.slice(0, 10).map(node => (
                 <button

@@ -149,8 +149,9 @@ def run_sync(
             return _sync_result(True, "Sincronização concluída.", uploaded, pulled)
         return _sync_result(True, "Nada novo para sincronizar.", 0, 0)
     except Exception as exc:
-        _set_state("last_sync_error", str(exc))
-        return _sync_result(False, str(exc), 0, 0)
+        message = _friendly_sync_error(exc, config)
+        _set_state("last_sync_error", message)
+        return _sync_result(False, message, 0, 0)
 
 
 def pull_chat_records(config: dict, limit: Optional[int] = None) -> int:
@@ -287,6 +288,24 @@ def _sync_result(success: bool, message: str, uploaded: int, pulled: int = 0) ->
         "pulled": pulled,
         "status": get_status(),
     }
+
+
+def _friendly_sync_error(exc: Exception, config: dict) -> str:
+    raw = str(exc)
+    host = config.get("url", "").replace("https://", "").replace("http://", "").split("/", 1)[0]
+    if "NameResolutionError" in raw or "Failed to resolve" in raw or "Could not resolve" in raw:
+        return (
+            f"Não consegui encontrar o projeto Supabase '{host}'. "
+            "Verifique se SUPABASE_URL está exatamente igual ao Project URL do Supabase "
+            "(formato: https://SEU-PROJETO.supabase.co, sem /rest/v1). "
+            "Se a URL estiver correta, confirme se o projeto não foi pausado ou removido."
+        )
+    if "Max retries exceeded" in raw:
+        return (
+            "Não consegui conectar ao Supabase depois de algumas tentativas. "
+            "Confira sua internet, DNS/VPN e se o Project URL está correto."
+        )
+    return raw
 
 
 def _import_session_record(conn, record: dict) -> bool:

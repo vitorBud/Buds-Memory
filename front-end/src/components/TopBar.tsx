@@ -29,8 +29,6 @@ const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
 // Barra superior mínima do chat, mantendo só estado, histórico, parar e configurações.
 export function TopBar({
   aiState,
-  sessionTitle: _sessionTitle,
-  latency: _latency,
   historyHidden,
   onToggleHistory,
   settingsOpen,
