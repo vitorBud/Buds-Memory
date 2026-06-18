@@ -15,6 +15,7 @@ interface UseChatOptions {
 }
 
 const PREFER_BROWSER_VOICE = true
+const OFFLINE_QUEUE_KEY = 'nexus-offline-message-queue-v1'
 const MALE_PT_VOICE_HINTS = [
   'felipe',
   'daniel',
@@ -80,6 +81,29 @@ function canUseBrowserVoice() {
   return PREFER_BROWSER_VOICE && 'speechSynthesis' in window
 }
 
+function getOfflineQueue(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]')
+    return Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function setOfflineQueue(queue: string[]) {
+  try {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue.slice(-30)))
+  } catch { /* storage unavailable */ }
+}
+
+function queueOfflineText(text: string) {
+  const clean = text.trim()
+  if (!clean) return
+  const queue = getOfflineQueue()
+  queue.push(clean)
+  setOfflineQueue(queue)
+}
+
 // Hook central do chat: envia texto/áudio, controla streaming, voz e interrupção da resposta.
 export function useChat({
   sessionId,
@@ -103,6 +127,7 @@ export function useChat({
   const activeAbortRef = useRef<AbortController | null>(null)
   const msgCountRef = useRef(0)
   const streamIdRef = useRef(-1)
+  const flushingOfflineRef = useRef(false)
 
   useEffect(() => {
     if (!('speechSynthesis' in window)) return
@@ -323,7 +348,16 @@ export function useChat({
       console.error('[Chat] fetch error:', err)
       const errorMsg = err instanceof Error ? err.message : 'Erro ao conectar com o servidor. Verifique se o Ollama está rodando.'
       setMessages(prev => prev.filter(m => m.id !== assistantMessageId))
-      addMessage({ sender: 'ia', text: `⚠ ${errorMsg}`, created_at: new Date().toISOString() })
+      if (!navigator.onLine || /conectar|servidor local|network|fetch/i.test(errorMsg)) {
+        queueOfflineText(text)
+        addMessage({
+          sender: 'ia',
+          text: 'Mensagem salva neste aparelho. Vou tentar sincronizar quando a conexão com o Nexus voltar.',
+          created_at: new Date().toISOString(),
+        })
+      } else {
+        addMessage({ sender: 'ia', text: `⚠ ${errorMsg}`, created_at: new Date().toISOString() })
+      }
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {
@@ -332,6 +366,27 @@ export function useChat({
       if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
     }
   }
+
+  useEffect(() => {
+    async function flushOfflineQueue() {
+      if (flushingOfflineRef.current || isProcessing || !navigator.onLine) return
+      const queue = getOfflineQueue()
+      const next = queue.shift()
+      if (!next) return
+      flushingOfflineRef.current = true
+      setOfflineQueue(queue)
+      try {
+        await sendText(next)
+      } finally {
+        flushingOfflineRef.current = false
+      }
+    }
+
+    window.addEventListener('online', flushOfflineQueue)
+    flushOfflineQueue()
+    return () => window.removeEventListener('online', flushOfflineQueue)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProcessing, sessionId, selectedModel, webSearchEnabled])
 
   // ── Send audio ─────────────────────────────────────────────────────────────
   async function sendAudio(blob: Blob) {

@@ -16,6 +16,7 @@ import type {
 } from '../types'
 
 type NexusBridge = { apiBase?: string; isDesktop?: boolean }
+const REMOTE_SESSION_KEY = 'nexus-remote-session-token'
 
 /**
  * Resolve a URL base de forma lazy (em tempo de execução) para garantir que o
@@ -24,6 +25,35 @@ type NexusBridge = { apiBase?: string; isDesktop?: boolean }
 export function getBase(): string {
   const bridge = (window as unknown as { nexus?: NexusBridge }).nexus
   return bridge?.apiBase || import.meta.env.VITE_API_BASE_URL || '/api'
+}
+
+export function getRemoteSessionToken(): string {
+  try {
+    return localStorage.getItem(REMOTE_SESSION_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function setRemoteSessionToken(token: string) {
+  try {
+    if (token) localStorage.setItem(REMOTE_SESSION_KEY, token)
+    else localStorage.removeItem(REMOTE_SESSION_KEY)
+  } catch { /* localStorage unavailable */ }
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = getRemoteSessionToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers || {})
+  const token = getRemoteSessionToken()
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+  return fetch(input, { ...init, headers })
 }
 
 function isDesktop(): boolean {
@@ -37,7 +67,11 @@ function isDesktop(): boolean {
 export function resolveUrl(path: string): string {
   if (path.startsWith('http')) return path
   const base = getBase().replace(/\/api$/, '')
-  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+  const url = `${base}${path.startsWith('/') ? path : `/${path}`}`
+  const token = getRemoteSessionToken()
+  if (!token || !url.includes('/api/audio/')) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}token=${encodeURIComponent(token)}`
 }
 
 function wait(ms: number) {
@@ -65,7 +99,7 @@ async function fetchJsonWithStartupRetry<T>(url: string, attempts = isDesktop() 
 
   for (let index = 0; index < attempts; index += 1) {
     try {
-      const res = await fetch(url)
+      const res = await authFetch(url)
       if (!res.ok) throw new Error(`${url}: ${res.status}`)
       return res.json()
     } catch (err) {
@@ -81,6 +115,35 @@ async function fetchJsonWithStartupRetry<T>(url: string, attempts = isDesktop() 
 
 export async function getBackendConfig(): Promise<BackendConfig> {
   return fetchJsonWithStartupRetry<BackendConfig>(`${getBase()}/config`)
+}
+
+export async function getHealth(): Promise<{
+  status: string
+  ollama: boolean
+  rag: boolean
+  knowledge_graph: boolean
+  authenticated?: boolean
+  remote?: {
+    remote_mode: boolean
+    local_url: string
+    auth_required: boolean
+    auth_configured: boolean
+    session_ttl_seconds: number
+  }
+}> {
+  return fetchJsonWithStartupRetry(`${getBase()}/health`)
+}
+
+export async function loginRemote(token: string): Promise<{ access_token?: string; success: boolean; error?: string }> {
+  const res = await fetch(`${getBase()}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, label: navigator.userAgent || 'mobile' }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `loginRemote: ${res.status}`)
+  if (data.access_token) setRemoteSessionToken(data.access_token)
+  return data
 }
 
 // ── Local-first Sync ────────────────────────────────────────────────────────
@@ -100,7 +163,7 @@ export async function pullCloudChats(): Promise<SyncRunResult> {
 async function runSyncWithMode(mode: 'both' | 'pull'): Promise<SyncRunResult> {
   let res: Response
   try {
-    res = await fetch(`${getBase()}/sync/run`, {
+    res = await authFetch(`${getBase()}/sync/run`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ mode }),
@@ -127,7 +190,7 @@ export async function updateCognitiveMemory(
   id: number,
   updates: Partial<Pick<CognitiveMemory, 'content' | 'memory_type' | 'importance' | 'tags' | 'origin_type'>>,
 ): Promise<CognitiveMemory> {
-  const res = await fetch(`${getBase()}/cognitive/memory/${id}`, {
+  const res = await authFetch(`${getBase()}/cognitive/memory/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -138,7 +201,7 @@ export async function updateCognitiveMemory(
 }
 
 export async function setCoreMemory(id: number, enabled: boolean): Promise<CognitiveMemory> {
-  const res = await fetch(`${getBase()}/cognitive/memory/${id}/core`, {
+  const res = await authFetch(`${getBase()}/cognitive/memory/${id}/core`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ enabled, user_confirmed: true }),
@@ -149,7 +212,7 @@ export async function setCoreMemory(id: number, enabled: boolean): Promise<Cogni
 }
 
 export async function deleteCognitiveMemory(id: number, force = false): Promise<void> {
-  const res = await fetch(`${getBase()}/cognitive/memory/${id}?force=${String(force)}`, {
+  const res = await authFetch(`${getBase()}/cognitive/memory/${id}?force=${String(force)}`, {
     method: 'DELETE',
   })
   const data = await res.json().catch(() => ({}))
@@ -157,7 +220,7 @@ export async function deleteCognitiveMemory(id: number, force = false): Promise<
 }
 
 export async function indexCodebase(projectRoot: string, maxFiles = 900): Promise<{ indexed_files: number; indexed_rows: number; project_root: string }> {
-  const res = await fetch(`${getBase()}/cognitive/codebase/index`, {
+  const res = await authFetch(`${getBase()}/cognitive/codebase/index`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ project_root: projectRoot, max_files: maxFiles }),
@@ -183,7 +246,7 @@ export async function getSessions(): Promise<Session[]> {
 }
 
 export async function createSession(title?: string): Promise<Session> {
-  const res = await fetch(`${getBase()}/sessions`, {
+  const res = await authFetch(`${getBase()}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: title ?? null }),
@@ -193,12 +256,12 @@ export async function createSession(title?: string): Promise<Session> {
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const res = await fetch(`${getBase()}/sessions/${id}`, { method: 'DELETE' })
+  const res = await authFetch(`${getBase()}/sessions/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`deleteSession: ${res.status}`)
 }
 
 export async function updateSessionTitle(id: string, title: string): Promise<Session> {
-  const res = await fetch(`${getBase()}/sessions/${id}`, {
+  const res = await authFetch(`${getBase()}/sessions/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title }),
@@ -208,7 +271,7 @@ export async function updateSessionTitle(id: string, title: string): Promise<Ses
 }
 
 export async function getSessionMessages(id: string): Promise<Message[]> {
-  const res = await fetch(`${getBase()}/sessions/${id}/messages`)
+  const res = await authFetch(`${getBase()}/sessions/${id}/messages`)
   if (!res.ok) throw new Error(`getSessionMessages: ${res.status}`)
   return res.json()
 }
@@ -216,7 +279,7 @@ export async function getSessionMessages(id: string): Promise<Message[]> {
 // ── Knowledge Sources ──────────────────────────────────────────────────────
 
 export async function getSessionKnowledge(id: string): Promise<KnowledgeSource[]> {
-  const res = await fetch(`${getBase()}/sessions/${id}/knowledge`)
+  const res = await authFetch(`${getBase()}/sessions/${id}/knowledge`)
   if (!res.ok) throw new Error(`getSessionKnowledge: ${res.status}`)
   return res.json()
 }
@@ -231,12 +294,12 @@ export async function importKnowledge(
     const body = new FormData()
     body.append('file', payload.file)
     if (payload.title) body.append('title', payload.title)
-    response = await fetch(`${getBase()}/sessions/${sessionId}/knowledge`, {
+    response = await authFetch(`${getBase()}/sessions/${sessionId}/knowledge`, {
       method: 'POST',
       body,
     })
   } else {
-    response = await fetch(`${getBase()}/sessions/${sessionId}/knowledge`, {
+    response = await authFetch(`${getBase()}/sessions/${sessionId}/knowledge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -294,7 +357,7 @@ export async function streamChat(
         }
 
     try {
-      const response = await fetch(`${getBase()}/chat/stream`, fetchOptions)
+      const response = await authFetch(`${getBase()}/chat/stream`, fetchOptions)
       if (!response.ok || !response.body) throw new Error(`streamChat: ${response.status}`)
 
       const reader = response.body.getReader()

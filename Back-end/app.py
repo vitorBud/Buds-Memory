@@ -13,6 +13,7 @@ from io import BytesIO
 from agenty import (
     stt_local,
     llm_ollama,
+    llm_ollama_raw,
     llm_ollama_stream,
     tts_piper,
     OUT_DIR,
@@ -25,14 +26,15 @@ from agenty import (
 )
 import database
 import supabase_sync
+import remote_access
 from storage import get_data_dir
 
 # ── Camada Cognitiva (Second Brain) ──────────────────────────────────────────
 import database_v2
 from cognitive_api import cognitive_bp
 from cognitive import detector as cognitive_detector
+from cognitive import conversation as cognitive_conversation
 from cognitive import knowledge_graph
-from cognitive import memory as cognitive_memory
 from cognitive import rag as cognitive_rag
 from cognitive import summarizer as cognitive_summarizer
 
@@ -42,7 +44,7 @@ STATIC_DIR = FRONTEND_DIST_DIR if FRONTEND_DIST_DIR.exists() else BASE_DIR / "st
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 # Habilita CORS para permitir conexões do Front-end em outras portas
-CORS(app)
+CORS(app, allow_headers=["Content-Type", "Authorization", "X-Nexus-Token"])
 
 # Inicializa as tabelas do banco de dados SQLite (existentes)
 database.init_db()
@@ -52,6 +54,30 @@ database_v2.migrate()
 
 # Registra o Blueprint da Camada Cognitiva
 app.register_blueprint(cognitive_bp)
+
+
+@app.before_request
+def enforce_remote_auth():
+    """Protege APIs quando o Nexus está em modo remoto/VPN."""
+    if request.method == "OPTIONS" or not remote_access.REMOTE_MODE:
+        return None
+    if not request.path.startswith("/api/"):
+        return None
+    if request.path in {"/api/health", "/api/auth/login", "/api/auth/status"}:
+        return None
+    if not remote_access.AUTH_TOKEN:
+        return jsonify({
+            "error": "NEXUS_REMOTE_MODE está ativo, mas NEXUS_AUTH_TOKEN não foi configurado.",
+            "auth_required": True,
+            "remote_config_required": True,
+        }), 503
+    token = remote_access.request_token(request)
+    if not token or not remote_access.validate_bearer_token(token):
+        return jsonify({
+            "error": "Token de acesso remoto ausente ou inválido.",
+            "auth_required": True,
+        }), 401
+    return None
 
 
 def sse_event(payload: dict) -> str:
@@ -245,69 +271,28 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
         title_update = database.update_session_title(session_id, title)
 
     database.add_message(session_id, "user", user_text)
-    retrieval_query = build_contextual_retrieval_query(user_text, history, session_id)
-    knowledge_context = database.build_knowledge_context(session_id, query=retrieval_query)
-    rag_context = cognitive_rag.build_rag_context(retrieval_query, session_id=session_id, top_k=4)
-    if rag_context:
-        knowledge_context = f"{knowledge_context}\n\n{rag_context}" if knowledge_context else rag_context
-    if conversation_summary and conversation_summary.get("summary"):
-        summary_context = (
-            "Resumo persistente da conversa longa:\n"
-            f"{conversation_summary['summary']}\n"
-            f"(mensagens resumidas: {conversation_summary.get('message_count', 0)})"
-        )
-        knowledge_context = f"{summary_context}\n\n{knowledge_context}" if knowledge_context else summary_context
-
-    # ── Memórias de médio e longo prazo (cross-session) ──────────────────────
-    # Sempre injeta memórias de longo prazo mais importantes (identidade do usuário)
-    # e busca as de médio prazo que são relevantes para a pergunta atual.
     try:
-        # 1. Memórias permanentes (long) — sempre incluídas, ordenadas por importância
-        long_memories = cognitive_memory.get_memories(
-            memory_types=["long"],
-            include_expired=False,
-            limit=8,
+        pipeline = cognitive_conversation.build_conversation_context(
+            user_text=user_text,
+            session_id=session_id,
+            history=history,
+            conversation_summary=conversation_summary,
         )
-        long_memories.sort(key=lambda m: m.get("importance", 0), reverse=True)
-
-        # 2. Memórias de médio prazo relevantes para a query atual
-        medium_memories = cognitive_memory.recall(
-            retrieval_query,
-            memory_types=["medium"],
-            limit=4,
-        )
-
-        # Combina sem duplicar (prioriza long, complementa com medium)
-        seen_ids = {m["id"] for m in long_memories}
-        combined = list(long_memories)
-        for mem in medium_memories:
-            if mem["id"] not in seen_ids:
-                combined.append(mem)
-                seen_ids.add(mem["id"])
-
-        if combined:
-            import re as _re
-            mem_lines = []
-            for mem in combined[:10]:
-                # Limpa metadados ruidosos que confundem o modelo
-                content = mem['content'].strip()
-                # Remove "(relacionado a: ...)" e variantes
-                content = _re.sub(r'\s*\(relacionado a:[^)]*\)', '', content)
-                # Remove prefixos de logging: "Usuário disse:", "Usuário estou", "Usuário é"
-                content = _re.sub(r'^Usuário\s+(disse\s*:|estou\s+|é\s+|tem\s+)', '', content, flags=_re.IGNORECASE)
-                # Capitaliza primeira letra
-                content = content.strip()
-                if content:
-                    content = content[0].upper() + content[1:]
-                    mem_lines.append(f"- {content}")
-            mem_block = (
-                "Memórias persistentes do usuário (de conversas anteriores):\n"
-                + "\n".join(mem_lines)
+        knowledge_context = pipeline.get("context", "")
+    except Exception as pipeline_err:
+        print(f"[ConversationPipeline] Fallback para contexto antigo: {pipeline_err}")
+        retrieval_query = build_contextual_retrieval_query(user_text, history, session_id)
+        knowledge_context = database.build_knowledge_context(session_id, query=retrieval_query)
+        rag_context = cognitive_rag.build_rag_context(retrieval_query, session_id=session_id, top_k=4)
+        if rag_context:
+            knowledge_context = f"{knowledge_context}\n\n{rag_context}" if knowledge_context else rag_context
+        if conversation_summary and conversation_summary.get("summary"):
+            summary_context = (
+                "Resumo persistente da conversa longa:\n"
+                f"{conversation_summary['summary']}\n"
+                f"(mensagens resumidas: {conversation_summary.get('message_count', 0)})"
             )
-            knowledge_context = f"{mem_block}\n\n{knowledge_context}" if knowledge_context else mem_block
-    except Exception as mem_err:
-        print(f"[Memory] Falha ao recuperar memórias persistentes: {mem_err}")
-
+            knowledge_context = f"{summary_context}\n\n{knowledge_context}" if knowledge_context else summary_context
 
     return history, title_update, knowledge_context
 
@@ -389,6 +374,69 @@ def frontend_public_asset():
     return send_from_directory(STATIC_DIR, filename)
 
 
+@app.route('/manifest.webmanifest')
+@app.route('/sw.js')
+def pwa_asset():
+    """Serve arquivos PWA na raiz, como navegadores mobile esperam."""
+    return send_from_directory(STATIC_DIR, request.path.lstrip("/"))
+
+
+@app.route('/api/health', methods=['GET'])
+def api_health():
+    """Health check leve para LAN/VPN/Tailscale e tela de boot."""
+    rag_ok = True
+    graph_ok = True
+    try:
+        cognitive_rag.get_stats()
+    except Exception:
+        rag_ok = False
+    try:
+        knowledge_graph.get_stats()
+    except Exception:
+        graph_ok = False
+
+    token = remote_access.request_token(request)
+    authenticated = remote_access.validate_bearer_token(token or "")
+    return jsonify({
+        "status": "online",
+        "ollama": remote_access.is_ollama_online(),
+        "rag": rag_ok,
+        "knowledge_graph": graph_ok,
+        "remote": remote_access.get_remote_config(),
+        "authenticated": authenticated,
+    }), 200
+
+
+@app.route('/api/auth/status', methods=['GET'])
+def auth_status():
+    token = remote_access.request_token(request)
+    return jsonify({
+        "remote_mode": remote_access.REMOTE_MODE,
+        "auth_required": remote_access.REMOTE_MODE,
+        "auth_configured": bool(remote_access.AUTH_TOKEN),
+        "authenticated": remote_access.validate_bearer_token(token or ""),
+    }), 200
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    if not remote_access.REMOTE_MODE:
+        return jsonify({"success": True, "remote_mode": False}), 200
+    if not remote_access.AUTH_TOKEN:
+        return jsonify({
+            "error": "Configure NEXUS_AUTH_TOKEN antes de habilitar acesso remoto.",
+            "remote_config_required": True,
+        }), 503
+
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token", "")).strip()
+    if not remote_access.validate_bearer_token(token):
+        return jsonify({"error": "Token inválido."}), 401
+
+    session = remote_access.create_session_token(label=str(data.get("label", "mobile")))
+    return jsonify({"success": True, **session}), 200
+
+
 
 # ====== ENDPOINTS DE HISTÓRICO (CRUD SESSÕES) ======
 
@@ -410,9 +458,10 @@ def get_config():
     return jsonify({
         "model": default_model,
         "models": models,
-        "ollama_url": "http://localhost:11434",
+        "ollama_url": remote_access.OLLAMA_URL,
         "google_search_available": is_google_search_configured(),
         "data_dir": str(get_data_dir()),
+        "remote": remote_access.get_remote_config(),
     }), 200
 
 
@@ -668,6 +717,12 @@ def chat():
         reply = llm_ollama(user_text, history, selected_model, web_context, knowledge_context)
         if not reply:
             return jsonify({"error": "Nenhuma resposta foi obtida da IA."}), 500
+        reply = cognitive_conversation.maybe_refine_response(
+            user_text=user_text,
+            draft=reply,
+            context=knowledge_context,
+            llm_call=lambda prompt: llm_ollama_raw(prompt, selected_model, num_predict=900),
+        )
 
         # 2. Gera a resposta por voz usando o Piper
         audio_filename = f"reply_{int(time.time())}.wav"
@@ -813,5 +868,11 @@ def get_audio(filename):
 
 
 if __name__ == "__main__":
-    # Roda a API Flask em 5050 para evitar conflito com AirPlay/AirTunes no macOS.
-    app.run(host="127.0.0.1", port=5050, debug=False, use_reloader=False)
+    # Local por padrão; em NEXUS_REMOTE_MODE=true escuta em 0.0.0.0 para LAN/VPN/Tailscale.
+    config = remote_access.get_remote_config()
+    print(
+        "[Remote] "
+        f"mode={config['remote_mode']} host={config['host']} port={config['port']} "
+        f"local_url={config['local_url']} auth_configured={config['auth_configured']}"
+    )
+    app.run(host=remote_access.HOST, port=remote_access.PORT, debug=False, use_reloader=False)

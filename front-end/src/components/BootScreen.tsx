@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import type { FormEvent } from 'react'
 import { AlertCircle, Bot, CheckCircle2, Database, Loader2, Server, Wifi } from 'lucide-react'
-import { getBase } from '../services/api'
+import { authFetch, getBase, loginRemote } from '../services/api'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -23,6 +24,9 @@ export interface SystemHealth {
   backend: boolean
   ollama: boolean
   database: boolean
+  rag?: boolean
+  knowledgeGraph?: boolean
+  remoteMode?: boolean
   model: string
   backendLatency: number | null
 }
@@ -32,8 +36,8 @@ export interface SystemHealth {
 async function timedFetch(url: string, options?: RequestInit): Promise<{ ok: boolean; data: unknown; ms: number }> {
   const start = Date.now()
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(7000), ...options })
-    const data = res.ok ? await res.json().catch(() => null) : null
+    const res = await authFetch(url, { signal: AbortSignal.timeout(7000), ...options })
+    const data = await res.json().catch(() => null)
     return { ok: res.ok, data, ms: Date.now() - start }
   } catch {
     return { ok: false, data: null, ms: Date.now() - start }
@@ -49,9 +53,16 @@ export function BootScreen({ onDone }: BootScreenProps) {
     backend: false,
     ollama: false,
     database: false,
+    rag: false,
+    knowledgeGraph: false,
+    remoteMode: false,
     model: '',
     backendLatency: null,
   })
+  const [needsAuth, setNeedsAuth] = useState(false)
+  const [authToken, setAuthToken] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [authVersion, setAuthVersion] = useState(0)
 
   const [steps, setSteps] = useState<BootStep[]>([
     {
@@ -93,27 +104,72 @@ export function BootScreen({ onDone }: BootScreenProps) {
     }, 420)
   }
 
+  async function handleRemoteLogin(event: FormEvent) {
+    event.preventDefault()
+    if (!authToken.trim()) return
+    setAuthError('')
+    try {
+      await loginRemote(authToken.trim())
+      setAuthToken('')
+      setNeedsAuth(false)
+      setAuthVersion(value => value + 1)
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'Token remoto inválido.')
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
     async function run() {
       const base = getBase()
-      const updatedHealth: SystemHealth = { backend: false, ollama: false, database: false, model: '', backendLatency: null }
+      const updatedHealth: SystemHealth = {
+        backend: false,
+        ollama: false,
+        database: false,
+        rag: false,
+        knowledgeGraph: false,
+        remoteMode: false,
+        model: '',
+        backendLatency: null,
+      }
 
       // ── Passo 1: Backend ──────────────────────────────────────────────────
       setStep('backend', { state: 'loading', detail: 'Conectando ao Flask na porta 5050…' })
-      const { ok: backendOk, data: configData, ms } = await timedFetch(`${base}/config`)
+      const { ok: backendOk, data: healthData, ms } = await timedFetch(`${base}/health`)
       if (cancelled) return
 
-      if (backendOk && configData) {
-        const cfg = configData as { model?: string; models?: string[] }
+      if (backendOk && healthData) {
+        const healthPayload = healthData as {
+          ollama?: boolean
+          rag?: boolean
+          knowledge_graph?: boolean
+          authenticated?: boolean
+          remote?: { remote_mode?: boolean; auth_required?: boolean; auth_configured?: boolean; local_url?: string }
+        }
         updatedHealth.backend = true
+        updatedHealth.ollama = Boolean(healthPayload.ollama)
+        updatedHealth.rag = Boolean(healthPayload.rag)
+        updatedHealth.knowledgeGraph = Boolean(healthPayload.knowledge_graph)
+        updatedHealth.remoteMode = Boolean(healthPayload.remote?.remote_mode)
         updatedHealth.backendLatency = ms
-        updatedHealth.model = cfg.model ?? ''
         setStep('backend', {
           state: 'ok',
-          detail: `Conectado em ${ms}ms`,
+          detail: healthPayload.remote?.remote_mode
+            ? `Remoto ativo em ${healthPayload.remote?.local_url ?? 'rede privada'}`
+            : `Conectado em ${ms}ms`,
         })
+        if (healthPayload.remote?.auth_required && !healthPayload.authenticated) {
+          setNeedsAuth(true)
+          setStep('database', {
+            state: 'pending',
+            detail: healthPayload.remote.auth_configured
+              ? 'Autenticação remota necessária'
+              : 'Configure NEXUS_AUTH_TOKEN no Mac',
+          })
+          setHealth(updatedHealth)
+          return
+        }
       } else {
         setStep('backend', {
           state: 'error',
@@ -126,15 +182,19 @@ export function BootScreen({ onDone }: BootScreenProps) {
         return
       }
 
+      const { ok: configOk, data: configData } = await timedFetch(`${base}/config`)
+      if (cancelled) return
+      const cfg = configOk && configData ? configData as { model?: string; models?: string[] } : { model: '', models: [] }
+      updatedHealth.model = cfg.model ?? ''
+
       // ── Passo 2: Ollama ───────────────────────────────────────────────────
       setStep('ollama', { state: 'loading', detail: 'Verificando modelo de linguagem…' })
       await new Promise(r => setTimeout(r, 300))
       if (cancelled) return
 
-      const cfg = configData as { model?: string; models?: string[] }
       const hasModels = Array.isArray(cfg.models) && cfg.models.length > 0
 
-      if (hasModels) {
+      if (updatedHealth.ollama && hasModels) {
         updatedHealth.ollama = true
         setStep('ollama', {
           state: 'ok',
@@ -181,7 +241,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
     run()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [authVersion])
 
   if (!visible) return null
 
@@ -205,6 +265,26 @@ export function BootScreen({ onDone }: BootScreenProps) {
             </p>
           </div>
         </div>
+
+        {needsAuth && (
+          <form className="boot-auth-form" onSubmit={handleRemoteLogin}>
+            <label htmlFor="nexus-remote-token">Token remoto</label>
+            <div>
+              <input
+                id="nexus-remote-token"
+                value={authToken}
+                onChange={(event) => setAuthToken(event.target.value)}
+                type="password"
+                autoComplete="current-password"
+                placeholder="NEXUS_AUTH_TOKEN"
+              />
+              <button type="submit" disabled={!authToken.trim()}>
+                Entrar
+              </button>
+            </div>
+            {authError && <p>{authError}</p>}
+          </form>
+        )}
 
         {/* Steps */}
         <div className="boot-steps" role="list">

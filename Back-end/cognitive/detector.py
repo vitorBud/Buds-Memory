@@ -16,7 +16,7 @@ import re
 import threading
 from typing import Optional
 
-from cognitive import knowledge_graph, memory, timeline, projects
+from cognitive import knowledge_graph, memory, timeline, projects, user_profile
 from database_v2 import get_db_connection, now_iso
 
 
@@ -166,6 +166,10 @@ def _process_chat(session_id: str, user_text: str, ai_text: str) -> None:
         # ── FASE 2: Extração de conhecimento ──────────────────────────────
         combined = f"{user_text}\n{ai_text}"
         entities = []
+        try:
+            user_profile.update_from_text(user_text, session_id=session_id)
+        except Exception as profile_err:
+            print(f"[UserProfile] Erro em background: {profile_err}")
 
         # Detecta entidades no KG apenas para conteúdo de médio valor+
         if score >= MEDIUM_TERM_THRESHOLD:

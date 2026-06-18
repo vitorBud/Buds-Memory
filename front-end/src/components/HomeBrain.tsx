@@ -167,15 +167,20 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
 
     const width = container.clientWidth || 400
     const height = container.clientHeight || 400
+    const isCompactScreen = window.matchMedia('(max-width: 680px), (pointer: coarse)').matches
+    const maxBrainPoints = isCompactScreen ? 1250 : 2200
+    const maxLines = isCompactScreen ? 240 : 650
+    const numSparks = isCompactScreen ? 8 : 24
+    const targetFrameMs = isCompactScreen ? 33 : 16
 
     // 1. Scene & Camera
     const scene = new THREE.Scene()
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100)
-    camera.position.z = 3.15
+    camera.position.z = isCompactScreen ? 3.45 : 3.15
 
     // 2. Renderer
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: !isCompactScreen })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isCompactScreen ? 1.1 : 1.5))
     renderer.setSize(width, height)
     container.appendChild(renderer.domElement)
 
@@ -259,8 +264,8 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
             const posAttr = child.geometry.attributes.position
             if (posAttr) {
               const arr = posAttr.array
-              // Downsample para manter a performance alta (miramos em ~2200 partículas)
-              const step = Math.max(1, Math.floor((arr.length / 3) / 2200))
+              // Downsample para manter a performance alta, com perfil mais leve em mobile.
+              const step = Math.max(1, Math.floor((arr.length / 3) / maxBrainPoints))
               for (let i = 0; i < arr.length; i += 3 * step) {
                 tempPositions.push(new THREE.Vector3(arr[i], arr[i + 1], arr[i + 2]))
               }
@@ -344,7 +349,6 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
         brainGroup.add(brainPointsMesh)
 
         // 7. Cria as linhas de conexões sinápticas (Synapses)
-        const maxLines = 650
         let linesCreated = 0
 
         for (let i = 0; i < totalPoints; i += 2) {
@@ -396,7 +400,6 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
         brainGroup.add(linesMesh)
 
         // 8. Cria os fluxos de partículas de energia
-        const numSparks = 24
         const sparksPositions = new Float32Array(numSparks * 3)
         const sparksColors = new Float32Array(numSparks * 3)
 
@@ -452,7 +455,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
     )
 
     // 9. Configura sistema de explosões de memória (Bursts)
-    const maxBurstParticles = 120
+    const maxBurstParticles = isCompactScreen ? 60 : 120
     const burstPositions = new Float32Array(maxBurstParticles * 3)
     const burstColors = new Float32Array(maxBurstParticles * 3)
 
@@ -488,7 +491,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
 
     triggerBurstRef.current = () => {
       const cCols = getThemeColors(themeRef.current)
-      for (let i = 0; i < 75; i++) {
+      for (let i = 0; i < (isCompactScreen ? 34 : 75); i++) {
         const theta = Math.random() * Math.PI * 2
         const phi = Math.acos(2 * Math.random() - 1)
         const speed = 0.016 + Math.random() * 0.032
@@ -565,12 +568,18 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
     // 11. Render Loop
     const clock = new THREE.Clock()
     let frameId: number
+    let lastFrameAt = 0
 
     const animate = () => {
       frameId = requestAnimationFrame(animate)
       if (!isPageVisible || !isCanvasVisible || disposed) {
         return
       }
+      const now = performance.now()
+      if (now - lastFrameAt < targetFrameMs) {
+        return
+      }
+      lastFrameAt = now
 
       const time = clock.getElapsedTime()
       const state = aiStateRef.current

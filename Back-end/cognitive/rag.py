@@ -18,6 +18,7 @@ Novas camadas (RAG Cognitivo):
   ★ Context Compression — remove chunks redundantes
   ★ Code Search Engine — busca especializada para código
   ★ Auto Learning — popula Knowledge Graph após indexação
+  ★ Traceable Template Chunking — chunks com seção, tipo e posição no documento
 
 O módulo funciona sem sentence-transformers (BM25 puro como fallback).
 """
@@ -25,6 +26,7 @@ O módulo funciona sem sentence-transformers (BM25 puro como fallback).
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 import re
@@ -45,6 +47,8 @@ _EMBEDDING_AVAILABLE       = False
 _EMBEDDING_LOAD_ATTEMPTED  = False
 _SEMANTIC_ENABLED          = os.getenv("NEXUS_ENABLE_SEMANTIC_RAG", "0").lower() in {"1", "true", "yes", "sim"}
 _MODEL_NAME                = os.getenv("NEXUS_EMBEDDING_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+_PIPELINE_VERSION          = "rag-v3-incremental-cache"
+_CHUNK_TEMPLATE_VERSION    = "traceable-template-chunks-v1"
 
 # ── Parâmetros de chunking ────────────────────────────────────────────────────
 CHUNK_SIZE           = 512    # caracteres (≈ 128 tokens)
@@ -227,6 +231,113 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
     return chunks
 
 
+def chunk_document_with_metadata(content: str) -> list[dict]:
+    """
+    Divide um documento em chunks com metadados rastreáveis.
+
+    Inspirado no chunking por template do RAGFlow: documentos Markdown, tabelas,
+    código e texto corrido recebem marcações diferentes sem exigir dependências
+    pesadas de parsing/OCR.
+    """
+    text = content or ""
+    if not text.strip():
+        return []
+
+    template = _detect_chunk_template(text)
+    sections = _split_template_sections(text, template)
+    items: list[dict] = []
+
+    for section in sections:
+        section_text = section["text"]
+        local_chunks = chunk_text(section_text)
+        cursor = 0
+        for chunk in local_chunks:
+            local_start = section_text.find(chunk, cursor)
+            if local_start < 0:
+                local_start = section_text.find(chunk)
+            if local_start < 0:
+                local_start = cursor
+            local_end = min(len(section_text), local_start + len(chunk))
+            cursor = local_end
+
+            start = int(section["start"]) + local_start
+            end = int(section["start"]) + local_end
+            chunk_kind = _detect_chunk_kind(chunk)
+            items.append({
+                "text": chunk,
+                "metadata": {
+                    "template": template,
+                    "section_title": section.get("title") or "",
+                    "section_level": section.get("level"),
+                    "char_start": start,
+                    "char_end": end,
+                    "chunk_kind": chunk_kind,
+                    "estimated_tokens": max(1, len(chunk) // 4),
+                },
+            })
+
+    return items
+
+
+def _detect_chunk_template(text: str) -> str:
+    """Escolhe um template leve de chunking para o tipo de documento."""
+    sample = text[:6000]
+    if re.search(r"(?m)^#{1,6}\s+\S+", sample) or "```" in sample:
+        return "markdown"
+    table_lines = sum(1 for line in sample.splitlines() if line.count("|") >= 2 or line.count("\t") >= 2)
+    if table_lines >= 3:
+        return "table"
+    if any(pattern.search(sample) for _, pattern in _CODE_LANG_PATTERNS):
+        return "code"
+    return "prose"
+
+
+def _split_template_sections(text: str, template: str) -> list[dict]:
+    """Quebra o documento em seções coerentes para o template detectado."""
+    if template != "markdown":
+        title = "Tabela" if template == "table" else ("Código" if template == "code" else "Documento")
+        return [{"title": title, "level": None, "start": 0, "text": text}]
+
+    matches = list(re.finditer(r"(?m)^(#{1,6})\s+(.+?)\s*$", text))
+    if not matches:
+        return [{"title": "Documento", "level": None, "start": 0, "text": text}]
+
+    sections = []
+    if matches[0].start() > 0:
+        sections.append({
+            "title": "Introdução",
+            "level": None,
+            "start": 0,
+            "text": text[:matches[0].start()],
+        })
+
+    for idx, match in enumerate(matches):
+        start = match.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        sections.append({
+            "title": match.group(2).strip()[:120],
+            "level": len(match.group(1)),
+            "start": start,
+            "text": text[start:end],
+        })
+
+    return [section for section in sections if section["text"].strip()]
+
+
+def _detect_chunk_kind(chunk: str) -> str:
+    stripped = (chunk or "").strip()
+    if stripped.startswith("```"):
+        return "code"
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    if len(lines) >= 2 and sum(1 for line in lines if line.startswith(("-", "*", "+")) or re.match(r"^\d+\.", line)) >= 2:
+        return "list"
+    if len(lines) >= 2 and sum(1 for line in lines if line.count("|") >= 2 or line.count("\t") >= 2) >= 2:
+        return "table"
+    if any(pattern.search(stripped) for _, pattern in _CODE_LANG_PATTERNS):
+        return "code"
+    return "text"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # EMBEDDINGS + CACHE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -400,6 +511,112 @@ def _extract_code_metadata(chunk: str) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# INGESTION CACHE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _pipeline_key() -> str:
+    """Identifica a configuração que torna um índice reaproveitável."""
+    payload = {
+        "version": _PIPELINE_VERSION,
+        "chunk_template_version": _CHUNK_TEMPLATE_VERSION,
+        "chunk_size": CHUNK_SIZE,
+        "chunk_overlap": CHUNK_OVERLAP,
+        "min_chunk_len": MIN_CHUNK_LEN,
+        "semantic_enabled": _SEMANTIC_ENABLED,
+        "embedding_model": _MODEL_NAME if _SEMANTIC_ENABLED else None,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def _content_hash(content: str) -> str:
+    """Hash determinístico do conteúdo bruto importado."""
+    text = content or ""
+    return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _get_ingestion_cache(source_table: str, source_id: int) -> Optional[dict]:
+    try:
+        with get_db_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM ingestion_cache
+                WHERE source_table=? AND source_id=?
+                """,
+                (source_table, source_id),
+            ).fetchone()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def _indexed_chunk_count(source_table: str, source_id: int) -> int:
+    try:
+        with get_db_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM embeddings
+                WHERE source_table=? AND source_id=?
+                """,
+                (source_table, source_id),
+            ).fetchone()
+        return int(row["n"]) if row else 0
+    except Exception:
+        return 0
+
+
+def _is_ingestion_cache_valid(source_table: str, source_id: int, content: str) -> bool:
+    cached = _get_ingestion_cache(source_table, source_id)
+    if not cached:
+        return False
+    chunk_count = int(cached.get("chunk_count") or 0)
+    return (
+        chunk_count > 0
+        and cached.get("content_hash") == _content_hash(content)
+        and cached.get("pipeline_key") == _pipeline_key()
+        and _indexed_chunk_count(source_table, source_id) >= chunk_count
+    )
+
+
+def _save_ingestion_cache(
+    source_table: str,
+    source_id: int,
+    content_hash: str,
+    pipeline_key: str,
+    chunk_count: int,
+    metadata: Optional[dict] = None,
+) -> None:
+    try:
+        with get_db_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO ingestion_cache
+                  (source_table, source_id, content_hash, chunk_count, pipeline_key, metadata, indexed_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_table, source_id) DO UPDATE SET
+                  content_hash=excluded.content_hash,
+                  chunk_count=excluded.chunk_count,
+                  pipeline_key=excluded.pipeline_key,
+                  metadata=excluded.metadata,
+                  indexed_at=excluded.indexed_at
+                """,
+                (
+                    source_table,
+                    source_id,
+                    content_hash,
+                    chunk_count,
+                    pipeline_key,
+                    json_dumps(metadata or {}),
+                    now_iso(),
+                ),
+            )
+            conn.commit()
+    except Exception as exc:
+        print(f"[RAG] Cache incremental indisponível: {exc}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # INDEXAÇÃO (preservada + enriquecida com metadados)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -409,11 +626,28 @@ def index_document(
     source_table: str = "knowledge_sources",
     auto_learn: bool = True,
     session_id: Optional[str] = None,
+    force: bool = False,
 ) -> int:
     """
     Chunkeia o conteúdo, gera embeddings e extrai metadados de código.
     Retorna número de chunks indexados.
     """
+    content_hash = _content_hash(content)
+    pipeline_key = _pipeline_key()
+    cached = _get_ingestion_cache(source_table, knowledge_source_id)
+    if (
+        not force
+        and cached
+        and cached.get("content_hash") == content_hash
+        and cached.get("pipeline_key") == pipeline_key
+        and cached.get("chunk_count", 0) > 0
+        and _indexed_chunk_count(source_table, knowledge_source_id) >= cached.get("chunk_count", 0)
+    ):
+        return int(cached.get("chunk_count", 0))
+
+    chunk_items = chunk_document_with_metadata(content)
+    chunks = [item["text"] for item in chunk_items]
+
     # Remove embeddings antigos desta fonte
     with get_db_connection() as conn:
         conn.execute(
@@ -422,20 +656,29 @@ def index_document(
         )
         conn.commit()
 
-    chunks = chunk_text(content)
     if not chunks:
+        _save_ingestion_cache(
+            source_table,
+            knowledge_source_id,
+            content_hash,
+            pipeline_key,
+            0,
+            {"reason": "empty_after_chunking"},
+        )
         return 0
 
     ts = now_iso()
     rows = []
-    for i, chunk in enumerate(chunks):
+    for i, item in enumerate(chunk_items):
+        chunk = item["text"]
         emb_blob = _embed(chunk)
         if emb_blob is None:
             emb_blob = b""
 
         # Extrai metadados de código
         code_meta = _extract_code_metadata(chunk)
-        meta_json = json_dumps(code_meta)
+        trace_meta = item.get("metadata") or {}
+        meta_json = json_dumps({**code_meta, **trace_meta})
 
         rows.append((source_table, knowledge_source_id, i, chunk, emb_blob, ts, meta_json))
 
@@ -462,6 +705,21 @@ def index_document(
             )
         conn.commit()
 
+    _save_ingestion_cache(
+        source_table,
+        knowledge_source_id,
+        content_hash,
+        pipeline_key,
+        len(chunks),
+        {
+            "semantic_enabled": _SEMANTIC_ENABLED,
+            "embedding_model": _MODEL_NAME if _SEMANTIC_ENABLED else None,
+            "chunk_size": CHUNK_SIZE,
+            "chunk_overlap": CHUNK_OVERLAP,
+            "chunk_template_version": _CHUNK_TEMPLATE_VERSION,
+        },
+    )
+
     # Auto Learning em background
     if auto_learn and source_table == "knowledge_sources":
         t = threading.Thread(
@@ -474,7 +732,7 @@ def index_document(
     return len(chunks)
 
 
-def index_all_knowledge(session_id: Optional[str] = None) -> dict:
+def index_all_knowledge(session_id: Optional[str] = None, force: bool = False) -> dict:
     """Re-indexa todos os knowledge_sources (ou apenas de uma sessão)."""
     with get_db_connection() as conn:
         if session_id:
@@ -488,10 +746,15 @@ def index_all_knowledge(session_id: Optional[str] = None) -> dict:
             ).fetchall()
 
     total_chunks = 0
+    skipped = 0
     for row in rows:
-        total_chunks += index_document(row["id"], row["content"], auto_learn=False)
+        was_cached = _is_ingestion_cache_valid("knowledge_sources", row["id"], row["content"])
+        count = index_document(row["id"], row["content"], auto_learn=False, force=force)
+        total_chunks += count
+        if not force and was_cached:
+            skipped += 1
 
-    return {"indexed": len(rows), "total_chunks": total_chunks}
+    return {"indexed": len(rows), "skipped_unchanged": skipped, "total_chunks": total_chunks}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -653,6 +916,7 @@ def _semantic_search_vector(
                     "score":        score,
                     "bm25_score":   0.0,
                     "chunk_text":   row["chunk_text"],
+                    "chunk_metadata": row["chunk_metadata"] if "chunk_metadata" in row.keys() else "{}",
                     "source_table": row["source_table"],
                     "source_id":    row["source_id"],
                     "chunk_index":  row["chunk_index"],
@@ -726,6 +990,7 @@ def bm25_search(
                 "score":        0.0,
                 "bm25_score":   min(score / 10, 1.0),
                 "chunk_text":   row["chunk_text"],
+                "chunk_metadata": row["chunk_metadata"] if "chunk_metadata" in row.keys() else "{}",
                 "source_table": row["source_table"],
                 "source_id":    row["source_id"],
                 "chunk_index":  row["chunk_index"],
@@ -889,6 +1154,7 @@ def code_search(
                 "score":        min(score / 10, 1.0),
                 "bm25_score":   min(score / 10, 1.0),
                 "chunk_text":   row["chunk_text"],
+                "chunk_metadata": row["chunk_metadata"] if "chunk_metadata" in row.keys() else "{}",
                 "source_table": row["source_table"],
                 "source_id":    row["source_id"],
                 "chunk_index":  row["chunk_index"],
@@ -950,6 +1216,9 @@ def build_rag_context(
         lines.append(f"\n[Fonte {i} — {source_label}{freshness_tag}]")
         source_topics = res.get("source_topics") or []
         source_summary = res.get("source_summary") or ""
+        chunk_trace = res.get("chunk_trace") or ""
+        if chunk_trace:
+            lines.append(f"Localização: {chunk_trace}")
         if source_topics:
             lines.append(f"Tópicos da fonte: {', '.join(source_topics[:8])}")
         if source_summary:
@@ -1063,6 +1332,33 @@ def _parse_topics(raw) -> list[str]:
     if isinstance(parsed, list):
         return [str(topic).strip() for topic in parsed if str(topic).strip()]
     return [topic.strip() for topic in text.split(",") if topic.strip()]
+
+
+def _parse_chunk_metadata(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    parsed = json_loads(str(raw or "{}"), fallback={})
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _format_chunk_trace(metadata: dict) -> str:
+    parts = []
+    template = metadata.get("template")
+    section = metadata.get("section_title")
+    kind = metadata.get("chunk_kind")
+    start = metadata.get("char_start")
+    end = metadata.get("char_end")
+
+    if section:
+        parts.append(f"seção '{section}'")
+    if template:
+        parts.append(f"template {template}")
+    if kind and kind != "text":
+        parts.append(f"tipo {kind}")
+    if isinstance(start, int) and isinstance(end, int) and end >= start:
+        parts.append(f"caracteres {start}-{end}")
+
+    return "; ".join(parts)
 
 
 def _metadata_search(query: str, session_id: Optional[str], top_k: int = 2) -> list[dict]:
@@ -1215,6 +1511,10 @@ def _enrich_results(results: list[dict]) -> list[dict]:
             "access_count":       0,
         })
         r.update(enriched)
+        chunk_meta = _parse_chunk_metadata(r.get("chunk_metadata"))
+        if chunk_meta:
+            r["chunk_meta"] = chunk_meta
+            r["chunk_trace"] = _format_chunk_trace(chunk_meta)
 
     return results
 
@@ -1238,6 +1538,23 @@ def get_stats() -> dict:
             ).fetchone()["n"]
         except Exception:
             code_chunks = 0
+        try:
+            cache_rows = conn.execute("SELECT COUNT(*) as n FROM ingestion_cache").fetchone()["n"]
+        except Exception:
+            cache_rows = 0
+        try:
+            template_rows = conn.execute(
+                """
+                SELECT
+                  json_extract(chunk_metadata, '$.template') AS template,
+                  COUNT(*) AS n
+                FROM embeddings
+                WHERE chunk_metadata IS NOT NULL AND chunk_metadata != ''
+                GROUP BY template
+                """
+            ).fetchall()
+        except Exception:
+            template_rows = []
 
     with _EMBED_CACHE_LOCK:
         cache_size = len(_EMBED_CACHE)
@@ -1249,5 +1566,11 @@ def get_stats() -> dict:
         "semantic_enabled":    _SEMANTIC_ENABLED,
         "semantic_available":  _EMBEDDING_AVAILABLE,
         "embed_cache_entries": cache_size,
+        "ingestion_cache_entries": cache_rows,
+        "pipeline_key":        _pipeline_key()[:12],
+        "by_template":         {
+            (row["template"] or "unknown"): row["n"]
+            for row in template_rows
+        },
         "by_source":           {row["source_table"]: row["n"] for row in by_table},
     }

@@ -27,11 +27,13 @@ def migrate():
     """Executa todas as migrações cognitivas de forma idempotente."""
     with get_db_connection() as conn:
         _create_memories(conn)
+        _create_user_profile(conn)
         _create_knowledge_graph(conn)
         _create_projects(conn)
         _create_timeline(conn)
         _create_insights(conn)
         _create_embeddings(conn)
+        _create_ingestion_cache(conn)
         _create_conversation_summaries(conn)
         _create_codebase_index(conn)
         _create_sync_state(conn)
@@ -57,6 +59,22 @@ def _create_memories(conn):
             tags         TEXT    DEFAULT '[]',
             created_at   TEXT    NOT NULL,
             FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
+        );
+    """)
+
+
+def _create_user_profile(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_profile_facts (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            fact_key    TEXT    NOT NULL,
+            fact_value  TEXT    NOT NULL,
+            confidence  REAL    DEFAULT 0.6,
+            source      TEXT    DEFAULT 'conversation',
+            session_id  TEXT,
+            created_at  TEXT    NOT NULL,
+            updated_at  TEXT    NOT NULL,
+            UNIQUE(fact_key, fact_value)
         );
     """)
 
@@ -177,6 +195,21 @@ def _create_embeddings(conn):
     """)
 
 
+def _create_ingestion_cache(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ingestion_cache (
+            source_table  TEXT    NOT NULL,
+            source_id     INTEGER NOT NULL,
+            content_hash  TEXT    NOT NULL,
+            chunk_count   INTEGER DEFAULT 0,
+            pipeline_key  TEXT    NOT NULL,
+            metadata      TEXT    DEFAULT '{}',
+            indexed_at    TEXT    NOT NULL,
+            PRIMARY KEY (source_table, source_id)
+        );
+    """)
+
+
 def _create_conversation_summaries(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS conversation_summaries (
@@ -230,6 +263,8 @@ def _create_indexes(conn):
         "CREATE INDEX IF NOT EXISTS idx_memories_type      ON memories(memory_type);",
         "CREATE INDEX IF NOT EXISTS idx_memories_session   ON memories(session_id);",
         "CREATE INDEX IF NOT EXISTS idx_memories_expires   ON memories(expires_at);",
+        "CREATE INDEX IF NOT EXISTS idx_user_profile_key   ON user_profile_facts(fact_key);",
+        "CREATE INDEX IF NOT EXISTS idx_user_profile_conf  ON user_profile_facts(confidence);",
         "CREATE INDEX IF NOT EXISTS idx_kg_entities_name   ON kg_entities(name);",
         "CREATE INDEX IF NOT EXISTS idx_kg_entities_type   ON kg_entities(entity_type);",
         "CREATE INDEX IF NOT EXISTS idx_kg_relations_src   ON kg_relations(source_id);",
@@ -240,6 +275,8 @@ def _create_indexes(conn):
         "CREATE INDEX IF NOT EXISTS idx_insights_read      ON insights(is_read);",
         "CREATE INDEX IF NOT EXISTS idx_embeddings_src     ON embeddings(source_table, source_id);",
         "CREATE INDEX IF NOT EXISTS idx_embeddings_created ON embeddings(created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_ingestion_hash     ON ingestion_cache(content_hash);",
+        "CREATE INDEX IF NOT EXISTS idx_ingestion_key      ON ingestion_cache(pipeline_key);",
         "CREATE INDEX IF NOT EXISTS idx_codebase_project   ON codebase_index(project_root);",
         "CREATE INDEX IF NOT EXISTS idx_codebase_path      ON codebase_index(relative_path);",
         "CREATE INDEX IF NOT EXISTS idx_codebase_symbol    ON codebase_index(symbol_name);",

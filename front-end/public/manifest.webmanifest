@@ -1,0 +1,19 @@
+{
+  "name": "Nexus IA",
+  "short_name": "Nexus",
+  "description": "Segundo cérebro local-first conectado ao Mac.",
+  "start_url": "/#chat",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#090a0d",
+  "background_color": "#090a0d",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

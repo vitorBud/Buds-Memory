@@ -538,6 +538,24 @@ def llm_ollama(user_text: str, history=None, model: Optional[str] = None, web_co
     return r.json().get("response", "").strip()
 
 
+def llm_ollama_raw(prompt: str, model: Optional[str] = None, num_predict: int = 900) -> str:
+    """Chamada direta ao Ollama para módulos internos como reflection."""
+    selected_model = resolve_ollama_model(model)
+    options = {**OLLAMA_OPTIONS, "num_predict": num_predict}
+    r = post_ollama(
+        {
+            "model": selected_model,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": OLLAMA_KEEP_ALIVE,
+            "options": options,
+        },
+        stream=False,
+    )
+    r.raise_for_status()
+    return r.json().get("response", "").strip()
+
+
 def llm_ollama_stream(user_text: str, history=None, model: Optional[str] = None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None):
     prompt = build_prompt(user_text, history, web_context, knowledge_context)
     selected_model = resolve_ollama_model(model)

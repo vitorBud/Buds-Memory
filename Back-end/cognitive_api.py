@@ -24,6 +24,8 @@ from cognitive import (
     search,
     detector,
     codebase_indexer,
+    user_profile,
+    conversation,
 )
 import database_v2 as dbv2
 from database_v2 import get_db_connection
@@ -62,6 +64,7 @@ def health():
         "projects": projects.get_stats(),
         "timeline": timeline.get_stats(),
         "insights": insights.get_stats(),
+        "profile": user_profile.get_stats(),
     })
 
 
@@ -176,11 +179,50 @@ def prune_memories():
     return _ok({"removed": removed})
 
 
+@cognitive_bp.post("/memory/archive")
+def archive_memories():
+    """Move memórias antigas e pouco acessadas para Archive Memory."""
+    body = request.get_json(silent=True) or {}
+    archived = memory.archive_stale_memories(
+        days_without_access=int(body.get("days_without_access", 90)),
+        max_importance=float(body.get("max_importance", 0.55)),
+    )
+    return _ok({"archived": archived})
+
+
 @cognitive_bp.post("/memory/consolidate/<session_id>")
 def consolidate_session_memory(session_id: str):
     """Consolida memórias de curto → médio → longo prazo para uma sessão."""
     result = memory.consolidate_session(session_id)
     return _ok(result)
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# PERFIL DO USUÁRIO
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/profile")
+def get_user_profile():
+    """Retorna perfil estruturado do usuário."""
+    return _ok({
+        "profile": user_profile.get_profile(),
+        "context": user_profile.get_profile_context(),
+    })
+
+
+@cognitive_bp.post("/profile/extract")
+def extract_user_profile():
+    """Extrai fatos de perfil de um texto enviado manualmente."""
+    body = request.get_json(silent=True) or {}
+    text = (body.get("text") or "").strip()
+    if not text:
+        return _err("Campo 'text' é obrigatório.")
+    facts = user_profile.update_from_text(
+        text,
+        session_id=body.get("session_id"),
+        source=body.get("source", "manual"),
+    )
+    return _ok({"facts": facts, "count": len(facts)}, 201)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -209,6 +251,16 @@ def get_top_entities():
     """Entidades mais conectadas."""
     limit = _int_param("limit", 20)
     return _ok(knowledge_graph.get_most_connected(limit=limit))
+
+
+@cognitive_bp.get("/graph/communities")
+def get_graph_communities():
+    """Retorna comunidades conceituais do Knowledge Graph."""
+    query = request.args.get("q", "").strip()
+    limit = _int_param("limit", 20)
+    if query:
+        return _ok(knowledge_graph.search_communities(query, limit=limit))
+    return _ok(knowledge_graph.get_communities(limit=limit))
 
 
 @cognitive_bp.post("/graph/entity")
@@ -533,6 +585,7 @@ def global_search():
 @cognitive_bp.post("/rag/index/<int:knowledge_id>")
 def rag_index(knowledge_id: int):
     """Indexa (ou re-indexa) um knowledge_source específico."""
+    body = request.get_json(silent=True) or {}
     with get_db_connection() as conn:
         row = conn.execute(
             "SELECT content FROM knowledge_sources WHERE id=?", (knowledge_id,)
@@ -541,15 +594,18 @@ def rag_index(knowledge_id: int):
     if not row:
         return _err("knowledge_source não encontrado.", 404)
 
-    chunks = rag.index_document(knowledge_id, row["content"])
+    chunks = rag.index_document(knowledge_id, row["content"], force=bool(body.get("force", False)))
     return _ok({"knowledge_id": knowledge_id, "chunks_indexed": chunks})
 
 
 @cognitive_bp.post("/rag/reindex-all")
 def rag_reindex_all():
     """Re-indexa toda a base de conhecimento."""
-    session_id = (request.get_json(silent=True) or {}).get("session_id")
-    result = rag.index_all_knowledge(session_id=session_id)
+    body = request.get_json(silent=True) or {}
+    result = rag.index_all_knowledge(
+        session_id=body.get("session_id"),
+        force=bool(body.get("force", False)),
+    )
     return _ok(result)
 
 
@@ -634,3 +690,35 @@ def detect_signals():
     if not text:
         return _err("Campo 'text' é obrigatório.")
     return _ok(detector.detect_learning_signals(text))
+
+
+@cognitive_bp.post("/conversation/analyze")
+def analyze_conversation_query():
+    """Diagnostica intenção, query rewrite e contexto cognitivo sem chamar Ollama."""
+    body = request.get_json(silent=True) or {}
+    text = (body.get("text") or "").strip()
+    if not text:
+        return _err("Campo 'text' é obrigatório.")
+    session_id = body.get("session_id")
+    history = []
+    summary = None
+    if session_id:
+        try:
+            import database
+            history = database.get_recent_session_messages(session_id, limit=20)
+            summary = summarizer.get_conversation_summary(session_id)
+        except Exception:
+            history = []
+            summary = None
+    result = conversation.build_conversation_context(
+        user_text=text,
+        session_id=session_id,
+        history=history,
+        conversation_summary=summary,
+    )
+    return _ok({
+        "intent": result["intent"],
+        "query": result["query"],
+        "context_preview": result["context"][:3000],
+        "results": result["results"][:8],
+    })

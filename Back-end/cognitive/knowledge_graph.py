@@ -421,6 +421,87 @@ def consolidate_duplicates() -> dict:
     return {"aliases_merged": merged}
 
 
+def get_communities(limit: int = 200) -> list[dict]:
+    """
+    Agrupa entidades conectadas em comunidades leves.
+
+    É uma versão local-first inspirada no GraphRAG: usa componentes conectados
+    do grafo em SQLite, sem dependências pesadas de community detection.
+    """
+    graph = get_full_graph(limit=limit)
+    entities = graph.get("entities", [])
+    edges = graph.get("edges", [])
+    if not entities:
+        return []
+
+    by_name = {entity["name"]: entity for entity in entities}
+    adjacency: dict[str, set[str]] = {name: set() for name in by_name}
+    for edge in edges:
+        source = edge["source"]
+        target = edge["target"]
+        if source in adjacency and target in adjacency:
+            adjacency[source].add(target)
+            adjacency[target].add(source)
+
+    visited = set()
+    communities = []
+    for name in by_name:
+        if name in visited:
+            continue
+        stack = [name]
+        component = []
+        visited.add(name)
+        while stack:
+            current = stack.pop()
+            component.append(by_name[current])
+            for neighbor in adjacency.get(current, set()):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    stack.append(neighbor)
+
+        component.sort(key=lambda item: (item.get("importance", 0), item.get("access_count", 0)), reverse=True)
+        component_names = {item["name"] for item in component}
+        component_edges = [
+            edge for edge in edges
+            if edge["source"] in component_names and edge["target"] in component_names
+        ]
+        communities.append({
+            "id": f"community_{len(communities) + 1}",
+            "title": component[0]["name"] if component else "comunidade",
+            "summary": _summarize_community(component, component_edges),
+            "entities": component[:24],
+            "edges": component_edges[:40],
+            "size": len(component),
+            "edge_count": len(component_edges),
+            "importance": round(sum(float(item.get("importance") or 0.0) for item in component) / max(1, len(component)), 3),
+        })
+
+    communities.sort(key=lambda item: (item["size"], item["importance"], item["edge_count"]), reverse=True)
+    return communities
+
+
+def search_communities(query: str, limit: int = 4) -> list[dict]:
+    tokens = _tokenize(query)
+    if not tokens:
+        return get_communities(limit=limit)[:limit]
+
+    scored = []
+    for community in get_communities():
+        haystack = " ".join([
+            community.get("title", ""),
+            community.get("summary", ""),
+            " ".join(entity.get("name", "") for entity in community.get("entities", [])),
+        ]).lower()
+        score = sum(haystack.count(token) for token in tokens)
+        if score > 0:
+            item = dict(community)
+            item["score"] = score
+            scored.append(item)
+
+    scored.sort(key=lambda item: (item["score"], item["importance"], item["size"]), reverse=True)
+    return scored[:limit]
+
+
 def get_stats() -> dict:
     with get_db_connection() as conn:
         entities = conn.execute("SELECT COUNT(*) as n FROM kg_entities").fetchone()["n"]
@@ -431,6 +512,7 @@ def get_stats() -> dict:
     return {
         "entities": entities,
         "relations": relations,
+        "communities": len(get_communities(limit=200)),
         "top_entities": [dict(r) for r in top],
     }
 
@@ -462,6 +544,29 @@ def _infer_relation_type(text: str) -> str:
     if re.search(r"\b(menciona|mencionado|cita|mentions?)\b", text):
         return "mencionado_em"
     return "related_to"
+
+
+def _summarize_community(entities: list[dict], edges: list[dict]) -> str:
+    names = [entity["name"] for entity in entities[:8]]
+    types = {}
+    for entity in entities:
+        types[entity.get("entity_type", "concept")] = types.get(entity.get("entity_type", "concept"), 0) + 1
+    type_bits = ", ".join(f"{kind}: {count}" for kind, count in sorted(types.items(), key=lambda item: item[1], reverse=True)[:4])
+    relation_bits = []
+    for edge in edges[:5]:
+        relation_bits.append(f"{edge['source']} -> {edge['target']} ({edge['relation_type']})")
+    summary = f"Comunidade com {len(entities)} conceito(s): {', '.join(names)}."
+    if type_bits:
+        summary += f" Tipos: {type_bits}."
+    if relation_bits:
+        summary += " Relações principais: " + "; ".join(relation_bits) + "."
+    return summary
+
+
+def _tokenize(text: str) -> list[str]:
+    clean = re.sub(r"[^\w\s./_-]", " ", (text or "").lower())
+    stop = {"para", "como", "qual", "quais", "sobre", "onde", "quando", "isso", "esse", "essa"}
+    return [word for word in clean.split() if len(word) > 2 and word not in stop]
 
 
 def _get_entity_by_name(name: str):

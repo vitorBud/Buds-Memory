@@ -7925,3 +7925,260 @@ input {
   backdrop-filter: none !important;
   transform: translateZ(0);
 }
+
+/* Nexus Mobile Fase 2: remote companion, PWA e ergonomia touch. */
+.boot-auth-form {
+  display: grid;
+  gap: 8px;
+}
+
+.boot-auth-form label {
+  color: rgba(255,255,255,0.62);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.boot-auth-form > div {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.boot-auth-form input {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  color: #fff;
+  min-height: 42px;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.boot-auth-form button {
+  background: #e5e7eb;
+  border: 0;
+  border-radius: 8px;
+  color: #0f172a;
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.boot-auth-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.boot-auth-form p {
+  color: #fca5a5;
+  font-size: 12px;
+  margin: 0;
+}
+
+@media (max-width: 760px) {
+  html,
+  body,
+  #root {
+    height: 100%;
+    min-height: 100%;
+  }
+
+  body {
+    overscroll-behavior-y: none;
+  }
+
+  .home-landing {
+    min-height: 100dvh;
+    padding: max(58px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom));
+  }
+
+  .home-brand-copy h1 {
+    font-size: 34px;
+    letter-spacing: 0;
+    max-width: 360px;
+  }
+
+  .home-brand-copy p {
+    font-size: 14px;
+    max-width: 330px;
+  }
+
+  .home-brand-mark {
+    height: min(52dvh, 430px);
+    margin: -10px auto -4px;
+  }
+
+  .home-status-grid {
+    gap: 8px;
+  }
+
+  .home-status-grid div {
+    border-radius: 8px;
+    min-height: 58px;
+  }
+
+  .chat-scroll-scene {
+    min-height: 100dvh;
+  }
+
+  .chat-scroll-scene .app-shell,
+  .app-shell {
+    display: block;
+    height: 100dvh;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .workspace {
+    border-radius: 0;
+    height: 100%;
+  }
+
+  .topbar {
+    border-radius: 0;
+    min-height: calc(50px + env(safe-area-inset-top));
+    padding: calc(8px + env(safe-area-inset-top)) 10px 8px;
+  }
+
+  .content-grid {
+    height: calc(100dvh - 50px - env(safe-area-inset-top));
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .chat-panel {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    height: 100%;
+    padding: 0;
+  }
+
+  .chat-session-bar {
+    min-height: 44px;
+    padding: 6px 10px;
+  }
+
+  .chat-window {
+    gap: 8px;
+    padding: 12px 10px 10px;
+    scroll-padding-bottom: 96px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .message-row {
+    gap: 7px;
+  }
+
+  .message-avatar {
+    display: none;
+  }
+
+  .message-stack {
+    max-width: min(86vw, 520px);
+  }
+
+  .message-row.is-user {
+    justify-content: flex-end;
+  }
+
+  .message-row.is-ai {
+    justify-content: flex-start;
+  }
+
+  .message-bubble,
+  .chat-scroll-scene .message-bubble {
+    border-radius: 18px;
+    font-size: 15px;
+    line-height: 1.45;
+    padding: 10px 13px;
+  }
+
+  .message-row.is-user .message-bubble,
+  .chat-scroll-scene .message-row.is-user .message-bubble {
+    background: #0a84ff;
+    border-color: #0a84ff;
+    color: #fff;
+    border-bottom-right-radius: 6px;
+  }
+
+  .message-row.is-ai .message-bubble,
+  .chat-scroll-scene .message-row.is-ai .message-bubble {
+    background: color-mix(in srgb, var(--surface-3) 86%, white 6%);
+    border-color: var(--line);
+    border-bottom-left-radius: 6px;
+  }
+
+  .chat-input-shell {
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    border-top: 1px solid var(--line);
+    bottom: 0;
+    padding: 8px 10px max(10px, env(safe-area-inset-bottom));
+    position: sticky;
+    z-index: 20;
+  }
+
+  .composer {
+    border-radius: 22px;
+    gap: 7px;
+    padding: 7px;
+  }
+
+  .composer textarea {
+    font-size: 16px;
+    min-height: 34px;
+    padding: 5px 2px;
+  }
+
+  .round-action,
+  .send-action {
+    min-height: 38px;
+    min-width: 38px;
+  }
+
+  .obsidian-scroll-scene {
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .obsidian-sticky-stage {
+    display: grid;
+    gap: 8px;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 100dvh;
+    padding: max(58px, env(safe-area-inset-top)) 10px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .obsidian-copy-panel {
+    border-radius: 8px;
+    padding: 10px;
+  }
+
+  .obsidian-copy-panel h2 {
+    font-size: 22px;
+    letter-spacing: 0;
+  }
+
+  .obsidian-stage-graph .brain-card {
+    border-radius: 8px;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .obsidian-stage-graph .brain-graph,
+  .obsidian-stage-graph .memory-brain-card .memory-three-shell,
+  .memory-brain-card .memory-radial-shell {
+    min-height: 52dvh;
+    touch-action: none;
+  }
+
+  .brain-controls {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}

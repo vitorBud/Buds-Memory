@@ -1,114 +1,598 @@
-# 🎙️Assistente-de-Bate-Papo (Bypass Smart App Control)
+# Nexus IA
 
-Um assistente de voz interativo que combina reconhecimento de fala, processamento de linguagem natural por meio de modelos locais (LLM) e síntese de voz offline em português.
+Nexus IA e um assistente local com chat, voz, memoria, RAG, importacao de conhecimento, Obsidian visual, sincronizacao local-first com Supabase e app desktop via Electron.
 
-Esta versão foi adaptada para **contornar as restrições do Windows 11 Smart App Control**, garantindo que o projeto execute perfeitamente sem necessidade de desativar recursos de segurança do sistema.
+O projeto foi pensado para funcionar offline no Mac/Windows sempre que possivel. A IA roda com Ollama local, o historico fica em SQLite e a sincronizacao com Supabase e opcional.
 
----
+## Recursos Principais
 
-## 🧠 Como funciona a arquitetura
+- Chat com streaming de resposta via Ollama.
+- Modelos locais configuraveis: rapido, padrao e mais potente.
+- Memoria cognitiva: short, medium, long e Core Memory.
+- Obsidian/Second Brain: grafo visual de memorias, documentos, conceitos e relacoes.
+- Importacao de PDFs, URLs, textos e pesquisas.
+- RAG hibrido: chunks, BM25 offline, metadados e suporte opcional a embeddings locais.
+- Codebase Indexer: indexa projetos e permite perguntas sobre arquivos, funcoes, classes, hooks, rotas e imports.
+- Modo voz/conversacao.
+- TTS offline com Piper.
+- STT com faster-whisper.
+- Busca Google opcional via Google Custom Search.
+- Supabase Sync local-first.
+- App macOS plug and play via Electron.
 
-O projeto combina três componentes principais:
+## Estrutura
 
+```text
+Nexus-Assistent-v1/
+├── Back-end/
+│   ├── app.py                    # API Flask principal, porta 5050
+│   ├── agenty.py                 # Ollama, voz, STT/TTS e prompt principal
+│   ├── database.py               # Historico, sessoes e conhecimento importado
+│   ├── database_v2.py            # Tabelas cognitivas e migracoes
+│   ├── supabase_sync.py          # Sync local-first com Supabase
+│   ├── start_backend.sh          # Atalho para iniciar backend no macOS
+│   ├── requirements.txt          # Dependencias Python
+│   ├── supabase_schema.sql       # SQL para criar tabela de sync no Supabase
+│   ├── cognitive/
+│   │   ├── memory.py             # Memorias e Core Memory
+│   │   ├── rag.py                # RAG e contexto de conhecimento
+│   │   ├── codebase_indexer.py   # Indexador de projetos
+│   │   ├── knowledge_graph.py    # Grafo de conhecimento
+│   │   ├── summarizer.py         # Resumos persistentes
+│   │   ├── detector.py           # Detecao cognitiva em conversas
+│   │   ├── projects.py           # Projetos e sessoes relacionadas
+│   │   ├── timeline.py           # Eventos cognitivos
+│   │   └── search.py             # Busca interna
+│   ├── voz/                      # Modelo de voz Piper
+│   └── piper/                    # Binarios do Piper
+├── front-end/
+│   ├── src/                      # React/Vite
+│   ├── electron/                 # App desktop Electron
+│   ├── public/models             # Assets 3D
+│   ├── public/textures           # Texturas
+│   ├── package.json
+│   └── scripts/update-app.sh
+└── CROSS_PLATFORM.md
 ```
-🎤 Microfone
-    │
-    ▼
-🌐 STT — Google Web Speech API (fala → texto)
-    │   (Contorna bloqueio de DLLs do Smart App Control)
-    ▼
-🤖 LLM — Ollama / LLaMA 3.1 (texto → resposta do assistente)
-    │   (Processamento local via HTTP)
-    ▼
-🔈 TTS — Piper Local (resposta → áudio sintetizado em português)
-    │   (Executável nativo, 100% offline)
-    ▼
-🔊 Alto-falante
-```
 
-| Componente | Tecnologia | Tipo | Descrição |
-|---|---|---|---|
-| **STT** | [SpeechRecognition](https://github.com/Uberi/speech_recognition) (Google API) | Híbrido | Transcreve sua fala em texto de forma gratuita e sem necessidade de chaves de API. |
-| **LLM** | [Ollama](https://ollama.com) + LLaMA 3.1 | 100% Local | Processador inteligente que gera as respostas sarcásticas do assistente. |
-| **TTS** | [Piper TTS](https://github.com/rhasspy/piper) | 100% Local | Converte as respostas de texto para áudio utilizando o modelo de voz neural `pt_BR-faber-medium`. |
+## Requisitos
 
----
+### Obrigatorios
 
-## 📁 Estrutura do Projeto
+- macOS ou Windows.
+- Python 3.9+.
+- Node.js 20+ recomendado.
+- npm.
+- Ollama instalado e rodando.
+- Pelo menos um modelo Ollama baixado.
 
-```
-Local-TTS/
-└── Back-end/
-    ├── agenty.py               # Script principal (assistente de voz)
-    ├── requirements.txt        # Dependências do Python atualizadas
-    ├── config.json             # Configurações de som salvas (gerado no 1º uso)
-    ├── piper/                  # Executável do Piper TTS
-    │   ├── piper.exe
-    │   └── ...
-    ├── voz/                    # Modelo de voz em português brasileiro
-    │   ├── pt_BR-faber-medium.onnx
-    │   └── pt_BR-faber-medium.onnx.json
-    └── out/                    # Arquivos de áudio gerados durante o uso
-        ├── mic.wav             # Gravação capturada pelo microfone
-        └── reply.wav           # Resposta falada gerada pelo Piper
-```
+### Recomendados
 
----
+- `qwen2.5-coder:3b` para modo rapido.
+- `qwen2.5-coder:7b` para uso padrao.
+- `qwen2.5-coder:14b` para melhor raciocinio, se o Mac aguentar.
+- 8 GB de RAM para modelos 3B.
+- 16 GB ou mais para 7B/14B com mais conforto.
 
-## ⚙️ Pré-requisitos
+### Opcionais
 
-### 1. Python 3.10+
-Certifique-se de ter o Python instalado. Baixe em: https://www.python.org/downloads/
+- Supabase para sincronizacao em nuvem.
+- Google Custom Search para busca web em tempo real.
+- Modelo `faster-whisper-base` local para STT.
+- Embeddings `sentence-transformers` para RAG semantico opcional.
 
-### 2. Ollama (servidor de IA local)
-1. Instale o Ollama de forma oficial através de: https://ollama.com
-2. Baixe o modelo LLaMA 3.1 rodando o comando no terminal:
-   ```bash
-   ollama run llama3.1
-   ```
-> O Ollama precisa estar ativo em segundo plano antes de iniciar o assistente.
+## Instalacao
 
----
+Clone o projeto:
 
-## 🚀 Instalação e Execução
-
-### 1. Clone o repositório
 ```bash
-git clone https://github.com/flokill751/Local-TTS.git
-cd Local-TTS
+git clone https://github.com/Nexus-Assitent-v1/Nexus-Assistent-v1.git
+cd Nexus-Assistent-v1
 ```
 
-### 2. Configure o ambiente virtual e instale as dependências
-Navegue até a pasta `Back-end` e execute os comandos abaixo para criar seu ambiente virtual e instalar as bibliotecas necessárias:
+## Backend
+
+Entre na pasta do backend:
+
+```bash
+cd Back-end
+```
+
+Crie o ambiente virtual, se ainda nao existir:
+
+```bash
+python3 -m venv ambiente
+```
+
+Ative o ambiente no macOS/Linux:
+
+```bash
+source ambiente/bin/activate
+```
+
+No Windows PowerShell:
 
 ```powershell
-cd Back-end
-
-# Cria o ambiente virtual
-python -m venv ambiente
-
-# Ativa o ambiente virtual
 .\ambiente\Scripts\Activate.ps1
+```
 
-# Instala as dependências (usa o módulo python para contornar bloqueios do pip)
+Instale as dependencias:
+
+```bash
 python -m pip install -r requirements.txt
 ```
 
-### 3. Rode o assistente de voz
-Com o ambiente virtual ativado e o Ollama rodando em outro terminal, execute o script:
-```powershell
-python agenty.py
+Se o comando `python` nao existir no macOS, use:
+
+```bash
+python3 -m pip install -r requirements.txt
 ```
 
----
+## Ollama
 
-## 🔊 Configurando Dispositivos de Áudio (1º Uso)
+Instale o Ollama:
 
-Na primeira execução do script `agenty.py`, o programa detectará e exibirá uma lista de todos os dispositivos de som conectados à sua máquina.
+```text
+https://ollama.com
+```
 
-1. **Escolha o microfone:** Digite o número correspondente ao microfone que você deseja usar.
-2. **Escolha a saída de som:** Digite o número correspondente aos seus fones ou alto-falantes. 
-   - *Dica:* A opção `Mapeador de som da Microsoft - Output` (geralmente número `3`) é recomendada, pois ela segue automaticamente o dispositivo de som definido como padrão na barra de tarefas do Windows.
-3. Essas seleções serão armazenadas em `config.json`. 
+Baixe os modelos recomendados:
 
-> 💡 **Para redefinir o áudio:** Se desejar mudar de microfone ou fone de ouvido no futuro, basta deletar o arquivo `config.json` gerado na pasta `Back-end` e executar o assistente novamente para reconfigurar.
+```bash
+ollama pull qwen2.5-coder:3b
+ollama pull qwen2.5-coder:7b
+```
+
+Opcional, modelo mais pesado:
+
+```bash
+ollama pull qwen2.5-coder:14b
+```
+
+Confirme os modelos:
+
+```bash
+ollama list
+```
+
+O Ollama precisa estar ativo antes do chat responder.
+
+## Variaveis de Ambiente
+
+Crie o arquivo `Back-end/.env` baseado em `Back-end/.env.example`.
+
+Exemplo:
+
+```env
+GOOGLE_API_KEY=
+GOOGLE_CSE_ID=
+
+SUPABASE_SYNC_ENABLED=0
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_SYNC_TABLE=nexus_sync_records
+
+OLLAMA_NUM_CTX=12288
+OLLAMA_NUM_PREDICT=-1
+OLLAMA_MODEL=qwen2.5-coder:7b
+```
+
+Observacoes:
+
+- Nao coloque `/rest/v1` no final de `SUPABASE_URL`.
+- Para uso local pessoal, `SUPABASE_SERVICE_ROLE_KEY` funciona, mas nao distribua app com essa chave.
+- Se o Mac estiver travando, reduza `OLLAMA_NUM_CTX` para `8192` ou `4096`.
+- O projeto carrega `.env` manualmente, entao `python-dotenv` nao e obrigatorio.
+
+## Rodando em Desenvolvimento
+
+### 1. Inicie o backend
+
+Na pasta `Back-end`:
+
+```bash
+source ambiente/bin/activate
+python app.py
+```
+
+Ou no macOS:
+
+```bash
+./start_backend.sh
+```
+
+O backend roda em:
+
+```text
+http://127.0.0.1:5050
+```
+
+Teste:
+
+```bash
+curl http://127.0.0.1:5050/api/config
+```
+
+### 2. Inicie o frontend
+
+Em outro terminal:
+
+```bash
+cd front-end
+npm install
+npm run dev
+```
+
+O frontend roda em:
+
+```text
+http://localhost:5173
+```
+
+O Vite redireciona `/api` para:
+
+```text
+http://127.0.0.1:5050
+```
+
+## App macOS
+
+O projeto possui Electron para gerar um app desktop.
+
+Para abrir em modo desktop de desenvolvimento:
+
+```bash
+cd front-end
+npm run desktop
+```
+
+Para gerar e instalar o app em `/Applications`:
+
+```bash
+cd front-end
+npm run update:app
+```
+
+Esse script:
+
+- builda o frontend;
+- gera o app Electron;
+- fecha o Nexus IA antigo, se estiver aberto;
+- copia `Nexus IA.app` para `/Applications`;
+- copia `Back-end/.env` para `~/Library/Application Support/Nexus IA/.env`;
+- abre o app.
+
+No app desktop, o Electron tenta iniciar o backend automaticamente em `127.0.0.1:5050`.
+
+## Banco de Dados Local
+
+O Nexus usa SQLite.
+
+No desenvolvimento, o banco fica em:
+
+```text
+Back-end/chat_history.db
+```
+
+No app desktop, o banco fica em:
+
+```text
+~/Library/Application Support/Nexus IA/chat_history.db
+```
+
+Arquivos locais de banco e audio nao devem ser commitados.
+
+## Supabase Sync
+
+O Supabase e opcional. O app funciona offline sem ele.
+
+### 1. Criar tabela no Supabase
+
+No SQL Editor do Supabase, rode o arquivo:
+
+```text
+Back-end/supabase_schema.sql
+```
+
+Ele cria a tabela generica:
+
+```text
+nexus_sync_records
+```
+
+### 2. Configurar `.env`
+
+```env
+SUPABASE_SYNC_ENABLED=1
+SUPABASE_URL=https://seu-projeto.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=sua_service_role_key
+SUPABASE_SYNC_TABLE=nexus_sync_records
+```
+
+Ou use `SUPABASE_ANON_KEY`, se suas policies permitirem.
+
+### 3. Testar sync
+
+Com backend ligado:
+
+```bash
+curl http://127.0.0.1:5050/api/sync/status
+```
+
+Pelo frontend/app, use o botao `Sincronizar agora`.
+
+Se aparecer erro como `Failed to resolve`, confira:
+
+- se o projeto Supabase nao esta pausado;
+- se `SUPABASE_URL` esta correta;
+- se a URL nao tem `/rest/v1`;
+- se sua internet/DNS/VPN esta funcionando.
+
+## Busca Google
+
+Para ativar busca web em tempo real, use Google Custom Search JSON API.
+
+No `.env`:
+
+```env
+GOOGLE_API_KEY=sua_api_key
+GOOGLE_CSE_ID=seu_cse_id
+```
+
+No Google Programmable Search Engine, configure para pesquisar a web inteira se quiser resultados gerais.
+
+Teste pelo app ativando `Buscar no Google` nas configuracoes e fazendo uma pergunta atual.
+
+## Voz
+
+### TTS
+
+O TTS usa Piper local com:
+
+```text
+Back-end/voz/pt_BR-faber-medium.onnx
+Back-end/voz/pt_BR-faber-medium.onnx.json
+```
+
+O backend procura o Piper nesta ordem:
+
+1. `NEXUS_PIPER_BIN`;
+2. binario em `Back-end/piper`;
+3. `piper` no PATH.
+
+### STT
+
+O STT usa `faster-whisper`.
+
+O modelo esperado fica em:
+
+```text
+Back-end/models/faster-whisper-base
+```
+
+Se precisar baixar:
+
+```bash
+cd Back-end
+source ambiente/bin/activate
+python baixar_stt.py
+```
+
+Chat por texto funciona mesmo sem STT.
+
+## RAG, PDFs e Memoria
+
+Quando voce importa PDF, texto, URL ou pesquisa:
+
+- o conteudo completo e salvo em `knowledge_sources`;
+- o texto e dividido em chunks;
+- os chunks sao salvos em `embeddings`;
+- o sistema gera resumo, topicos e entidades;
+- o grafo cognitivo recebe conceitos detectados;
+- a Obsidian passa a mostrar nos relacionados.
+
+O RAG funciona offline com BM25. A busca semantica com `sentence-transformers` e opcional e controlada por:
+
+```env
+NEXUS_ENABLE_SEMANTIC_RAG=1
+NEXUS_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+```
+
+Por padrao, o semantico pode ficar desligado para deixar o app mais leve.
+
+## Codebase Indexer
+
+Nas configuracoes do app existe a area `Codebase`.
+
+Ela permite indexar uma pasta de projeto. O Nexus salva:
+
+- arquivos;
+- funcoes;
+- classes;
+- imports;
+- hooks;
+- rotas;
+- endpoints;
+- dependencias;
+- componentes;
+- resumo estrutural.
+
+Depois disso, voce pode perguntar coisas como:
+
+```text
+Onde esta a funcao login?
+Quais componentes usam useState?
+Quais endpoints existem no backend?
+Explique a estrutura desse projeto.
+```
+
+## Endpoints Importantes
+
+```text
+GET  /api/config
+GET  /api/sessions
+POST /api/sessions
+GET  /api/sessions/<id>/messages
+GET  /api/sessions/<id>/knowledge
+POST /api/sessions/<id>/knowledge
+POST /api/chat
+POST /api/chat/stream
+GET  /api/sync/status
+POST /api/sync/run
+GET  /api/cognitive/health
+GET  /api/cognitive/memory
+GET  /api/cognitive/graph
+POST /api/cognitive/codebase/index
+GET  /api/cognitive/codebase/search
+```
+
+## Troubleshooting
+
+### `zsh: command not found: python`
+
+No macOS, use:
+
+```bash
+python3 app.py
+```
+
+Ou ative o ambiente:
+
+```bash
+source ambiente/bin/activate
+python app.py
+```
+
+### `ModuleNotFoundError: No module named flask`
+
+Voce nao esta no ambiente virtual ou nao instalou dependencias:
+
+```bash
+cd Back-end
+source ambiente/bin/activate
+python -m pip install -r requirements.txt
+python app.py
+```
+
+### `Address already in use Port 5050`
+
+Ja existe backend rodando na porta 5050.
+
+Veja processos:
+
+```bash
+ps aux | grep app.py
+```
+
+Ou feche o app/terminal antigo antes de iniciar outro backend.
+
+### Aviso `NotOpenSSLWarning` / LibreSSL
+
+No macOS com Python do sistema, o `urllib3` pode avisar sobre LibreSSL. Em geral e apenas aviso. Se quiser evitar, instale Python recente via Homebrew ou python.org.
+
+### Chat nao responde
+
+Confira:
+
+```bash
+ollama list
+curl http://127.0.0.1:5050/api/config
+```
+
+O Ollama precisa estar aberto e com modelo baixado.
+
+### Supabase `Failed to resolve`
+
+Provaveis causas:
+
+- projeto Supabase pausado;
+- `SUPABASE_URL` errada;
+- DNS/VPN bloqueando;
+- URL com `/rest/v1` no final.
+
+Formato correto:
+
+```env
+SUPABASE_URL=https://seu-projeto.supabase.co
+```
+
+### Frontend branco no Electron
+
+Rode build novamente:
+
+```bash
+cd front-end
+npm run build
+npm run desktop
+```
+
+Para reinstalar:
+
+```bash
+npm run update:app
+```
+
+## Git e Arquivos Grandes
+
+Nao commitar:
+
+- `front-end/release/`;
+- `front-end/dist/`;
+- `Back-end/chat_history.db*`;
+- `Back-end/models/`;
+- ambientes virtuais;
+- `.env`;
+- arquivos gerados de audio.
+
+Esses itens ja devem estar no `.gitignore`.
+
+## Comandos Rapidos
+
+Backend:
+
+```bash
+cd Back-end
+source ambiente/bin/activate
+python app.py
+```
+
+Frontend:
+
+```bash
+cd front-end
+npm run dev
+```
+
+Build:
+
+```bash
+cd front-end
+npm run build
+```
+
+Lint:
+
+```bash
+cd front-end
+npm run lint
+```
+
+Atualizar app macOS:
+
+```bash
+cd front-end
+npm run update:app
+```
+
+## Status Atual Esperado
+
+Com tudo funcionando:
+
+- backend responde em `http://127.0.0.1:5050/api/config`;
+- frontend abre em `http://localhost:5173`;
+- Ollama lista pelo menos um modelo;
+- chat responde por texto;
+- importacao de PDF cria conhecimento na Obsidian;
+- Supabase sync fica online se `.env` estiver correto e projeto ativo;
+- app desktop abre sem precisar iniciar backend pela IDE.

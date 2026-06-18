@@ -5,6 +5,7 @@ Três níveis:
   - short   → expira em 24 horas (contexto da sessão)
   - medium  → expira em 30–90 dias (conhecimentos recentes)
   - long    → permanente (aprendizados consolidados)
+  - archive → permanente, baixa frequência, só entra sob demanda
 
 A importância de cada memória determina se ela sobe de nível
 no processo de consolidação.
@@ -107,6 +108,14 @@ def save_long_term(content: str, session_id: Optional[str] = None,
     if importance < MIN_LONG_IMPORTANCE:
         return None
     return save_memory(content, "long", session_id, importance, tags)
+
+
+def save_archive(content: str, session_id: Optional[str] = None,
+                 importance: float = 0.45, tags: Optional[list] = None) -> Optional[dict]:
+    """Salva memória arquivada: persistente, mas de baixa prioridade no contexto."""
+    if len((content or "").strip()) < MIN_CONTENT_LENGTH:
+        return None
+    return save_memory(content, "archive", session_id, importance, tags)
 
 
 # ── Leitura e Recall ─────────────────────────────────────────────────────────
@@ -253,6 +262,30 @@ def prune_expired() -> int:
         return cursor.rowcount
 
 
+def archive_stale_memories(days_without_access: int = 90, max_importance: float = 0.55) -> int:
+    """
+    Move memórias antigas e pouco importantes para Archive Memory.
+    Core/locked nunca são arquivadas automaticamente.
+    """
+    cutoff = iso_from_delta(days=-days_without_access)
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE memories
+            SET memory_type='archive', expires_at=NULL
+            WHERE memory_type IN ('short', 'medium')
+              AND importance <= ?
+              AND COALESCE(access_count, 0) <= 1
+              AND COALESCE(is_core, 0) = 0
+              AND COALESCE(locked, 0) = 0
+              AND COALESCE(last_accessed, created_at) < ?
+            """,
+            (max_importance, cutoff),
+        )
+        conn.commit()
+        return cursor.rowcount
+
+
 def update_memory(memory_id: int, **updates) -> Optional[dict]:
     """Edita conteúdo, importância, tags, origem e flags de memória."""
     allowed = {
@@ -326,6 +359,7 @@ def get_stats() -> dict:
                 SUM(CASE WHEN memory_type = 'short'  THEN 1 ELSE 0 END) as short_count,
                 SUM(CASE WHEN memory_type = 'medium' THEN 1 ELSE 0 END) as medium_count,
                 SUM(CASE WHEN memory_type = 'long'   THEN 1 ELSE 0 END) as long_count,
+                SUM(CASE WHEN memory_type = 'archive' THEN 1 ELSE 0 END) as archive_count,
                 SUM(CASE WHEN COALESCE(is_core, 0) = 1 THEN 1 ELSE 0 END) as core_count,
                 AVG(importance) as avg_importance
             FROM memories
@@ -337,7 +371,7 @@ def get_stats() -> dict:
 # ── Helpers internos ─────────────────────────────────────────────────────────
 
 def _compute_expiry(memory_type: str, importance: float) -> Optional[str]:
-    if memory_type in {"long", "core"}:
+    if memory_type in {"long", "core", "archive"}:
         return None
     if memory_type == "medium":
         days = _medium_days(importance)
