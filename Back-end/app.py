@@ -37,6 +37,7 @@ from cognitive import conversation as cognitive_conversation
 from cognitive import knowledge_graph
 from cognitive import rag as cognitive_rag
 from cognitive import summarizer as cognitive_summarizer
+from cognitive import user_profile
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR.parent / "front-end" / "dist"
@@ -295,6 +296,49 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
             knowledge_context = f"{summary_context}\n\n{knowledge_context}" if knowledge_context else summary_context
 
     return history, title_update, knowledge_context
+
+
+def _format_person_name(name: str) -> str:
+    return " ".join(part.capitalize() for part in str(name or "").split())
+
+
+def _get_profile_name() -> Optional[str]:
+    profile = user_profile.get_profile(limit_per_key=1)
+    names = profile.get("name") or []
+    if not names:
+        return None
+    return _format_person_name(names[0].get("fact_value", ""))
+
+
+def get_direct_profile_reply(user_text: str, session_id: Optional[str]) -> Optional[str]:
+    """Responde fatos simples do perfil sem depender do LLM."""
+    clean = re.sub(r"\s+", " ", user_text or "").strip()
+    lower = clean.lower()
+
+    facts = user_profile.update_from_text(clean, session_id=session_id)
+    name_fact = next((fact for fact in facts if fact.get("fact_key") == "name"), None)
+    if name_fact:
+        name = _format_person_name(name_fact.get("fact_value", ""))
+        return f"Entendi, seu nome é {name}. Vou lembrar disso."
+
+    asks_name = bool(re.search(
+        r"\b(qual (?:é|e) o meu nome|sabe meu nome|meu nome\?|como eu me chamo|quem sou eu)\b",
+        lower,
+    ))
+    if asks_name:
+        name = _get_profile_name()
+        if name:
+            return f"Seu nome é {name}."
+        return "Ainda não tenho seu nome salvo. Se quiser, me diga: meu nome é ..."
+
+    asks_profile = bool(re.search(r"\b(o que você sabe sobre mim|o que voce sabe sobre mim|você me conhece|voce me conhece|meu perfil)\b", lower))
+    if asks_profile:
+        context = user_profile.get_profile_context()
+        if context:
+            return f"Isso é o que tenho salvo sobre você:\n{context}"
+        return "Ainda não tenho informações salvas sobre você."
+
+    return None
 
 
 VAGUE_REFERENCE_WORDS = {
@@ -706,23 +750,27 @@ def chat():
 
     try:
         history, title_update, knowledge_context = prepare_session_context(session_id, user_text)
+        direct_reply = get_direct_profile_reply(user_text, session_id)
 
         web_results = []
         web_context = None
-        if should_search_web:
+        if should_search_web and not direct_reply:
             web_results = search_google(user_text)
             web_context = format_web_context(web_results)
 
-        # 1. Envia o texto para a IA (Ollama)
-        reply = llm_ollama(user_text, history, selected_model, web_context, knowledge_context)
-        if not reply:
-            return jsonify({"error": "Nenhuma resposta foi obtida da IA."}), 500
-        reply = cognitive_conversation.maybe_refine_response(
-            user_text=user_text,
-            draft=reply,
-            context=knowledge_context,
-            llm_call=lambda prompt: llm_ollama_raw(prompt, selected_model, num_predict=900),
-        )
+        if direct_reply:
+            reply = direct_reply
+        else:
+            # 1. Envia o texto para a IA (Ollama)
+            reply = llm_ollama(user_text, history, selected_model, web_context, knowledge_context)
+            if not reply:
+                return jsonify({"error": "Nenhuma resposta foi obtida da IA."}), 500
+            reply = cognitive_conversation.maybe_refine_response(
+                user_text=user_text,
+                draft=reply,
+                context=knowledge_context,
+                llm_call=lambda prompt: llm_ollama_raw(prompt, selected_model, num_predict=900),
+            )
 
         # 2. Gera a resposta por voz usando o Piper
         audio_filename = f"reply_{int(time.time())}.wav"
@@ -779,6 +827,7 @@ def chat_stream():
         return jsonify({"error": "Nenhum texto ou áudio fornecido"}), 400
 
     history, title_update, knowledge_context = prepare_session_context(session_id, user_text)
+    direct_reply = get_direct_profile_reply(user_text, session_id)
 
     def generate():
         # Envia a transcrição do áudio do usuário primeiro
@@ -787,7 +836,7 @@ def chat_stream():
             yield sse_event({'type': 'session_update', 'session': title_update})
 
         web_context = None
-        if should_search_web:
+        if should_search_web and not direct_reply:
             try:
                 web_results = search_google(user_text)
                 web_context = format_web_context(web_results)
@@ -800,7 +849,8 @@ def chat_stream():
         sentence_idx = 0
         
         try:
-            for token in llm_ollama_stream(user_text, history, selected_model, web_context, knowledge_context):
+            token_source = [direct_reply] if direct_reply else llm_ollama_stream(user_text, history, selected_model, web_context, knowledge_context)
+            for token in token_source:
                 # Envia o token de texto gerado para o Front-end imprimir na tela
                 yield sse_event({'type': 'token', 'content': token})
                 full_response += token
@@ -870,9 +920,30 @@ def get_audio(filename):
 if __name__ == "__main__":
     # Local por padrão; em NEXUS_REMOTE_MODE=true escuta em 0.0.0.0 para LAN/VPN/Tailscale.
     config = remote_access.get_remote_config()
+    mobile_token = remote_access.get_or_create_mobile_token()
     print(
         "[Remote] "
         f"mode={config['remote_mode']} host={config['host']} port={config['port']} "
         f"local_url={config['local_url']} auth_configured={config['auth_configured']}"
     )
+    print("")
+    if remote_access.REMOTE_MODE:
+        print("Nexus Mobile Remote ligado")
+        print(f"Front em desenvolvimento: {config['frontend_dev_url']}")
+        print(f"Backend/API: {config['local_url']}")
+        print("")
+        print("No iPhone, abra a URL do Front se estiver usando npm run dev:mobile.")
+        print("Use a URL do Backend/API apenas para testar /api/health ou acessar o build servido pelo Flask.")
+        print(f"Token: {mobile_token}")
+    else:
+        print("Nexus em modo local")
+        print(f"Mac/local: http://127.0.0.1:{config['port']}")
+        print("")
+        print("Para abrir no iPhone, reinicie assim:")
+        print("NEXUS_REMOTE_MODE=true python app.py")
+        print("")
+        print(f"Front no iPhone em desenvolvimento: {config['frontend_dev_url']}")
+        print(f"Backend/API no iPhone: {config['local_url']}")
+        print(f"Token que sera usado: {mobile_token}")
+    print("")
     app.run(host=remote_access.HOST, port=remote_access.PORT, debug=False, use_reloader=False)

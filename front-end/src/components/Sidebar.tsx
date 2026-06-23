@@ -32,8 +32,14 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
-        <div className="nexus-glyph">
-          <Bot size={18} />
+        <div className="sidebar-mobile-brand">
+          <div className="nexus-glyph">
+            <Bot size={18} />
+          </div>
+          <div>
+            <strong>Nexus IA</strong>
+            <span>Conversas</span>
+          </div>
         </div>
         <button className="new-chat-button" type="button" onClick={onNewChat}>
           <Plus size={15} />

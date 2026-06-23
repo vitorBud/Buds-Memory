@@ -55,6 +55,11 @@ function isDesktopApp() {
   return Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
 }
 
+function isMobileViewport() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  return window.matchMedia('(max-width: 760px)').matches
+}
+
 function getInitialSettings(): InterfaceSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -346,7 +351,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState('')
-  const [focusMode, setFocusMode] = useState(false)
+  const [focusMode, setFocusMode] = useState(() => isMobileViewport())
   const [railTab, setRailTab] = useState<RailTab>('memory')
   const [chatRevealActive, setChatRevealActive] = useState(false)
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([])
@@ -657,12 +662,14 @@ export default function App() {
     setMsgCount(0)
     setLatency('')
     setSessions(prev => [session, ...prev])
+    if (isMobileViewport()) setFocusMode(true)
     pushActivity('Nova conversa iniciada', 'cyan')
   }
 
   const handleSelectSession = async (session: Session) => {
     try {
       await loadSessionData(session)
+      if (isMobileViewport()) setFocusMode(true)
     } catch (err) {
       console.error(err)
     }
@@ -796,6 +803,7 @@ export default function App() {
 
   const handleSmoothScrollToChat = () => {
     setActiveView('chat')
+    if (isMobileViewport()) setFocusMode(true)
     setChatRevealActive(true)
     window.history.replaceState(null, '', '#chat')
     window.scrollTo({ top: 0 })
@@ -813,6 +821,7 @@ export default function App() {
     cancelRecording()
     stopOutput()
     setActiveView('chat')
+    if (isMobileViewport()) setFocusMode(true)
     window.history.replaceState(null, '', '#chat')
     window.scrollTo({ top: 0 })
   }
@@ -930,16 +939,24 @@ export default function App() {
         <div className={`app-layout theme-${settings.theme} density-${settings.density}`}>
           <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
           {!focusMode && (
-            <Sidebar
-              sessions={sessions}
-              currentSessionId={currentSessionId}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              onNewChat={handleNewChat}
-              onSelect={handleSelectSession}
-              onDelete={handleDeleteSession}
-              systemUptime={formatUptime()}
-            />
+            <>
+              <button
+                type="button"
+                className="mobile-sidebar-scrim"
+                aria-label="Fechar histórico"
+                onClick={() => setFocusMode(true)}
+              />
+              <Sidebar
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                onNewChat={handleNewChat}
+                onSelect={handleSelectSession}
+                onDelete={handleDeleteSession}
+                systemUptime={formatUptime()}
+              />
+            </>
           )}
 
           <main className="workspace">

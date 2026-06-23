@@ -52,6 +52,11 @@ export function VoiceMode({
   const volume = Math.max(0.04, Math.min(1, micVolume))
   const status = STATUS_LABEL[aiState]
   const canToggleMic = !isProcessing || isRecording
+  const statusHint = isRecording
+    ? `${recSeconds}s`
+    : aiState === 'error'
+      ? 'Toque no nucleo e permita o microfone no Safari'
+      : 'Toque no nucleo para permitir o microfone e falar'
 
   return (
     <section
@@ -91,9 +96,7 @@ export function VoiceMode({
 
       <div className="voice-status" aria-live="polite">
         <strong>{status}</strong>
-        <span>
-          {isRecording ? `${recSeconds}s` : aiState === 'error' ? 'Verifique permissao do microfone' : 'Toque no nucleo para falar'}
-        </span>
+        <span>{statusHint}</span>
       </div>
 
       <button type="button" className="voice-end-button" onClick={onExit}>

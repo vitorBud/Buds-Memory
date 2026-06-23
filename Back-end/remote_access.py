@@ -3,8 +3,10 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
 import socket
 import time
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -21,9 +23,30 @@ def env_bool(name: str, default: bool = False) -> bool:
 REMOTE_MODE = env_bool("NEXUS_REMOTE_MODE", False)
 HOST = os.getenv("NEXUS_HOST") or ("0.0.0.0" if REMOTE_MODE else "127.0.0.1")
 PORT = int(os.getenv("NEXUS_PORT", "5050"))
+FRONTEND_PORT = int(os.getenv("NEXUS_FRONTEND_PORT", "5174"))
 AUTH_TOKEN = os.getenv("NEXUS_AUTH_TOKEN", "").strip()
 SESSION_TTL_SECONDS = int(float(os.getenv("NEXUS_SESSION_TTL_HOURS", "24")) * 3600)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+TOKEN_FILE = Path(__file__).resolve().parent / ".nexus_remote_token"
+
+
+def get_or_create_mobile_token() -> str:
+    if AUTH_TOKEN:
+        return AUTH_TOKEN
+    try:
+        if TOKEN_FILE.exists():
+            token = TOKEN_FILE.read_text(encoding="utf-8").strip()
+            if token:
+                return token
+        token = secrets.token_hex(24)
+        TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
+        return token
+    except Exception:
+        return secrets.token_hex(24)
+
+
+if REMOTE_MODE and not AUTH_TOKEN:
+    AUTH_TOKEN = get_or_create_mobile_token()
 
 
 def get_local_ip() -> str:
@@ -49,6 +72,7 @@ def get_remote_config() -> dict:
         "port": PORT,
         "local_ip": local_ip,
         "local_url": f"http://{local_ip}:{PORT}",
+        "frontend_dev_url": f"http://{local_ip}:{FRONTEND_PORT}",
         "auth_required": REMOTE_MODE,
         "auth_configured": bool(AUTH_TOKEN),
         "session_ttl_seconds": SESSION_TTL_SECONDS,

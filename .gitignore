@@ -20,6 +20,7 @@ ambiente/
 Back-end/ambiente/
 config.json
 Back-end/config.json
+Back-end/.nexus_remote_token
 front-end/release/
 front-end/dist/
 
