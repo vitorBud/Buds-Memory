@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-mobile-shell-v1'
+const CACHE_NAME = 'nexus-mobile-shell-v3'
 const SHELL_ASSETS = [
   '/',
   '/manifest.webmanifest',

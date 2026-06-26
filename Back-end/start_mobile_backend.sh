@@ -25,6 +25,11 @@ export NEXUS_REMOTE_MODE=true
 export NEXUS_PORT="${NEXUS_PORT:-5050}"
 export NEXUS_FRONTEND_PORT="${NEXUS_FRONTEND_PORT:-5174}"
 
+TAILSCALE_IP=""
+if command -v tailscale >/dev/null 2>&1; then
+  TAILSCALE_IP="$(tailscale ip -4 2>/dev/null | head -n 1 || true)"
+fi
+
 LOCAL_IP="$(ipconfig getifaddr en0 2>/dev/null || true)"
 if [ -z "$LOCAL_IP" ]; then
   LOCAL_IP="$(ipconfig getifaddr en1 2>/dev/null || true)"
@@ -39,16 +44,36 @@ if [ -z "$LOCAL_IP" ]; then
   LOCAL_IP="IP_DO_MAC"
 fi
 
+LAN_FRONT_URL="http://$LOCAL_IP:$NEXUS_FRONTEND_PORT"
+LAN_API_URL="http://$LOCAL_IP:$NEXUS_PORT"
+OUTSIDE_FRONT_URL="${NEXUS_PUBLIC_FRONTEND_URL:-}"
+OUTSIDE_API_URL="${NEXUS_PUBLIC_URL:-}"
+
+if [ -z "$OUTSIDE_FRONT_URL" ] && [ -n "$TAILSCALE_IP" ]; then
+  OUTSIDE_FRONT_URL="http://$TAILSCALE_IP:$NEXUS_FRONTEND_PORT"
+fi
+if [ -z "$OUTSIDE_API_URL" ] && [ -n "$TAILSCALE_IP" ]; then
+  OUTSIDE_API_URL="http://$TAILSCALE_IP:$NEXUS_PORT"
+fi
+
 echo ""
 echo "Nexus Mobile Remote ligado"
-echo "Front em desenvolvimento: http://$LOCAL_IP:$NEXUS_FRONTEND_PORT"
-echo "Backend/API: http://$LOCAL_IP:$NEXUS_PORT"
+echo "Mesma Wi-Fi - Front: $LAN_FRONT_URL"
+echo "Mesma Wi-Fi - Backend/API: $LAN_API_URL"
 echo ""
-echo "No iPhone, abra o Front se estiver usando npm run dev:mobile."
+if [ -n "$OUTSIDE_FRONT_URL" ]; then
+  echo "Wi-Fi diferente / internet - Front: $OUTSIDE_FRONT_URL"
+  echo "Wi-Fi diferente / internet - Backend/API: $OUTSIDE_API_URL"
+else
+  echo "Wi-Fi diferente / internet: configure Tailscale, Cloudflare Tunnel ou ngrok."
+  echo "Depois defina NEXUS_PUBLIC_FRONTEND_URL e NEXUS_PUBLIC_URL, se nao usar Tailscale."
+fi
+echo ""
+echo "No iPhone, abra sempre a URL do Front se estiver usando npm run dev:mobile."
 echo "Use o Backend/API apenas para testar /api/health ou acessar o build servido pelo Flask."
 echo "Token: $NEXUS_AUTH_TOKEN"
 echo ""
-echo "Se usar Tailscale, troque o IP pelo IP Tailscale do Mac."
+echo "Dica: Tailscale e a opcao mais simples para usar em Wi-Fi diferente sem abrir porta no roteador."
 echo ""
 
 python app.py

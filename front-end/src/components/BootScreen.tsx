@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { AlertCircle, Bot, CheckCircle2, Database, Loader2, Server, Wifi } from 'lucide-react'
-import { authFetch, getBase, loginRemote } from '../services/api'
+import { AlertCircle, Bot, CheckCircle2, Cloud, Database, KeyRound, Loader2, Server, UserRound, Wifi } from 'lucide-react'
+import { authFetch, getBase, getRemoteSessionToken, loginLocal, loginRemote, loginSupabase, pullCloudChats, signupSupabase } from '../services/api'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -27,6 +27,9 @@ export interface SystemHealth {
   rag?: boolean
   knowledgeGraph?: boolean
   remoteMode?: boolean
+  authMode?: 'local' | 'supabase' | 'remote' | 'anonymous' | string
+  userId?: string
+  userEmail?: string
   model: string
   backendLatency: number | null
 }
@@ -56,12 +59,19 @@ export function BootScreen({ onDone }: BootScreenProps) {
     rag: false,
     knowledgeGraph: false,
     remoteMode: false,
+    authMode: 'local',
     model: '',
     backendLatency: null,
   })
   const [needsAuth, setNeedsAuth] = useState(false)
   const [authToken, setAuthToken] = useState('')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authPanel, setAuthPanel] = useState<'supabase' | 'local' | 'token'>('supabase')
+  const [supabaseMode, setSupabaseMode] = useState<'login' | 'signup'>('login')
   const [authError, setAuthError] = useState('')
+  const [authNotice, setAuthNotice] = useState('')
+  const [authBusy, setAuthBusy] = useState(false)
   const [authVersion, setAuthVersion] = useState(0)
 
   const [steps, setSteps] = useState<BootStep[]>([
@@ -104,18 +114,74 @@ export function BootScreen({ onDone }: BootScreenProps) {
     }, 420)
   }
 
-  async function handleRemoteLogin(event: FormEvent) {
-    event.preventDefault()
-    if (!authToken.trim()) return
+  async function finishAuth(action: () => Promise<unknown>, fallbackError: string) {
     setAuthError('')
+    setAuthNotice('')
+    setAuthBusy(true)
     try {
-      await loginRemote(authToken.trim())
+      await action()
       setAuthToken('')
+      setAuthPassword('')
       setNeedsAuth(false)
       setAuthVersion(value => value + 1)
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Token remoto inválido.')
+      setAuthError(err instanceof Error ? err.message : fallbackError)
+    } finally {
+      setAuthBusy(false)
     }
+  }
+
+  async function handleLocalLogin() {
+    await finishAuth(
+      () => loginLocal(),
+      'Não foi possível liberar o modo local.',
+    )
+  }
+
+  async function handleSupabaseLogin(event: FormEvent) {
+    event.preventDefault()
+    if (!authEmail.trim() || !authPassword) return
+    await finishAuth(
+      async () => {
+        await loginSupabase(authEmail.trim(), authPassword)
+        await pullCloudChats().catch(() => undefined)
+      },
+      'Login Supabase inválido.',
+    )
+  }
+
+  async function handleSupabaseSignup(event: FormEvent) {
+    event.preventDefault()
+    if (!authEmail.trim() || !authPassword) return
+    setAuthError('')
+    setAuthNotice('')
+    setAuthBusy(true)
+    try {
+      const result = await signupSupabase(authEmail.trim(), authPassword)
+      if (result.access_token) {
+        setAuthPassword('')
+        await pullCloudChats().catch(() => undefined)
+        setNeedsAuth(false)
+        setAuthVersion(value => value + 1)
+        return
+      }
+      setAuthPassword('')
+      setSupabaseMode('login')
+      setAuthNotice(result.message || 'Conta criada. Confirme seu e-mail e depois entre pelo Nexus.')
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : 'Não foi possível criar a conta.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function handleRemoteLogin(event: FormEvent) {
+    event.preventDefault()
+    if (!authToken.trim()) return
+    await finishAuth(
+      () => loginRemote(authToken.trim()),
+      'Token remoto inválido.',
+    )
   }
 
   useEffect(() => {
@@ -130,6 +196,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
         rag: false,
         knowledgeGraph: false,
         remoteMode: false,
+        authMode: 'local',
         model: '',
         backendLatency: null,
       }
@@ -145,6 +212,9 @@ export function BootScreen({ onDone }: BootScreenProps) {
           rag?: boolean
           knowledge_graph?: boolean
           authenticated?: boolean
+          auth_mode?: string
+          user_id?: string
+          email?: string
           remote?: { remote_mode?: boolean; auth_required?: boolean; auth_configured?: boolean; local_url?: string }
         }
         updatedHealth.backend = true
@@ -152,6 +222,9 @@ export function BootScreen({ onDone }: BootScreenProps) {
         updatedHealth.rag = Boolean(healthPayload.rag)
         updatedHealth.knowledgeGraph = Boolean(healthPayload.knowledge_graph)
         updatedHealth.remoteMode = Boolean(healthPayload.remote?.remote_mode)
+        updatedHealth.authMode = healthPayload.auth_mode || 'local'
+        updatedHealth.userId = healthPayload.user_id
+        updatedHealth.userEmail = healthPayload.email
         updatedHealth.backendLatency = ms
         setStep('backend', {
           state: 'ok',
@@ -159,6 +232,15 @@ export function BootScreen({ onDone }: BootScreenProps) {
             ? `Remoto ativo em ${healthPayload.remote?.local_url ?? 'rede privada'}`
             : `Conectado em ${ms}ms`,
         })
+        if (!getRemoteSessionToken()) {
+          setNeedsAuth(true)
+          setStep('database', {
+            state: 'pending',
+            detail: 'Escolha Supabase ou modo local para carregar o histórico',
+          })
+          setHealth(updatedHealth)
+          return
+        }
         if (healthPayload.remote?.auth_required && !healthPayload.authenticated) {
           setNeedsAuth(true)
           setStep('database', {
@@ -267,23 +349,94 @@ export function BootScreen({ onDone }: BootScreenProps) {
         </div>
 
         {needsAuth && (
-          <form className="boot-auth-form" onSubmit={handleRemoteLogin}>
-            <label htmlFor="nexus-remote-token">Token remoto</label>
-            <div>
-              <input
-                id="nexus-remote-token"
-                value={authToken}
-                onChange={(event) => setAuthToken(event.target.value)}
-                type="password"
-                autoComplete="current-password"
-                placeholder="NEXUS_AUTH_TOKEN"
-              />
-              <button type="submit" disabled={!authToken.trim()}>
-                Entrar
+          <div className="boot-auth-form boot-account-panel">
+            <div className="boot-auth-tabs" role="tablist" aria-label="Modo de entrada">
+              <button type="button" className={authPanel === 'supabase' ? 'is-active' : ''} onClick={() => setAuthPanel('supabase')}>
+                <Cloud size={15} /> Supabase
+              </button>
+              <button type="button" className={authPanel === 'local' ? 'is-active' : ''} onClick={() => setAuthPanel('local')}>
+                <UserRound size={15} /> Local
+              </button>
+              <button type="button" className={authPanel === 'token' ? 'is-active' : ''} onClick={() => setAuthPanel('token')}>
+                <KeyRound size={15} /> Token
               </button>
             </div>
+
+            {authPanel === 'supabase' && (
+              <form className="boot-auth-stack" onSubmit={supabaseMode === 'login' ? handleSupabaseLogin : handleSupabaseSignup}>
+                <label htmlFor="nexus-supabase-email">
+                  {supabaseMode === 'login' ? 'Entrar com Supabase' : 'Criar conta Nexus'}
+                </label>
+                <p>
+                  {supabaseMode === 'login'
+                    ? 'Entre para carregar chats da nuvem e liberar sincronização.'
+                    : 'Crie sua conta para usar o Nexus em outros dispositivos com Supabase.'}
+                </p>
+                <input
+                  id="nexus-supabase-email"
+                  value={authEmail}
+                  onChange={(event) => setAuthEmail(event.target.value)}
+                  type="email"
+                  autoComplete="email"
+                  placeholder="seu@email.com"
+                />
+                <input
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  type="password"
+                  autoComplete={supabaseMode === 'login' ? 'current-password' : 'new-password'}
+                  placeholder="Senha"
+                />
+                <button type="submit" disabled={authBusy || !authEmail.trim() || !authPassword}>
+                  {authBusy ? <Loader2 size={15} className="spin" /> : <Cloud size={15} />}
+                  {supabaseMode === 'login' ? 'Entrar e baixar chats' : 'Criar conta'}
+                </button>
+                <button
+                  type="button"
+                  className="boot-auth-link"
+                  onClick={() => {
+                    setAuthError('')
+                    setAuthNotice('')
+                    setSupabaseMode(mode => mode === 'login' ? 'signup' : 'login')
+                  }}
+                >
+                  {supabaseMode === 'login' ? 'Criar uma nova conta' : 'Já tenho conta'}
+                </button>
+              </form>
+            )}
+
+            {authPanel === 'local' && (
+              <div className="boot-auth-stack">
+                <label>Continuar localmente</label>
+                <p>Usa apenas os dados salvos neste Mac/iPhone. Para sincronizar com a nuvem, entre com Supabase.</p>
+                <button type="button" onClick={handleLocalLogin} disabled={authBusy}>
+                  {authBusy ? <Loader2 size={15} className="spin" /> : <UserRound size={15} />}
+                  Liberar modo local
+                </button>
+              </div>
+            )}
+
+            {authPanel === 'token' && (
+              <form className="boot-auth-stack" onSubmit={handleRemoteLogin}>
+                <label htmlFor="nexus-remote-token">Token técnico remoto</label>
+                <input
+                  id="nexus-remote-token"
+                  value={authToken}
+                  onChange={(event) => setAuthToken(event.target.value)}
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="NEXUS_AUTH_TOKEN"
+                />
+                <button type="submit" disabled={authBusy || !authToken.trim()}>
+                  {authBusy ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />}
+                  Entrar com token
+                </button>
+              </form>
+            )}
+
+            {authNotice && <p className="boot-auth-notice">{authNotice}</p>}
             {authError && <p>{authError}</p>}
-          </form>
+          </div>
         )}
 
         {/* Steps */}

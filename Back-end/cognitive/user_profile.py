@@ -15,6 +15,10 @@ from database_v2 import get_db_connection, now_iso, json_loads
 from cognitive import knowledge_graph
 
 
+CORE_PROFILE_KEYS = {"name", "profession", "project"}
+CORE_PROFILE_MIN_CONFIDENCE = 0.65
+
+
 PROFILE_KEYS = {
     "name": "Nome",
     "profession": "Profissão",
@@ -29,13 +33,15 @@ def update_from_text(text: str, session_id: Optional[str] = None, source: str = 
     facts = extract_profile_facts(text)
     saved = []
     for fact in facts:
-        saved.append(upsert_fact(
+        saved_fact = upsert_fact(
             fact["key"],
             fact["value"],
             confidence=fact.get("confidence", 0.6),
             source=source,
             session_id=session_id,
-        ))
+        )
+        _sync_core_memory(saved_fact)
+        saved.append(saved_fact)
     return saved
 
 
@@ -198,6 +204,73 @@ def get_stats() -> dict:
     return {"total": total, "by_key": {row["fact_key"]: row["n"] for row in by_key}}
 
 
+def _sync_core_memory(fact: dict) -> None:
+    """Espelha fatos pessoais estáveis em Core Memory visível na Obsidian."""
+    key = fact.get("fact_key")
+    confidence = float(fact.get("confidence") or 0.0)
+    if key not in CORE_PROFILE_KEYS or confidence < CORE_PROFILE_MIN_CONFIDENCE:
+        return
+
+    content = _core_memory_content(key, fact.get("fact_value", ""))
+    if not content:
+        return
+
+    fact_id = int(fact["id"])
+    session_id = fact.get("session_id")
+    tags = ["perfil", key]
+    try:
+        from cognitive import memory
+
+        with get_db_connection() as conn:
+            if session_id:
+                exists = conn.execute("SELECT 1 FROM sessions WHERE id=? LIMIT 1", (session_id,)).fetchone()
+                if not exists:
+                    session_id = None
+            row = conn.execute(
+                """
+                SELECT id FROM memories
+                WHERE source_table='user_profile_facts' AND source_id=?
+                LIMIT 1
+                """,
+                (fact_id,),
+            ).fetchone()
+
+        if row:
+            memory.update_memory(
+                row["id"],
+                content=content,
+                memory_type="long",
+                importance=0.97,
+                tags=tags,
+                is_core=True,
+                locked=True,
+                user_confirmed=True,
+                origin_type="profile",
+                origin_id=str(fact_id),
+                source_table="user_profile_facts",
+                source_id=fact_id,
+                expires_at=None,
+            )
+            return
+
+        memory.save_memory(
+            content=content,
+            memory_type="long",
+            session_id=session_id,
+            importance=0.97,
+            tags=tags,
+            is_core=True,
+            locked=True,
+            user_confirmed=True,
+            origin_type="profile",
+            origin_id=str(fact_id),
+            source_table="user_profile_facts",
+            source_id=fact_id,
+        )
+    except Exception as exc:
+        print(f"[UserProfile] Core Memory ignorada: {exc}")
+
+
 def _core_memory_lines() -> list[str]:
     with get_db_connection() as conn:
         rows = conn.execute(
@@ -211,6 +284,21 @@ def _core_memory_lines() -> list[str]:
     return [str(row["content"]).strip() for row in rows if str(row["content"]).strip()]
 
 
+def _core_memory_content(key: str, value: str) -> str:
+    value = _clean_value(value)
+    if not value:
+        return ""
+    if key == "name":
+        value = _format_name(value)
+    labels = {
+        "name": "Nome do usuário",
+        "profession": "Profissão do usuário",
+        "project": "Projeto importante do usuário",
+    }
+    label = labels.get(key)
+    return f"{label}: {value}." if label else ""
+
+
 def _clean_value(value: str) -> str:
     value = re.sub(r"\s+", " ", str(value or "")).strip(" .,:;!?-_")
     value = re.sub(r"\b(eu|meu|minha|para mim)$", "", value, flags=re.I).strip()
@@ -219,8 +307,17 @@ def _clean_value(value: str) -> str:
 
 def _clean_name_value(value: str) -> str:
     value = _clean_value(value)
-    value = re.split(r"\s+(?:e|que|mas|porque)\s+", value, maxsplit=1, flags=re.I)[0]
+    value = re.split(
+        r"\s+(?:e|que|mas|porque|na verdade|na real|mesmo)\b",
+        value,
+        maxsplit=1,
+        flags=re.I,
+    )[0]
     words = value.split()
     if len(words) > 4:
         value = " ".join(words[:4])
     return value.strip()
+
+
+def _format_name(value: str) -> str:
+    return " ".join(part.capitalize() for part in str(value or "").split())

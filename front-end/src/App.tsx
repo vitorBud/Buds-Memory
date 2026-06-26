@@ -25,10 +25,15 @@ import type { SystemHealth } from './components/BootScreen'
 import { NetworkStatus } from './components/NetworkStatus'
 import { HomeBrain } from './components/HomeBrain'
 import { VoiceMode } from './components/VoiceMode'
+import { KnowledgeImportPanel } from './components/panels/KnowledgeImportPanel'
+import { MemoryPanel } from './components/panels/MemoryPanel'
+import { FilesPanel } from './components/panels/FilesPanel'
+import { SummaryPanel } from './components/panels/SummaryPanel'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
+import { useHealthPolling } from './hooks/useHealthPolling'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, pullCloudChats, getCognitiveMemories, getKnowledgeGraph } from './services/api'
-import type { AiState, Session, ActivityItem, InterfaceSettings, Message, KnowledgeSource, SyncStatus, CognitiveMemory, KnowledgeGraph } from './types'
+import type { AiState, Session, ActivityItem, InterfaceSettings, Message, SyncStatus, CognitiveMemory, KnowledgeGraph } from './types'
 import { formatSessionDate } from './utils/formatters'
 
 const SETTINGS_KEY = 'nexus-interface-settings'
@@ -82,253 +87,7 @@ function getInitialSettings(): InterfaceSettings {
   }
 }
 
-const STOP_WORDS = new Set([
-  'para', 'como', 'uma', 'com', 'que', 'por', 'mais', 'menos', 'isso', 'esse',
-  'essa', 'aqui', 'voce', 'você', 'esta', 'está', 'ser', 'ter', 'das', 'dos',
-  'nas', 'nos', 'sim', 'não', 'nao', 'meu', 'minha', 'seu', 'sua', 'ele',
-  'ela', 'tem', 'vai', 'fazer', 'sobre', 'apenas', 'agora', 'entao', 'então',
-  'quando', 'onde', 'porque', 'qual', 'quais', 'cada', 'todo', 'toda',
-])
 
-function normalizeText(text: string) {
-  return text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s._/-]/g, ' ')
-}
-
-function getConversationConcepts(messages: Message[]) {
-  const counts = new Map<string, number>()
-
-  messages.forEach(message => {
-    if (message.text === '__thinking__') return
-    normalizeText(message.text)
-      .split(/\s+/)
-      .filter(word => word.length > 3 && !STOP_WORDS.has(word) && !word.includes('/'))
-      .forEach(word => counts.set(word, (counts.get(word) ?? 0) + 1))
-  })
-
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 8)
-}
-
-function getDetectedFiles(messages: Message[]) {
-  const fileRegex = /(?:[\w.-]+\/)*[\w.-]+\.(?:js|jsx|ts|tsx|py|json|css|html|md|sql|env|yml|yaml)/gi
-  const files = new Map<string, number>()
-
-  messages.forEach(message => {
-    const matches = message.text.match(fileRegex) ?? []
-    matches.forEach(match => files.set(match, (files.get(match) ?? 0) + 1))
-  })
-
-  return [...files.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 8)
-}
-
-function getFirstUserMessage(messages: Message[]) {
-  return messages.find(message => message.sender === 'user' && message.text !== '__thinking__')?.text ?? ''
-}
-
-function KnowledgeImportPanel({
-  sources,
-  value,
-  isImporting,
-  onValueChange,
-  onImportText,
-  onImportFile,
-}: {
-  sources: KnowledgeSource[]
-  value: string
-  isImporting: boolean
-  onValueChange: (value: string) => void
-  onImportText: () => void
-  onImportFile: (file: File) => void
-}) {
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  return (
-    <div className="knowledge-import-panel">
-      <div className="knowledge-import-main">
-        <button
-          type="button"
-          className="knowledge-file-button"
-          onClick={() => fileRef.current?.click()}
-          disabled={isImporting}
-          title="Importar PDF, TXT ou Markdown"
-        >
-          <Upload size={14} />
-          <span>Importar</span>
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,application/pdf"
-          hidden
-          onChange={(event) => {
-            const file = event.target.files?.[0]
-            event.target.value = ''
-            if (file) onImportFile(file)
-          }}
-        />
-        <input
-          value={value}
-          onChange={(event) => onValueChange(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onImportText()
-          }}
-          placeholder="Cole uma URL, pesquisa ou texto para a IA aprender"
-          disabled={isImporting}
-        />
-        <button type="button" onClick={onImportText} disabled={isImporting || !value.trim()}>
-          {isImporting ? 'Lendo...' : 'Aprender'}
-        </button>
-      </div>
-      <div className="knowledge-learned-row">
-        <span>Aprendido</span>
-        {sources.length ? sources.slice(0, 3).map(source => (
-          <strong key={source.id} title={source.summary}>
-            {source.title}
-          </strong>
-        )) : (
-          <em>Nenhum material importado ainda</em>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// Painel lateral que resume conceitos recentes e memória curta da conversa.
-function MemoryPanel({ messages }: { messages: Message[] }) {
-  const concepts = getConversationConcepts(messages)
-  const recent = messages.filter(message => message.text !== '__thinking__').slice(-5)
-
-  return (
-    <div className="rail-panel memory-panel">
-      <div className="rail-panel-head">
-        <span className="eyebrow">Memória ativa</span>
-        <strong>{messages.length} registros</strong>
-      </div>
-      <div className="memory-stack">
-        {concepts.length ? concepts.map(([label, count]) => (
-          <div key={label} className="memory-chip">
-            <span>{label}</span>
-            <strong>{count}</strong>
-          </div>
-        )) : (
-          <div className="empty-rail-state">Sem conceitos capturados ainda.</div>
-        )}
-      </div>
-      <div className="rail-list">
-        {recent.map((message, index) => (
-          <div key={`${message.sender}-${message.created_at ?? index}`} className="rail-list-item">
-            <span>{message.sender === 'user' ? 'Usuário' : 'IA'}</span>
-            <p>{message.text}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// Painel lateral que identifica arquivos, linguagens e sinais técnicos citados no chat.
-function FilesPanel({ messages }: { messages: Message[] }) {
-  const files = getDetectedFiles(messages)
-  const codeMentions = getConversationConcepts(messages)
-    .filter(([label]) => ['javascript', 'python', 'react', 'flask', 'erro', 'funcao', 'codigo', 'backend', 'frontend'].includes(label))
-
-  return (
-    <div className="rail-panel files-panel">
-      <div className="rail-panel-head">
-        <span className="eyebrow">Arquivos citados</span>
-        <strong>{files.length} itens</strong>
-      </div>
-      <div className="rail-list">
-        {files.length ? files.map(([file, count]) => (
-          <div key={file} className="file-reference">
-            <FileCode2 size={14} />
-            <span>{file}</span>
-            <strong>{count}</strong>
-          </div>
-        )) : (
-          <div className="empty-rail-state">Nenhum arquivo citado nesta conversa.</div>
-        )}
-      </div>
-      <div className="rail-panel-head compact">
-        <span className="eyebrow">Sinais técnicos</span>
-        <strong>{codeMentions.length}</strong>
-      </div>
-      <div className="memory-stack">
-        {codeMentions.length ? codeMentions.map(([label, count]) => (
-          <div key={label} className="memory-chip">
-            <span>{label}</span>
-            <strong>{count}</strong>
-          </div>
-        )) : (
-          <div className="empty-rail-state">Sem sinais técnicos detectados.</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// Painel lateral que mostra uma visão compacta do estado atual da conversa.
-function SummaryPanel({
-  messages,
-  aiState,
-  latency,
-  msgCount,
-  selectedModel,
-}: {
-  messages: Message[]
-  aiState: AiState
-  latency: string
-  msgCount: number
-  selectedModel: string
-}) {
-  const firstQuestion = getFirstUserMessage(messages)
-  const concepts = getConversationConcepts(messages).slice(0, 5)
-  const questions = messages.filter(message => message.sender === 'user' && message.text.includes('?')).length
-
-  return (
-    <div className="rail-panel summary-panel">
-      <div className="rail-panel-head">
-        <span className="eyebrow">Resumo</span>
-        <strong>{messages.length ? 'Conversa ativa' : 'Aguardando'}</strong>
-      </div>
-      <div className="summary-block">
-        <span>Objetivo provável</span>
-        <p>{firstQuestion || 'Nenhuma pergunta enviada ainda.'}</p>
-      </div>
-      <div className="brain-stats">
-        <div>
-          <span>Estado</span>
-          <strong>{aiState}</strong>
-        </div>
-        <div>
-          <span>Latência</span>
-          <strong>{latency || '--'}</strong>
-        </div>
-        <div>
-          <span>Mensagens</span>
-          <strong>{msgCount}</strong>
-        </div>
-      </div>
-      <div className="summary-block">
-        <span>Assuntos</span>
-        <p>{concepts.length ? concepts.map(([label]) => label).join(', ') : 'Sem assuntos suficientes.'}</p>
-      </div>
-      <div className="summary-block">
-        <span>Sistema</span>
-        <p>{selectedModel} · {questions} pergunta(s) detectada(s)</p>
-      </div>
-    </div>
-  )
-}
-
-// Componente principal que conecta histórico, chat, configurações, voz e visualização Obsidian.
 export default function App() {
   const pageRef = useRef<HTMLDivElement>(null)
   const chatSceneRef = useRef<HTMLElement>(null)
@@ -368,15 +127,15 @@ export default function App() {
   const handleBootDone = useCallback((h: SystemHealth) => {
     setSystemHealth(h)
     setBootDone(true)
+    if (!['#chat', '#voice', '#obsidian'].includes(window.location.hash)) {
+      setActiveView('home')
+    }
   }, [])
 
   const [activeView, setActiveView] = useState<AppView>(() => {
     if (window.location.hash === '#chat') return 'chat'
     if (window.location.hash === '#voice') return 'voice'
     if (window.location.hash === '#obsidian') return 'obsidian'
-    // No desktop Electron, abre direto no chat para o usuário ver o histórico
-    const isDesktopApp = Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
-    if (isDesktopApp) return 'chat'
     return 'home'
   })
 
@@ -528,6 +287,7 @@ export default function App() {
   }, [clearMessages, loadMessages, pushActivity, stopOutput])
 
   useEffect(() => {
+    if (!bootDone) return
     let cancelled = false
 
     getSessions()
@@ -567,7 +327,7 @@ export default function App() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // <--- Array vazio para garantir execução única na inicialização
+  }, [bootDone]) // carrega dados depois que login/local foi liberado
 
   useEffect(() => {
     if (settingsOpen) {
@@ -575,33 +335,11 @@ export default function App() {
     }
   }, [settingsOpen, refreshSyncStatus])
 
-  // Polling em tempo real do status do sistema (a cada 8 segundos)
-  useEffect(() => {
-    if (!bootDone) return
-    const interval = window.setInterval(async () => {
-      try {
-        const start = Date.now()
-        const config = await getBackendConfig()
-        const latency = Date.now() - start
-        
-        setSystemHealth(prev => {
-          const current = prev || { backend: false, ollama: false, database: false, model: '', backendLatency: null }
-          return {
-            ...current,
-            backend: true,
-            backendLatency: latency,
-            ollama: Boolean(config.models && config.models.length > 0),
-            model: config.model || current.model,
-            database: true
-          }
-        })
-      } catch {
-        setSystemHealth(prev => prev ? { ...prev, backend: false, backendLatency: null } : null)
-      }
-    }, 8000)
-    
-    return () => clearInterval(interval)
-  }, [bootDone])
+  // Polling inteligente: backoff exponencial em falhas + pausa quando aba oculta
+  useHealthPolling({
+    enabled: bootDone,
+    onHealthChange: setSystemHealth,
+  })
 
   useEffect(() => {
     const target = window.location.hash
@@ -896,221 +634,257 @@ export default function App() {
       {renderViewNav('floating')}
 
 
-      {activeView === 'home' && (
-        <section className="home-landing" id="inicio" aria-label="Tela inicial Nexus IA">
-          <div className="home-content-column">
-            <div className="home-brand-copy">
-              <span>Nexus IA</span>
-              <h1>Assistente local inteligente</h1>
-            </div>
-            
-            <div className="home-brand-mark" aria-hidden="true">
-              <HomeBrain
-                theme={settings.theme}
-                aiState={aiState}
-                memoryCount={cognitiveMemories.length}
-              />
-            </div>
-
-            <div className="home-brand-copy">
-              <p>Chat, memória Obsidian e configurações em uma experiência compacta  e Windows.</p>
-            </div>
-            
-            <div className="home-status-grid" aria-label="Estado do sistema">
-              <div>
-                <small>Modelo</small>
-                <strong>{selectedModel}</strong>
+      <AnimatePresence mode="wait" initial={false}>
+        {activeView === 'home' && (
+          <motion.section
+            key="home"
+            className="home-landing"
+            id="inicio"
+            aria-label="Tela inicial Nexus IA"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <div className="home-content-column">
+              <div className="home-brand-copy">
+                <span>Nexus IA</span>
+                <h1>Assistente local inteligente</h1>
               </div>
-              <div>
-                <small>Busca</small>
-                <strong>{googleSearchAvailable ? 'Google pronto' : 'Offline'}</strong>
+              
+              <div className="home-brand-mark" aria-hidden="true">
+                <HomeBrain
+                  theme={settings.theme}
+                  aiState={aiState}
+                  memoryCount={cognitiveMemories.length}
+                />
               </div>
-              <div>
-                <small>Memórias</small>
-                <strong>{cognitiveMemories.length}</strong>
+
+              <div className="home-brand-copy">
+                <p>Chat, memória Obsidian e configurações em uma experiência compacta e local.</p>
               </div>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {activeView === 'chat' && (
-      <section className={`chat-scroll-scene ${chatRevealActive ? 'is-revealing' : ''}`} id="chat" ref={chatSceneRef}>
-        <div className={`app-layout theme-${settings.theme} density-${settings.density}`}>
-          <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
-          {!focusMode && (
-            <>
-              <button
-                type="button"
-                className="mobile-sidebar-scrim"
-                aria-label="Fechar histórico"
-                onClick={() => setFocusMode(true)}
-              />
-              <Sidebar
-                sessions={sessions}
-                currentSessionId={currentSessionId}
-                searchQuery={searchQuery}
-                onSearchChange={setSearchQuery}
-                onNewChat={handleNewChat}
-                onSelect={handleSelectSession}
-                onDelete={handleDeleteSession}
-                systemUptime={formatUptime()}
-              />
-            </>
-          )}
-
-          <main className="workspace">
-              <TopBar
-                aiState={aiState}
-                sessionTitle={currentSessionTitle}
-                latency={latency}
-                historyHidden={focusMode}
-                onToggleHistory={() => setFocusMode(value => !value)}
-                settingsOpen={settingsOpen}
-                onToggleSettings={() => setSettingsOpen(v => !v)}
-                canStopOutput={isProcessing || aiState === 'speaking'}
-                onStopOutput={stopOutput}
-                systemHealth={systemHealth}
-              />
-
-            <section className="content-grid">
-              <div className="chat-panel">
-                <div className="chat-session-bar">
-                  <div className="chat-title-editor">
-                    {isEditingTitle ? (
-                      <input
-                        value={draftTitle}
-                        onChange={(event) => setDraftTitle(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') handleSaveCurrentTitle()
-                          if (event.key === 'Escape') setIsEditingTitle(false)
-                        }}
-                        autoFocus
-                        placeholder="Título da conversa"
-                      />
-                    ) : (
-                      <strong>{currentSessionTitle || 'Nova conversa'}</strong>
-                    )}
-                    <span>
-                      {currentSessionCreatedAt
-                        ? formatSessionDate(currentSessionCreatedAt)
-                        : currentSessionId ? 'Sessão ativa' : 'Nenhuma sessão salva'}
-                    </span>
-                  </div>
-
-                  <div className="chat-session-actions">
-                    {isEditingTitle ? (
-                      <>
-                        <button type="button" onClick={handleSaveCurrentTitle} disabled={!draftTitle.trim()} title="Salvar título">
-                          <Check size={15} />
-                        </button>
-                        <button type="button" onClick={() => setIsEditingTitle(false)} title="Cancelar edição">
-                          <X size={15} />
-                        </button>
-                      </>
-                    ) : (
-                      <button type="button" onClick={handleEditCurrentTitle} disabled={!currentSessionId} title="Editar título">
-                        <Pencil size={15} />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setKnowledgePanelOpen(value => !value)}
-                      className={knowledgePanelOpen ? 'is-active' : ''}
-                      title="Importar conhecimento"
-                    >
-                      <Upload size={15} />
-                    </button>
-                  </div>
+              
+              <div className="home-status-grid" aria-label="Estado do sistema">
+                <div>
+                  <small>Modelo</small>
+                  <strong>{selectedModel}</strong>
                 </div>
+                <div>
+                  <small>Busca</small>
+                  <strong>{googleSearchAvailable ? 'Google pronto' : 'Offline'}</strong>
+                </div>
+                <div>
+                  <small>Memórias</small>
+                  <strong>{cognitiveMemories.length}</strong>
+                </div>
+              </div>
+            </div>
+          </motion.section>
+        )}
 
-                {knowledgePanelOpen && (
-                <KnowledgeImportPanel
-                  sources={knowledgeSources}
-                  value={knowledgeInput}
-                  isImporting={isImportingKnowledge}
-                  onValueChange={setKnowledgeInput}
-                  onImportText={handleImportKnowledgeText}
-                  onImportFile={handleImportKnowledgeFile}
-                />
-                )}
+        {activeView === 'chat' && (
+          <motion.section
+            key="chat"
+            className={`chat-scroll-scene ${chatRevealActive ? 'is-revealing' : ''}`}
+            id="chat"
+            ref={chatSceneRef}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <div className={`app-layout theme-${settings.theme} density-${settings.density}`}>
+              <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
+              {!focusMode && (
+                <>
+                  <button
+                    type="button"
+                    className="mobile-sidebar-scrim"
+                    aria-label="Fechar histórico"
+                    onClick={() => setFocusMode(true)}
+                  />
+                  <Sidebar
+                    sessions={sessions}
+                    currentSessionId={currentSessionId}
+                    searchQuery={searchQuery}
+                    onSearchChange={setSearchQuery}
+                    onNewChat={handleNewChat}
+                    onSelect={handleSelectSession}
+                    onDelete={handleDeleteSession}
+                    systemUptime={formatUptime()}
+                  />
+                </>
+              )}
 
-                {!hasMessages ? (
-                  <div className="empty-state">
-                    <div>
-                      <span className="eyebrow">Pronto para operar</span>
-                      <h2>Como posso ajudar hoje?</h2>
-                      <p>Envie uma pergunta, cole um erro ou peça uma análise do seu código.</p>
+              <main className="workspace">
+                  <TopBar
+                    aiState={aiState}
+                    sessionTitle={currentSessionTitle}
+                    latency={latency}
+                    historyHidden={focusMode}
+                    onToggleHistory={() => setFocusMode(value => !value)}
+                    settingsOpen={settingsOpen}
+                    onToggleSettings={() => setSettingsOpen(v => !v)}
+                    canStopOutput={isProcessing || aiState === 'speaking'}
+                    onStopOutput={stopOutput}
+                    systemHealth={systemHealth}
+                  />
+
+                <section className="content-grid">
+                  <div className="chat-panel">
+                    <div className="chat-session-bar">
+                      <div className="chat-title-editor">
+                        {isEditingTitle ? (
+                          <input
+                            value={draftTitle}
+                            onChange={(event) => setDraftTitle(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') handleSaveCurrentTitle()
+                              if (event.key === 'Escape') setIsEditingTitle(false)
+                            }}
+                            autoFocus
+                            placeholder="Título da conversa"
+                          />
+                        ) : (
+                          <strong>{currentSessionTitle || 'Nova conversa'}</strong>
+                        )}
+                        <span>
+                          {currentSessionCreatedAt
+                            ? formatSessionDate(currentSessionCreatedAt)
+                            : currentSessionId ? 'Sessão ativa' : 'Nenhuma sessão salva'}
+                        </span>
+                      </div>
+
+                      <div className="chat-session-actions">
+                        {isEditingTitle ? (
+                          <>
+                            <button type="button" onClick={handleSaveCurrentTitle} disabled={!draftTitle.trim()} title="Salvar título">
+                              <Check size={15} />
+                            </button>
+                            <button type="button" onClick={() => setIsEditingTitle(false)} title="Cancelar edição">
+                              <X size={15} />
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" onClick={handleEditCurrentTitle} disabled={!currentSessionId} title="Editar título">
+                            <Pencil size={15} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setKnowledgePanelOpen(value => !value)}
+                          className={knowledgePanelOpen ? 'is-active' : ''}
+                          title="Importar conhecimento"
+                        >
+                          <Upload size={15} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <ChatWindow messages={messages} />
-                )}
 
-                <ChatInput
-                  onSend={handleSendText}
-                  isProcessing={isProcessing}
-                  isRecording={isRecording}
-                  recSeconds={seconds}
-                  onMicToggle={toggleMic}
-                  selectedModel={selectedModel}
-                  models={availableModels}
-                  onModelChange={handleModelChange}
-                  showQuickPrompts={false}
-                  showModelSelect={false}
-                  showMeta={false}
-                  density="compact"
-                />
+                    {knowledgePanelOpen && (
+                      <KnowledgeImportPanel
+                        sources={knowledgeSources}
+                        value={knowledgeInput}
+                        isImporting={isImportingKnowledge}
+                        onValueChange={setKnowledgeInput}
+                        onImportText={handleImportKnowledgeText}
+                        onImportFile={handleImportKnowledgeFile}
+                      />
+                    )}
+
+                    {!hasMessages ? (
+                      <div className="empty-state">
+                        <div>
+                          <span className="eyebrow">Pronto para operar</span>
+                          <h2>Como posso ajudar hoje?</h2>
+                          <p>Envie uma pergunta, cole um erro ou peça uma análise do seu código.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <ChatWindow messages={messages} />
+                    )}
+
+                    <ChatInput
+                      onSend={handleSendText}
+                      isProcessing={isProcessing}
+                      isRecording={isRecording}
+                      recSeconds={seconds}
+                      onMicToggle={toggleMic}
+                      selectedModel={selectedModel}
+                      models={availableModels}
+                      onModelChange={handleModelChange}
+                      showQuickPrompts={false}
+                      showModelSelect={false}
+                      showMeta={false}
+                      density="compact"
+                    />
+                  </div>
+                </section>
+              </main>
+            </div>
+            </div>
+          </motion.section>
+        )}
+
+        {activeView === 'voice' && (
+          <motion.div
+            key="voice"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            style={{ minHeight: '100vh' }}
+          >
+            <VoiceMode
+              aiState={aiState}
+              theme={settings.theme}
+              isRecording={isRecording}
+              recSeconds={seconds}
+              micVolume={micVolume}
+              isProcessing={isProcessing}
+              onMicToggle={toggleMic}
+              onExit={handleExitVoice}
+            />
+          </motion.div>
+        )}
+
+        {activeView === 'obsidian' && (
+          <motion.section
+            key="obsidian"
+            className="obsidian-scroll-scene"
+            id="obsidian"
+            ref={obsidianSceneRef}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <div className="obsidian-sticky-stage">
+              <div className="obsidian-copy-panel">
+                <span className="eyebrow">Obsidian neural</span>
+                <h2>Cérebro IA</h2>
+                <p>
+                  Rede viva do que o Nexus salvou: memórias, documentos, conceitos e relações aprendidas.
+                </p>
+                <div className="obsidian-progress-meter">
+                  <span />
+                </div>
               </div>
 
-            </section>
-          </main>
-        </div>
-        </div>
-
-      </section>
-      )}
-
-      {activeView === 'voice' && (
-        <VoiceMode
-          aiState={aiState}
-          theme={settings.theme}
-          isRecording={isRecording}
-          recSeconds={seconds}
-          micVolume={micVolume}
-          isProcessing={isProcessing}
-          onMicToggle={toggleMic}
-          onExit={handleExitVoice}
-        />
-      )}
-
-      {activeView === 'obsidian' && (
-      <section className="obsidian-scroll-scene" id="obsidian" ref={obsidianSceneRef}>
-        <div className="obsidian-sticky-stage">
-          <div className="obsidian-copy-panel">
-            <span className="eyebrow">Obsidian neural</span>
-            <h2>Cérebro IA</h2>
-            <p>
-              Rede viva do que o Nexus salvou: memórias, documentos, conceitos e relações aprendidas.
-            </p>
-            <div className="obsidian-progress-meter">
-              <span />
+              <div className="obsidian-stage-graph">
+                <BrainMap
+                  key={settings.theme}
+                  messages={messages}
+                  knowledgeSources={knowledgeSources}
+                  cognitiveMemories={cognitiveMemories}
+                  knowledgeGraph={knowledgeGraph}
+                  onRefresh={refreshCognitiveBrain}
+                />
+              </div>
             </div>
-          </div>
-
-          <div className="obsidian-stage-graph">
-            <BrainMap
-              key={settings.theme}
-              messages={messages}
-              knowledgeSources={knowledgeSources}
-              cognitiveMemories={cognitiveMemories}
-              knowledgeGraph={knowledgeGraph}
-              onRefresh={refreshCognitiveBrain}
-            />
-          </div>
-        </div>
-      </section>
-      )}
+          </motion.section>
+        )}
+      </AnimatePresence>
 
       {settingsOpen && (
         <>
@@ -1130,6 +904,8 @@ export default function App() {
             googleSearchAvailable={googleSearchAvailable}
             syncStatus={syncStatus}
             isSyncing={isSyncing}
+            authMode={systemHealth?.authMode}
+            authEmail={systemHealth?.userEmail}
             settings={settings}
             onModelChange={handleModelChange}
             onSyncNow={handleSyncNow}

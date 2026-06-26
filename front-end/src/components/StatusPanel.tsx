@@ -1,6 +1,6 @@
 import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, CloudDownload, Code2, Cpu, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Volume2, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { indexCodebase } from '../services/api'
+import { indexCodebase, setRemoteSessionToken } from '../services/api'
 import type { AiState, InterfaceSettings, SyncStatus, ThemeMode } from '../types'
 
 interface StatusPanelProps {
@@ -13,6 +13,8 @@ interface StatusPanelProps {
   googleSearchAvailable: boolean
   syncStatus: SyncStatus | null
   isSyncing: boolean
+  authMode?: string
+  authEmail?: string
   settings: InterfaceSettings
   onModelChange: (model: string) => void
   onSyncNow: () => void
@@ -91,6 +93,8 @@ export function StatusPanel({
   googleSearchAvailable,
   syncStatus,
   isSyncing,
+  authMode,
+  authEmail,
   settings,
   onModelChange,
   onSyncNow,
@@ -102,6 +106,9 @@ export function StatusPanel({
   const [codebasePath, setCodebasePath] = useState('')
   const [codebaseStatus, setCodebaseStatus] = useState('')
   const [isIndexingCodebase, setIsIndexingCodebase] = useState(false)
+  const isSupabaseSession = authMode === 'supabase'
+  const syncConfigured = Boolean(syncStatus?.supabase_configured && syncStatus?.online_sync_enabled)
+  const syncUnavailable = isSyncing || !syncConfigured || !isSupabaseSession
 
   const pickCodebaseFolder = async () => {
     const bridge = (window as unknown as { nexus?: NexusBridge }).nexus
@@ -126,6 +133,11 @@ export function StatusPanel({
     } finally {
       setIsIndexingCodebase(false)
     }
+  }
+
+  const openSupabaseLogin = () => {
+    setRemoteSessionToken('')
+    window.location.reload()
   }
 
   return (
@@ -243,13 +255,21 @@ export function StatusPanel({
         </div>
 
         <div className="sync-status-card">
-          <div className="sync-orb" data-state={syncStatus?.supabase_configured ? 'online' : 'offline'}>
-            {syncStatus?.supabase_configured ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+          <div className="sync-orb" data-state={isSupabaseSession && syncStatus?.supabase_configured ? 'online' : 'offline'}>
+            {isSupabaseSession && syncStatus?.supabase_configured ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
           </div>
           <div>
-            <strong>{syncStatus?.supabase_configured ? 'Pronto para nuvem' : 'Apenas local'}</strong>
+            <strong>
+              {!isSupabaseSession
+                ? 'Login Supabase necessário'
+                : syncStatus?.supabase_configured
+                  ? 'Pronto para nuvem'
+                  : 'Apenas local'}
+            </strong>
             <span>
-              {syncStatus?.online_sync_enabled
+              {!isSupabaseSession
+                ? 'Modo local não sincroniza. Entre com Supabase para liberar.'
+                : syncStatus?.online_sync_enabled
                 ? `Tabela ${syncStatus.remote_table}`
                 : 'Sync desativado ou sem credenciais'}
             </span>
@@ -272,12 +292,27 @@ export function StatusPanel({
         {syncStatus?.last_sync_error && (
           <p className="sync-error">{syncStatus.last_sync_error}</p>
         )}
+        {!isSupabaseSession && (
+          <p className="sync-error">
+            Sessão atual: {authEmail || 'modo local'}. A sincronização fica bloqueada até entrar com Supabase.
+          </p>
+        )}
+        {!isSupabaseSession && (
+          <button
+            type="button"
+            className="sync-now-button sync-login-button"
+            onClick={openSupabaseLogin}
+          >
+            <Cloud size={14} />
+            <span>Entrar com Supabase</span>
+          </button>
+        )}
 
         <button
           type="button"
           className="sync-now-button"
           onClick={onSyncNow}
-          disabled={isSyncing || !syncStatus?.supabase_configured || !syncStatus?.online_sync_enabled}
+          disabled={syncUnavailable}
         >
           <RefreshCw size={14} className={isSyncing ? 'is-spinning' : ''} />
           <span>{isSyncing ? 'Sincronizando' : 'Sincronizar agora'}</span>
@@ -287,7 +322,7 @@ export function StatusPanel({
           type="button"
           className="sync-now-button sync-download-button"
           onClick={onPullCloudChats}
-          disabled={isSyncing || !syncStatus?.supabase_configured || !syncStatus?.online_sync_enabled}
+          disabled={syncUnavailable}
         >
           <CloudDownload size={14} />
           <span>{isSyncing ? 'Baixando' : 'Baixar chats da nuvem'}</span>

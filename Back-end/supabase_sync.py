@@ -63,13 +63,19 @@ load_env_file(ENV_FILE)
 
 def get_supabase_config() -> dict:
     url = (os.getenv("SUPABASE_URL") or "").rstrip("/")
-    key = os.getenv("SUPABASE_ANON_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
+    if url.endswith("/rest/v1"):
+        url = url[:-8].rstrip("/")
+    anon_key = os.getenv("SUPABASE_ANON_KEY") or ""
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or ""
+    key = service_key or anon_key
     enabled = os.getenv("SUPABASE_SYNC_ENABLED", "0").lower() in {"1", "true", "yes", "sim"}
     return {
         "enabled": enabled,
         "configured": bool(url and key),
         "url": url,
         "key": key,
+        "anon_key": anon_key,
+        "service_role_configured": bool(service_key),
         "table": os.getenv("SUPABASE_SYNC_TABLE", "nexus_sync_records"),
     }
 
@@ -89,6 +95,7 @@ def get_status() -> dict:
         "mode": "local-first",
         "online_sync_enabled": config["enabled"],
         "supabase_configured": config["configured"],
+        "service_role_configured": config["service_role_configured"],
         "remote_table": config["table"],
         "device_id": get_device_id(),
         "last_sync_at": _get_state("last_sync_at"),
@@ -114,10 +121,12 @@ def run_sync(
     limit: Optional[int] = None,
     dry_run: bool = False,
     mode: str = "both",
+    user_context: Optional[dict] = None,
 ) -> dict:
     config = get_supabase_config()
+    user_id = _context_user_id(user_context)
     mode = mode if mode in {"both", "push", "pull"} else "both"
-    records = [] if mode == "pull" else list(iter_sync_records(table=table, limit=limit))
+    records = [] if mode == "pull" else list(iter_sync_records(table=table, limit=limit, user_id=user_id))
 
     if dry_run:
         return {
@@ -141,7 +150,7 @@ def run_sync(
 
         pulled = 0
         if mode != "push" and (not table or table in PULL_CHAT_TABLES):
-            pulled = pull_chat_records(config, limit=limit)
+            pulled = pull_chat_records(config, limit=limit, user_id=user_id)
 
         _set_state("last_sync_at", now_iso())
         _set_state("last_sync_error", "")
@@ -154,10 +163,10 @@ def run_sync(
         return _sync_result(False, message, 0, 0)
 
 
-def pull_chat_records(config: dict, limit: Optional[int] = None) -> int:
+def pull_chat_records(config: dict, limit: Optional[int] = None, user_id: Optional[str] = None) -> int:
     """Importa sessoes e mensagens remotas para o SQLite local."""
     current_device_id = get_device_id()
-    remote_records = _fetch_remote_chat_records(config, limit=limit)
+    remote_records = _fetch_remote_chat_records(config, limit=limit, user_id=user_id)
     imported = 0
 
     session_records = [
@@ -185,26 +194,37 @@ def pull_chat_records(config: dict, limit: Optional[int] = None) -> int:
     return imported
 
 
-def _fetch_remote_chat_records(config: dict, limit: Optional[int] = None) -> list[dict]:
+def _fetch_remote_chat_records(config: dict, limit: Optional[int] = None, user_id: Optional[str] = None) -> list[dict]:
     url = f"{config['url']}/rest/v1/{config['table']}"
     params = {
-        "select": "device_id,table_name,local_id,payload,updated_at",
+        "select": "device_id,table_name,local_id,payload,updated_at,user_id",
         "table_name": "in.(sessions,messages)",
         "order": "updated_at.asc",
     }
+    if user_id:
+        params["user_id"] = f"eq.{user_id}"
     if limit:
         params["limit"] = str(limit)
 
     response = requests.get(url, headers=_supabase_headers(config), params=params, timeout=25)
+    if response.status_code >= 400 and "user_id" in response.text:
+        params.pop("user_id", None)
+        params["select"] = "device_id,table_name,local_id,payload,updated_at"
+        response = requests.get(url, headers=_supabase_headers(config), params=params, timeout=25)
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase respondeu {response.status_code}: {response.text[:500]}")
     return response.json() or []
 
 
-def iter_sync_records(table: Optional[str] = None, limit: Optional[int] = None) -> Iterable[dict]:
+def iter_sync_records(
+    table: Optional[str] = None,
+    limit: Optional[int] = None,
+    user_id: Optional[str] = None,
+) -> Iterable[dict]:
     device_id = get_device_id()
     selected_tables = [table] if table else SYNC_TABLES
     emitted = 0
+    sync_user_id = user_id or "local"
 
     with get_db_connection() as conn:
         for table_name in selected_tables:
@@ -220,6 +240,7 @@ def iter_sync_records(table: Optional[str] = None, limit: Optional[int] = None) 
                 payload = _serialize_row(dict(row))
                 local_id = _local_id(table_name, payload)
                 yield {
+                    "user_id": sync_user_id,
                     "device_id": device_id,
                     "table_name": table_name,
                     "local_id": local_id,
@@ -236,6 +257,12 @@ def _post_batch(config: dict, batch: list[dict]):
     headers = _supabase_headers(config)
     headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
     response = requests.post(url, headers=headers, json=batch, timeout=20)
+    if response.status_code >= 400 and "user_id" in response.text:
+        fallback = [{k: v for k, v in item.items() if k != "user_id"} for item in batch]
+        retry = requests.post(url, headers=headers, json=fallback, timeout=20)
+        if retry.status_code < 400:
+            return
+        response = retry
     if response.status_code >= 400:
         raise RuntimeError(f"Supabase respondeu {response.status_code}: {response.text[:500]}")
 
@@ -306,6 +333,14 @@ def _friendly_sync_error(exc: Exception, config: dict) -> str:
             "Confira sua internet, DNS/VPN e se o Project URL está correto."
         )
     return raw
+
+
+def _context_user_id(user_context: Optional[dict]) -> Optional[str]:
+    if not user_context:
+        return None
+    if user_context.get("auth_mode") == "supabase":
+        return str(user_context.get("user_id") or "").strip() or None
+    return None
 
 
 def _import_session_record(conn, record: dict) -> bool:

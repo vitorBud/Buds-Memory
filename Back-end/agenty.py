@@ -265,6 +265,23 @@ SHORT_REPLY_KEYWORDS = {
     "certo", "entendi", "qual", "onde", "quando", "quem", "pode", "tem como",
 }
 
+CASUAL_SOCIAL_PATTERNS = [
+    r"^(e\s*a[ií]|eai|eaí|oi|ol[aá]|opa|fala|salve|bom dia|boa tarde|boa noite)\b",
+    r"\b(tudo bem|beleza|blz|suave|tranquilo|como vai)\??$",
+    r"^(valeu|obrigad[oa]|tmj|fechou|ok|certo)[!.?]*$",
+]
+
+
+def is_casual_social_text(text: str) -> bool:
+    """Detecta cumprimentos/conversa social onde fontes deixam a resposta estranha."""
+    clean = re.sub(r"\s+", " ", (text or "").strip().lower())
+    if not clean:
+        return False
+    words = re.findall(r"\w+", clean)
+    if len(words) > 8:
+        return False
+    return any(re.search(pattern, clean, flags=re.I) for pattern in CASUAL_SOCIAL_PATTERNS)
+
 
 def infer_response_profile(user_text: str) -> dict:
     """Define o tamanho esperado da resposta sem depender do front-end."""
@@ -414,9 +431,12 @@ def _extract_user_profile(knowledge_context: Optional[str]) -> tuple[str, str]:
 def build_prompt(user_text: str, history=None, web_context: Optional[str] = None, knowledge_context: Optional[str] = None) -> str:
     history = history or []
     response_profile = infer_response_profile(user_text)
+    is_social = is_casual_social_text(user_text)
 
     # Separa perfil pessoal do restante do contexto de conhecimento
     user_profile_block, knowledge_remainder = _extract_user_profile(knowledge_context)
+    if is_social:
+        knowledge_remainder = ""
 
     lines = [SYSTEM_STYLE, ""]
 
@@ -437,6 +457,7 @@ def build_prompt(user_text: str, history=None, web_context: Optional[str] = None
         "- Responda exatamente à pergunta atual, usando o histórico para entender referências vagas.",
         "- Não transforme uma pergunta simples em aula longa.",
         "- Se usar contexto importado/RAG, use só os trechos necessários para responder.",
+        "- Não cite fontes em cumprimentos, conversas sociais simples ou respostas que não usaram documentos.",
         "",
         "Histórico recente da conversa:",
     ])

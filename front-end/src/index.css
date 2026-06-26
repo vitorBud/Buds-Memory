@@ -72,6 +72,8 @@ body {
   color: var(--text);
   font-family: 'Outfit', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
   overflow-x: hidden;
   overflow-y: auto;
   scroll-behavior: smooth;
@@ -1412,6 +1414,7 @@ input:focus-visible {
 }
 
 .chat-panel {
+  backdrop-filter: blur(12px);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: 0 16px 46px rgba(0, 0, 0, 0.18);
@@ -1512,7 +1515,7 @@ input:focus-visible {
   min-height: 0;
   overflow-anchor: none;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
   padding: 22px clamp(18px, 3vw, 42px);
   scroll-behavior: smooth;
 }
@@ -1760,6 +1763,18 @@ input:focus-visible {
   background: color-mix(in srgb, var(--teal) 18%, var(--surface));
   border-color: color-mix(in srgb, var(--teal) 42%, var(--line));
   color: var(--teal);
+}
+
+.send-action:hover {
+  box-shadow: 0 0 18px rgb(var(--accent-hot-rgb) / 0.28), 0 0 6px rgb(var(--accent-rgb) / 0.18);
+}
+
+.send-action:active {
+  transform: scale(0.95);
+}
+
+.round-action:active {
+  transform: scale(0.95);
 }
 
 .send-action:disabled,
@@ -2265,6 +2280,7 @@ input:focus-visible {
 }
 
 .rail-panel {
+  backdrop-filter: blur(10px);
   background:
     linear-gradient(135deg, color-mix(in srgb, var(--cyan) 5%, transparent), transparent 34%),
     var(--surface);
@@ -3027,11 +3043,6 @@ input:focus-visible {
   }
 }
 
-/* Layout inicial compacto: a primeira seção fica focada em histórico + chat. */
-.topbar {
-  grid-template-columns: minmax(230px, 1fr) auto;
-}
-
 .sidebar-search {
   align-items: center;
   background: var(--surface-2);
@@ -3042,35 +3053,6 @@ input:focus-visible {
   gap: 8px;
   min-height: 36px;
   padding: 0 10px;
-}
-
-.sidebar-search input {
-  background: transparent;
-  border: 0;
-  color: var(--text);
-  font: inherit;
-  min-width: 0;
-  outline: 0;
-  width: 100%;
-}
-
-.sidebar-search input::placeholder {
-  color: var(--faint);
-}
-
-.content-grid,
-.content-grid.rail-collapsed,
-.is-focus-mode .content-grid,
-.is-focus-mode .content-grid.rail-collapsed {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.content-grid {
-  padding: 10px 12px 12px;
-}
-
-.chat-panel {
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
 }
 
 .settings-insights-block {
@@ -6971,8 +6953,16 @@ input {
 }
 
 @keyframes boot-out {
-  from { opacity: 1; transform: scale(1); }
-  to   { opacity: 0; transform: scale(0.97); }
+  from {
+    filter: blur(0px);
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    filter: blur(8px);
+    opacity: 0;
+    transform: scale(1.04);
+  }
 }
 
 @keyframes bar-slide {
@@ -6994,8 +6984,9 @@ input {
   inset: 0;
   justify-content: center;
   position: fixed;
-  z-index: 9999;
   transition: opacity 0.4s ease;
+  will-change: opacity, filter, transform;
+  z-index: 9999;
 }
 
 .boot-overlay.is-closing {
@@ -7940,6 +7931,60 @@ input {
   gap: 8px;
 }
 
+.boot-account-panel {
+  background: rgba(255,255,255,0.055);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 10px;
+}
+
+.boot-auth-tabs {
+  background: rgba(0,0,0,0.22);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  display: grid !important;
+  gap: 4px !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  padding: 4px;
+}
+
+.boot-auth-tabs button,
+.boot-auth-stack button {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+  justify-content: center;
+}
+
+.boot-auth-tabs button {
+  background: transparent;
+  color: rgba(255,255,255,0.62);
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+.boot-auth-tabs button.is-active {
+  background: rgba(255,255,255,0.9);
+  color: #0f172a;
+}
+
+.boot-auth-stack {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr !important;
+}
+
+.boot-auth-stack p {
+  color: rgba(255,255,255,0.58);
+  line-height: 1.45;
+}
+
+.boot-auth-stack .boot-auth-link {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.78);
+}
+
 .boot-auth-form label {
   color: rgba(255,255,255,0.62);
   font-size: 12px;
@@ -7978,10 +8023,14 @@ input {
   opacity: 0.45;
 }
 
-.boot-auth-form p {
+.boot-auth-form > p {
   color: #fca5a5;
   font-size: 12px;
   margin: 0;
+}
+
+.boot-auth-form > p.boot-auth-notice {
+  color: #a7f3d0;
 }
 
 @media (max-width: 760px) {
@@ -9302,7 +9351,7 @@ input {
 /* Mobile drawer hard reset: cancels the tablet icon-only sidebar rules. */
 @media (max-width: 760px) {
   .view-nav-floating {
-    bottom: calc(6px + env(safe-area-inset-bottom)) !important;
+    bottom: calc(20px + env(safe-area-inset-bottom)) !important;
     left: 10px !important;
     max-width: calc(100vw - 20px) !important;
     min-height: 46px !important;
@@ -9316,7 +9365,7 @@ input {
 
   .chat-scroll-scene .chat-input-shell,
   :root[data-theme='light'] .chat-scroll-scene .chat-input-shell {
-    padding-bottom: calc(54px + env(safe-area-inset-bottom)) !important;
+    padding-bottom: calc(70px + env(safe-area-inset-bottom)) !important;
   }
 
   .chat-scroll-scene .app-shell:not(.is-focus-mode) .sidebar {

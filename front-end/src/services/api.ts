@@ -146,6 +146,58 @@ export async function loginRemote(token: string): Promise<{ access_token?: strin
   return data
 }
 
+export async function loginLocal(): Promise<{ access_token?: string; success: boolean; auth_mode?: string; error?: string }> {
+  const res = await fetch(`${getBase()}/auth/local`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label: navigator.userAgent || 'local' }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `loginLocal: ${res.status}`)
+  if (data.access_token) setRemoteSessionToken(data.access_token)
+  return data
+}
+
+export async function loginSupabase(email: string, password: string): Promise<{
+  access_token?: string
+  success: boolean
+  auth_mode?: string
+  user_id?: string
+  email?: string
+  error?: string
+}> {
+  const res = await fetch(`${getBase()}/auth/supabase`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `loginSupabase: ${res.status}`)
+  if (data.access_token) setRemoteSessionToken(data.access_token)
+  return data
+}
+
+export async function signupSupabase(email: string, password: string): Promise<{
+  access_token?: string
+  success: boolean
+  pending_confirmation?: boolean
+  message?: string
+  auth_mode?: string
+  user_id?: string
+  email?: string
+  error?: string
+}> {
+  const res = await fetch(`${getBase()}/auth/supabase/signup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `signupSupabase: ${res.status}`)
+  if (data.access_token) setRemoteSessionToken(data.access_token)
+  return data
+}
+
 // ── Local-first Sync ────────────────────────────────────────────────────────
 
 export async function getSyncStatus(): Promise<SyncStatus> {

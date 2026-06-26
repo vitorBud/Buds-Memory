@@ -4,10 +4,13 @@ from flask_cors import CORS
 import json
 import time
 import re
+import threading
 from pathlib import Path
 from typing import Optional
 from html import unescape
 from io import BytesIO
+
+import requests
 
 # Importações de agenty.py (reaproveitando lógica já existente)
 from agenty import (
@@ -64,7 +67,14 @@ def enforce_remote_auth():
         return None
     if not request.path.startswith("/api/"):
         return None
-    if request.path in {"/api/health", "/api/auth/login", "/api/auth/status"}:
+    if request.path in {
+        "/api/health",
+        "/api/auth/login",
+        "/api/auth/local",
+        "/api/auth/supabase",
+        "/api/auth/supabase/signup",
+        "/api/auth/status",
+    }:
         return None
     if not remote_access.AUTH_TOKEN:
         return jsonify({
@@ -341,6 +351,23 @@ def get_direct_profile_reply(user_text: str, session_id: Optional[str]) -> Optio
     return None
 
 
+def process_post_chat_cognition(session_id: str, user_text: str, ai_text: str) -> None:
+    """Processa memória, perfil e resumo sem segurar a resposta do chat."""
+    cognitive_detector.process_chat_async(
+        session_id=session_id,
+        user_text=user_text,
+        ai_text=ai_text,
+    )
+
+    def _summarize_later():
+        try:
+            cognitive_summarizer.maybe_update_conversation_summary(session_id)
+        except Exception as exc:
+            print(f"[Summarizer] Resumo assíncrono ignorado: {exc}")
+
+    threading.Thread(target=_summarize_later, daemon=True).start()
+
+
 VAGUE_REFERENCE_WORDS = {
     "isso", "isto", "esse", "essa", "ele", "ela", "eles", "elas", "nele", "nela",
     "disso", "desse", "dessa", "aquilo", "lá", "la", "aqui", "tambem", "também",
@@ -440,6 +467,7 @@ def api_health():
         graph_ok = False
 
     token = remote_access.request_token(request)
+    session = remote_access.request_session(request)
     authenticated = remote_access.validate_bearer_token(token or "")
     return jsonify({
         "status": "online",
@@ -448,17 +476,24 @@ def api_health():
         "knowledge_graph": graph_ok,
         "remote": remote_access.get_remote_config(),
         "authenticated": authenticated,
+        "auth_mode": session.get("auth_mode"),
+        "user_id": session.get("user_id"),
+        "email": session.get("email"),
     }), 200
 
 
 @app.route('/api/auth/status', methods=['GET'])
 def auth_status():
     token = remote_access.request_token(request)
+    session = remote_access.request_session(request)
     return jsonify({
         "remote_mode": remote_access.REMOTE_MODE,
         "auth_required": remote_access.REMOTE_MODE,
         "auth_configured": bool(remote_access.AUTH_TOKEN),
         "authenticated": remote_access.validate_bearer_token(token or ""),
+        "auth_mode": session.get("auth_mode"),
+        "user_id": session.get("user_id"),
+        "email": session.get("email"),
     }), 200
 
 
@@ -478,6 +513,121 @@ def auth_login():
         return jsonify({"error": "Token inválido."}), 401
 
     session = remote_access.create_session_token(label=str(data.get("label", "mobile")))
+    return jsonify({"success": True, **session}), 200
+
+
+@app.route('/api/auth/local', methods=['POST'])
+def auth_local():
+    """Cria uma sessão local do Nexus sem exigir token técnico."""
+    session = remote_access.create_session_token(
+        label=str((request.get_json(silent=True) or {}).get("label", "local")),
+        auth_mode="local",
+    )
+    return jsonify({"success": True, **session}), 200
+
+
+@app.route('/api/auth/supabase', methods=['POST'])
+def auth_supabase():
+    """Autentica com Supabase Auth e devolve uma sessão Nexus vinculada ao user_id."""
+    data = request.get_json(silent=True) or {}
+    email = str(data.get("email", "")).strip().lower()
+    password = str(data.get("password", ""))
+    if not email or not password:
+        return jsonify({"error": "Informe e-mail e senha."}), 400
+
+    config = supabase_sync.get_supabase_config()
+    anon_key = config.get("anon_key") or config.get("key") or ""
+    if not config.get("url") or not anon_key:
+        return jsonify({"error": "Supabase não configurado no backend."}), 503
+
+    try:
+        response = requests.post(
+            f"{config['url']}/auth/v1/token?grant_type=password",
+            headers={
+                "apikey": anon_key,
+                "Content-Type": "application/json",
+            },
+            json={"email": email, "password": password},
+            timeout=20,
+        )
+        payload = response.json() if response.content else {}
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao conectar ao Supabase Auth: {exc}"}), 502
+
+    if response.status_code >= 400:
+        message = payload.get("error_description") or payload.get("msg") or payload.get("error") or "Login Supabase recusado."
+        return jsonify({"error": message}), 401
+
+    user = payload.get("user") or {}
+    user_id = user.get("id")
+    user_email = user.get("email") or email
+    if not user_id:
+        return jsonify({"error": "Supabase não retornou o usuário autenticado."}), 502
+
+    session = remote_access.create_session_token(
+        label=user_email,
+        auth_mode="supabase",
+        user_id=user_id,
+        email=user_email,
+    )
+    return jsonify({"success": True, **session}), 200
+
+
+@app.route('/api/auth/supabase/signup', methods=['POST'])
+def auth_supabase_signup():
+    """Cria conta no Supabase Auth pelo próprio Nexus."""
+    data = request.get_json(silent=True) or {}
+    email = str(data.get("email", "")).strip().lower()
+    password = str(data.get("password", ""))
+    if not email or not password:
+        return jsonify({"error": "Informe e-mail e senha."}), 400
+    if len(password) < 6:
+        return jsonify({"error": "A senha precisa ter pelo menos 6 caracteres."}), 400
+
+    config = supabase_sync.get_supabase_config()
+    anon_key = config.get("anon_key") or config.get("key") or ""
+    if not config.get("url") or not anon_key:
+        return jsonify({"error": "Supabase não configurado no backend."}), 503
+
+    try:
+        response = requests.post(
+            f"{config['url']}/auth/v1/signup",
+            headers={
+                "apikey": anon_key,
+                "Content-Type": "application/json",
+            },
+            json={"email": email, "password": password},
+            timeout=20,
+        )
+        payload = response.json() if response.content else {}
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao criar conta no Supabase Auth: {exc}"}), 502
+
+    if response.status_code >= 400:
+        message = payload.get("error_description") or payload.get("msg") or payload.get("error") or "Cadastro Supabase recusado."
+        return jsonify({"error": message}), 400
+
+    user = payload.get("user") or {}
+    session_payload = payload.get("session") or {}
+    access_token = session_payload.get("access_token") or payload.get("access_token")
+    user_id = user.get("id")
+    user_email = user.get("email") or email
+
+    # Quando confirmação por e-mail está ativa, o Supabase cria o usuário sem sessão imediata.
+    if not access_token or not user_id:
+        return jsonify({
+            "success": True,
+            "pending_confirmation": True,
+            "message": "Conta criada. Confirme seu e-mail e depois entre pelo Nexus.",
+            "email": user_email,
+        }), 200
+
+    session = remote_access.create_session_token(
+        label=user_email,
+        auth_mode="supabase",
+        user_id=user_id,
+        email=user_email,
+    )
     return jsonify({"success": True, **session}), 200
 
 
@@ -523,11 +673,19 @@ def run_sync():
     """Executa a sincronização manual dos dados locais para o Supabase."""
     try:
         data = request.get_json(silent=True) or {}
+        user_context = remote_access.request_session(request)
+        if user_context.get("auth_mode") != "supabase":
+            return jsonify({
+                "success": False,
+                "error": "Entre com uma conta Supabase para sincronizar com a nuvem.",
+                "auth_required": True,
+            }), 403
         result = supabase_sync.run_sync(
             table=data.get("table"),
             limit=data.get("limit"),
             dry_run=bool(data.get("dry_run")),
             mode=data.get("mode", "both"),
+            user_context=user_context,
         )
         status = 200 if result.get("success") else 400
         return jsonify(result), status
@@ -727,23 +885,13 @@ def chat():
         filename = f"upload_{int(time.time())}.wav"
         filepath = OUT_DIR / filename
         audio_file.save(str(filepath))
-        
         user_text = stt_local(filepath)
-        
-        if session_id and user_text:
-            pass
-            
     # Se receber texto em formato JSON
     elif request.is_json:
         user_text = request.json.get("text", "")
-        if session_id and user_text:
-            pass
-            
     # Se receber texto em formulário tradicional
     else:
         user_text = request.form.get("text", "")
-        if session_id and user_text:
-            pass
 
     if not user_text:
         return jsonify({"error": "Nenhum texto ou áudio fornecido"}), 400
@@ -780,12 +928,7 @@ def chat():
         msg_data = None
         if session_id:
             msg_data = database.add_message(session_id, "ia", reply, audio_url)
-            cognitive_detector.process_chat_async(
-                session_id=session_id,
-                user_text=user_text,
-                ai_text=reply,
-            )
-            cognitive_summarizer.maybe_update_conversation_summary(session_id)
+            process_post_chat_cognition(session_id, user_text, reply)
 
         return jsonify({
             "user_text": user_text,
@@ -894,14 +1037,7 @@ def chat_stream():
             if session_id and full_response:
                 # Salva o texto completo gerado
                 database.add_message(session_id, "ia", full_response.strip())
-
-                # ── Detecção cognitiva em background (não bloqueia a resposta) ──
-                cognitive_detector.process_chat_async(
-                    session_id=session_id,
-                    user_text=user_text,
-                    ai_text=full_response.strip(),
-                )
-                cognitive_summarizer.maybe_update_conversation_summary(session_id)
+                process_post_chat_cognition(session_id, user_text, full_response.strip())
 
         except Exception as e:
             yield sse_event({'type': 'error', 'content': str(e)})
@@ -929,8 +1065,12 @@ if __name__ == "__main__":
     print("")
     if remote_access.REMOTE_MODE:
         print("Nexus Mobile Remote ligado")
-        print(f"Front em desenvolvimento: {config['frontend_dev_url']}")
-        print(f"Backend/API: {config['local_url']}")
+        print(f"Mesma Wi-Fi - Front: {config['frontend_dev_url']}")
+        print(f"Mesma Wi-Fi - Backend/API: {config['local_url']}")
+        if config.get("public_frontend_url"):
+            print(f"Wi-Fi diferente / internet - Front: {config['public_frontend_url']}")
+        if config.get("public_url"):
+            print(f"Wi-Fi diferente / internet - Backend/API: {config['public_url']}")
         print("")
         print("No iPhone, abra a URL do Front se estiver usando npm run dev:mobile.")
         print("Use a URL do Backend/API apenas para testar /api/health ou acessar o build servido pelo Flask.")
@@ -944,6 +1084,7 @@ if __name__ == "__main__":
         print("")
         print(f"Front no iPhone em desenvolvimento: {config['frontend_dev_url']}")
         print(f"Backend/API no iPhone: {config['local_url']}")
+        print("Para Wi-Fi diferente, use Tailscale ou defina NEXUS_PUBLIC_URL/NEXUS_PUBLIC_FRONTEND_URL.")
         print(f"Token que sera usado: {mobile_token}")
     print("")
     app.run(host=remote_access.HOST, port=remote_access.PORT, debug=False, use_reloader=False)

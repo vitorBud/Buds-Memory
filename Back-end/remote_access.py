@@ -28,6 +28,8 @@ AUTH_TOKEN = os.getenv("NEXUS_AUTH_TOKEN", "").strip()
 SESSION_TTL_SECONDS = int(float(os.getenv("NEXUS_SESSION_TTL_HOURS", "24")) * 3600)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 TOKEN_FILE = Path(__file__).resolve().parent / ".nexus_remote_token"
+PUBLIC_URL = os.getenv("NEXUS_PUBLIC_URL", "").strip().rstrip("/")
+PUBLIC_FRONTEND_URL = os.getenv("NEXUS_PUBLIC_FRONTEND_URL", "").strip().rstrip("/")
 
 
 def get_or_create_mobile_token() -> str:
@@ -66,17 +68,27 @@ def get_local_ip() -> str:
 
 def get_remote_config() -> dict:
     local_ip = get_local_ip()
+    local_url = f"http://{local_ip}:{PORT}"
+    frontend_dev_url = f"http://{local_ip}:{FRONTEND_PORT}"
+    public_url = PUBLIC_URL
+    public_frontend_url = PUBLIC_FRONTEND_URL or (
+        PUBLIC_URL if PUBLIC_URL else ""
+    )
     return {
         "remote_mode": REMOTE_MODE,
         "host": HOST,
         "port": PORT,
         "local_ip": local_ip,
-        "local_url": f"http://{local_ip}:{PORT}",
-        "frontend_dev_url": f"http://{local_ip}:{FRONTEND_PORT}",
+        "local_url": local_url,
+        "frontend_dev_url": frontend_dev_url,
+        "public_url": public_url,
+        "public_frontend_url": public_frontend_url,
+        "recommended_url": public_frontend_url or frontend_dev_url,
+        "recommended_api_url": public_url or local_url,
         "auth_required": REMOTE_MODE,
         "auth_configured": bool(AUTH_TOKEN),
         "session_ttl_seconds": SESSION_TTL_SECONDS,
-        "compatible_with": ["tailscale", "vpn", "local_network", "pwa"],
+        "compatible_with": ["tailscale", "cloudflare_tunnel", "ngrok", "vpn", "local_network", "pwa"],
     }
 
 
@@ -106,16 +118,50 @@ def _sign(payload: str) -> str:
     return _b64(hmac.new(_secret(), payload.encode("utf-8"), hashlib.sha256).digest())
 
 
-def create_session_token(label: str = "mobile") -> dict:
+def decode_session_token(token: str) -> Optional[dict]:
+    token = (token or "").strip()
+    if "." not in token:
+        return None
+
+    payload_b64, signature = token.rsplit(".", 1)
+    if not hmac.compare_digest(signature, _sign(payload_b64)):
+        return None
+    try:
+        payload = json.loads(_unb64(payload_b64).decode("utf-8"))
+    except Exception:
+        return None
+    if int(payload.get("exp", 0)) < int(time.time()):
+        return None
+    return payload
+
+
+def create_session_token(
+    label: str = "mobile",
+    auth_mode: str = "remote",
+    user_id: Optional[str] = None,
+    email: Optional[str] = None,
+) -> dict:
     now = int(time.time())
     payload = {
         "iat": now,
         "exp": now + SESSION_TTL_SECONDS,
         "label": label[:80],
+        "auth_mode": auth_mode,
     }
+    if user_id:
+        payload["user_id"] = user_id
+    if email:
+        payload["email"] = email[:160]
     payload_b64 = _b64(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     token = f"{payload_b64}.{_sign(payload_b64)}"
-    return {"access_token": token, "expires_at": payload["exp"], "token_type": "Bearer"}
+    return {
+        "access_token": token,
+        "expires_at": payload["exp"],
+        "token_type": "Bearer",
+        "auth_mode": auth_mode,
+        "user_id": user_id,
+        "email": email,
+    }
 
 
 def validate_bearer_token(token: str) -> bool:
@@ -126,17 +172,7 @@ def validate_bearer_token(token: str) -> bool:
         return False
     if hmac.compare_digest(token, AUTH_TOKEN):
         return True
-    if "." not in token:
-        return False
-
-    payload_b64, signature = token.rsplit(".", 1)
-    if not hmac.compare_digest(signature, _sign(payload_b64)):
-        return False
-    try:
-        payload = json.loads(_unb64(payload_b64).decode("utf-8"))
-    except Exception:
-        return False
-    return int(payload.get("exp", 0)) >= int(time.time())
+    return decode_session_token(token) is not None
 
 
 def request_token(req: Request) -> Optional[str]:
@@ -144,3 +180,11 @@ def request_token(req: Request) -> Optional[str]:
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
     return req.headers.get("X-Nexus-Token") or req.args.get("token")
+
+
+def request_session(req: Request) -> dict:
+    token = request_token(req) or ""
+    if REMOTE_MODE and AUTH_TOKEN and hmac.compare_digest(token, AUTH_TOKEN):
+        return {"auth_mode": "remote", "label": "technical-token"}
+    payload = decode_session_token(token)
+    return payload or {"auth_mode": "local" if not REMOTE_MODE else "anonymous"}

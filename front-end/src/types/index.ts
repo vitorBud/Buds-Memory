@@ -165,6 +165,7 @@ export interface SyncStatus {
   mode: 'local-first' | string
   online_sync_enabled: boolean
   supabase_configured: boolean
+  service_role_configured?: boolean
   remote_table: string
   device_id: string
   last_sync_at?: string | null

@@ -156,6 +156,13 @@ def process_chat_async(
 def _process_chat(session_id: str, user_text: str, ai_text: str) -> None:
     """Pipeline cognitivo completo: filtra → extrai → salva."""
     try:
+        # Fatos pessoais curtos ("meu nome é...", "sou dev") precisam sobreviver
+        # ao filtro de ruído, pois viram perfil e Core Memory.
+        try:
+            user_profile.update_from_text(user_text, session_id=session_id)
+        except Exception as profile_err:
+            print(f"[UserProfile] Erro em background: {profile_err}")
+
         # ── FASE 1: Gate de relevância ─────────────────────────────────────
         score = _score_exchange(user_text, ai_text)
 
@@ -166,10 +173,6 @@ def _process_chat(session_id: str, user_text: str, ai_text: str) -> None:
         # ── FASE 2: Extração de conhecimento ──────────────────────────────
         combined = f"{user_text}\n{ai_text}"
         entities = []
-        try:
-            user_profile.update_from_text(user_text, session_id=session_id)
-        except Exception as profile_err:
-            print(f"[UserProfile] Erro em background: {profile_err}")
 
         # Detecta entidades no KG apenas para conteúdo de médio valor+
         if score >= MEDIUM_TERM_THRESHOLD:
