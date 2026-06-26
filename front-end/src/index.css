@@ -6283,6 +6283,127 @@ input {
   width: 100% !important;
 }
 
+/* Obsidian centerpiece upgrade: visual principal do Nexus. */
+.obsidian-scroll-scene {
+  background:
+    radial-gradient(circle at 50% 38%, rgba(var(--accent-hot-rgb) / 0.22), transparent 34%),
+    radial-gradient(circle at 80% 20%, rgba(var(--accent-rgb) / 0.16), transparent 28%),
+    radial-gradient(circle at 18% 78%, rgba(var(--accent-hot-rgb) / 0.12), transparent 32%),
+    linear-gradient(180deg, var(--liquid-bg), color-mix(in srgb, var(--liquid-bg) 88%, #000 12%));
+}
+
+.obsidian-scroll-scene::before {
+  opacity: 0.7;
+}
+
+.obsidian-sticky-stage {
+  gap: 14px;
+  grid-template-columns: minmax(220px, 0.26fr) minmax(0, 1fr);
+}
+
+.obsidian-copy-panel {
+  align-self: stretch;
+  border-radius: 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(20px, 2.2vw, 30px);
+  position: relative;
+}
+
+.obsidian-copy-panel::before {
+  background:
+    radial-gradient(circle at 50% 20%, rgba(var(--accent-hot-rgb) / 0.22), transparent 34%),
+    linear-gradient(180deg, transparent, rgba(0,0,0,0.12));
+  content: '';
+  inset: 0;
+  opacity: 0.9;
+  pointer-events: none;
+  position: absolute;
+}
+
+.obsidian-copy-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.obsidian-copy-panel h2 {
+  font-size: clamp(32px, 4vw, 64px);
+  line-height: 0.94;
+  max-width: 8ch;
+}
+
+.obsidian-copy-panel p {
+  font-size: 14px;
+  line-height: 1.45;
+  max-width: 29ch;
+}
+
+.obsidian-stage-graph {
+  min-height: min(820px, calc(100dvh - 116px));
+}
+
+.obsidian-stage-graph .memory-brain-card {
+  border: 1px solid color-mix(in srgb, var(--accent-hot) 18%, var(--liquid-border));
+  border-radius: 34px;
+  box-shadow:
+    0 38px 120px rgba(0, 0, 0, 0.32),
+    0 0 90px rgba(var(--accent-hot-rgb) / 0.11),
+    inset 0 1px 0 rgba(255,255,255,0.13);
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell {
+  background:
+    radial-gradient(circle at 50% 46%, rgba(var(--accent-hot-rgb) / 0.2), transparent 20%),
+    radial-gradient(circle at 42% 55%, rgba(var(--accent-rgb) / 0.22), transparent 42%),
+    radial-gradient(circle at 72% 28%, rgba(255,255,255,0.08), transparent 24%),
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01)),
+    var(--liquid-panel-soft);
+  border-radius: 34px;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::before {
+  background:
+    linear-gradient(90deg, rgba(var(--accent-hot-rgb) / 0.07) 1px, transparent 1px),
+    linear-gradient(rgba(var(--accent-hot-rgb) / 0.055) 1px, transparent 1px);
+  background-size: 54px 54px;
+  opacity: 0.58;
+}
+
+.obsidian-stage-graph .memory-brain-card .memory-three-shell::after {
+  height: min(88vw, 1160px);
+  opacity: 0.78;
+  width: min(88vw, 1160px);
+}
+
+.memory-three-canvas {
+  min-height: 720px;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-card-header {
+  box-shadow: 0 18px 54px rgba(0,0,0,0.2);
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-controls {
+  bottom: 22px;
+  box-shadow: 0 18px 54px rgba(0,0,0,0.22);
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-hud {
+  top: 162px;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-vault-status {
+  bottom: 146px;
+}
+
+.thought-path-panel {
+  right: 22px;
+  top: 22px;
+}
+
 /* Home Landing Section */
 .home-landing {
   align-items: center;
@@ -9935,6 +10056,499 @@ input {
 
 .settings-page-shell .settings-backdrop {
   display: none !important;
+}
+
+/* Obsidian stability override: mantém a cena limpa depois das camadas visuais. */
+.obsidian-stage-graph .memory-brain-card .memory-three-shell {
+  inset: 0;
+  position: absolute;
+}
+
+.obsidian-stage-graph .memory-brain-card .brain-card-header,
+.obsidian-timeline,
+.obsidian-stage-graph .memory-brain-card .brain-controls,
+.thought-path-panel,
+.nexus-core-readout,
+.obsidian-stage-graph .memory-brain-card .brain-hud,
+.obsidian-stage-graph .memory-brain-card .brain-vault-status {
+  max-width: calc(100% - 44px);
+}
+
+@media (min-width: 761px) {
+  .obsidian-scroll-scene {
+    min-height: 100dvh;
+    overflow: hidden;
+  }
+
+  .obsidian-sticky-stage {
+    grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+    min-height: 100dvh;
+    padding: 86px 18px 18px;
+  }
+
+  .obsidian-stage-graph,
+  .obsidian-stage-graph .memory-brain-card {
+    min-height: calc(100dvh - 104px);
+  }
+
+  .obsidian-stage-graph .memory-brain-card .memory-three-shell {
+    height: auto;
+    min-height: 0;
+  }
+
+  .memory-three-canvas {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .obsidian-sticky-stage {
+    grid-template-columns: 1fr !important;
+  }
+
+  .obsidian-copy-panel h2 {
+    max-width: none;
+  }
+
+  .obsidian-stage-graph .memory-brain-card .memory-three-shell {
+    inset: auto !important;
+    position: relative !important;
+  }
+}
+
+/* New Obsidian graph page: estilo mapa de memórias inspirado em graph view. */
+.obsidian-stage-graph .obsidian-graph-page {
+  background: #1f1f22;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  box-shadow: 0 34px 90px rgba(0,0,0,0.36);
+  color: #e5e7eb;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: calc(100dvh - 112px);
+  overflow: hidden;
+  position: relative;
+}
+
+.obsidian-scroll-scene .obsidian-sticky-stage {
+  grid-template-columns: 1fr !important;
+}
+
+.obsidian-scroll-scene .obsidian-stage-graph {
+  display: grid;
+  gap: 10px;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  width: 100%;
+}
+
+.obsidian-learn-toolbar {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.12), rgba(255,255,255,0.03)),
+    rgba(27,27,31,0.78);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(0,0,0,0.22);
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(180px, 1fr) auto auto;
+  padding: 8px;
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  backdrop-filter: blur(18px) saturate(1.18);
+}
+
+.obsidian-learn-toolbar input {
+  background: rgba(255,255,255,0.055);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 13px;
+  color: #f4f4f5;
+  font: inherit;
+  font-size: 13px;
+  min-height: 38px;
+  min-width: 0;
+  outline: none;
+  padding: 0 12px;
+}
+
+.obsidian-learn-toolbar input::placeholder {
+  color: rgba(212,212,216,0.56);
+}
+
+.obsidian-learn-toolbar button {
+  align-items: center;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 13px;
+  color: #f4f4f5;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  gap: 7px;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 12px;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  white-space: nowrap;
+}
+
+.obsidian-learn-toolbar button:hover:not(:disabled) {
+  background: rgba(250,204,21,0.14);
+  border-color: rgba(250,204,21,0.22);
+  transform: translateY(-1px);
+}
+
+.obsidian-learn-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.obsidian-learn-file {
+  color: #fde68a !important;
+}
+
+.obsidian-sync-button {
+  color: #86efac !important;
+}
+
+.obsidian-stage-graph .obsidian-graph-page {
+  min-height: 0;
+}
+
+.obsidian-graph-topbar {
+  align-items: center;
+  background: rgba(24,24,27,0.94);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  min-height: 56px;
+  padding: 10px 14px;
+  position: relative;
+  z-index: 5;
+}
+
+.obsidian-graph-topbar > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.obsidian-graph-topbar strong {
+  color: #f4f4f5;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.obsidian-graph-actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.obsidian-graph-actions button {
+  align-items: center;
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  color: #a1a1aa;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.obsidian-graph-actions button.is-active,
+.obsidian-graph-actions button:hover {
+  background: rgba(255,255,255,0.09);
+  color: #fff;
+}
+
+.obsidian-graph-main {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(250, 204, 21, 0.08), transparent 34%),
+    radial-gradient(circle at 32% 58%, rgba(34, 197, 94, 0.06), transparent 26%),
+    #202023;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.obsidian-graph-viewport {
+  height: 100%;
+  min-height: 620px;
+  position: relative;
+  width: 100%;
+}
+
+.obsidian-graph-viewport svg {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.obsidian-graph-boundary {
+  fill: none;
+  stroke: rgba(250, 204, 21, 0.22);
+  stroke-dasharray: 2 11;
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.obsidian-graph-links line {
+  stroke: rgba(161, 161, 170, 0.24);
+  stroke-linecap: round;
+  stroke-width: 0.9;
+}
+
+.obsidian-graph-links line.is-strong {
+  stroke: rgba(212, 212, 216, 0.34);
+  stroke-width: 1.15;
+}
+
+.obsidian-graph-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.obsidian-graph-node .node-glow {
+  fill: currentColor;
+  opacity: 0.08;
+}
+
+.obsidian-graph-node .node-dot {
+  fill: currentColor;
+  opacity: 0.9;
+  stroke: rgba(255,255,255,0.16);
+  stroke-width: 0.8;
+  transition: r 0.18s ease, opacity 0.18s ease;
+}
+
+.obsidian-graph-node.node-topico .node-dot {
+  opacity: 0.78;
+}
+
+.obsidian-graph-node.is-active .node-dot,
+.obsidian-graph-node:hover .node-dot {
+  opacity: 1;
+}
+
+.obsidian-graph-node .node-ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-opacity: 0.72;
+  stroke-width: 2;
+}
+
+.obsidian-selected-ray line {
+  stroke: rgba(255,255,255,0.46);
+  stroke-dasharray: 5 8;
+  stroke-width: 1.2;
+}
+
+.obsidian-memory-card,
+.obsidian-graph-legend,
+.obsidian-graph-stats {
+  background: rgba(27,27,31,0.76);
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.24);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  backdrop-filter: blur(18px) saturate(1.15);
+}
+
+.obsidian-memory-card {
+  border-radius: 16px;
+  display: grid;
+  gap: 9px;
+  max-width: 340px;
+  padding: 14px;
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 4;
+}
+
+.obsidian-memory-card > span,
+.obsidian-memory-meta small,
+.obsidian-graph-stats span {
+  color: #a1a1aa;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.obsidian-memory-card strong {
+  color: #fff;
+  font-size: 18px;
+  line-height: 1.12;
+}
+
+.obsidian-memory-card p {
+  color: #c4c4cc;
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.obsidian-memory-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.obsidian-memory-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.obsidian-memory-tags em {
+  background: rgba(250,204,21,0.1);
+  border: 1px solid rgba(250,204,21,0.14);
+  border-radius: 999px;
+  color: #fde68a;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  padding: 4px 7px;
+}
+
+.obsidian-graph-legend {
+  align-items: center;
+  border-radius: 999px;
+  bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  left: 16px;
+  max-width: calc(100% - 32px);
+  padding: 8px;
+  position: absolute;
+  z-index: 4;
+}
+
+.obsidian-graph-legend span {
+  align-items: center;
+  color: #d4d4d8;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  gap: 6px;
+}
+
+.obsidian-graph-legend i {
+  border-radius: 999px;
+  display: block;
+  height: 8px;
+  width: 8px;
+}
+
+.obsidian-graph-stats {
+  border-radius: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 8px;
+  position: absolute;
+  right: 16px;
+  width: min(360px, calc(100% - 32px));
+  z-index: 4;
+}
+
+.obsidian-graph-stats div {
+  background: rgba(255,255,255,0.045);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 12px;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+}
+
+.obsidian-graph-stats strong {
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.obsidian-memory-card .memory-curation-actions {
+  margin-top: 2px;
+}
+
+.obsidian-memory-card .memory-curation-actions button,
+.obsidian-memory-card .memory-curation-actions label {
+  background: rgba(255,255,255,0.055);
+  border-color: rgba(255,255,255,0.08);
+  color: #f4f4f5;
+}
+
+@media (max-width: 760px) {
+  .obsidian-stage-graph .obsidian-graph-page {
+    min-height: calc(100svh - 170px);
+  }
+
+  .obsidian-learn-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .obsidian-learn-toolbar input {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+
+  .obsidian-learn-toolbar button {
+    min-width: 0;
+    padding-inline: 8px;
+    width: 100%;
+  }
+
+  .obsidian-graph-topbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .obsidian-graph-actions {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .obsidian-graph-actions button {
+    flex: 0 0 auto;
+  }
+
+  .obsidian-graph-viewport {
+    min-height: 520px;
+  }
+
+  .obsidian-memory-card {
+    bottom: 78px;
+    left: 10px;
+    max-height: 42%;
+    max-width: none;
+    overflow-y: auto;
+    right: 10px;
+    top: auto;
+  }
+
+  .obsidian-graph-legend {
+    display: none;
+  }
+
+  .obsidian-graph-stats {
+    bottom: 10px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
 }
 
 .settings-page-shell .settings-panel.settings-panel-page {

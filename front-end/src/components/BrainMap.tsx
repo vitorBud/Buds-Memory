@@ -4,22 +4,15 @@ import * as THREE from 'three'
 import {
   Activity,
   BarChart3,
-  BrainCircuit,
-  CalendarDays,
   Database,
   FileText,
-  GitBranch,
-  Layers3,
   LockKeyhole,
-  MousePointer2,
   Network,
   Pin,
-  Radio,
   ScanSearch,
   Sparkles,
   Trash2,
   X,
-  ZoomIn,
 } from 'lucide-react'
 import { deleteCognitiveMemory, setCoreMemory, updateCognitiveMemory } from '../services/api'
 import type { CognitiveMemory, KnowledgeGraph, KnowledgeSource, Message } from '../types'
@@ -283,9 +276,8 @@ function buildMemoryNodes(
     })
   })
 
-  // Memórias cognitivas — somente acima do limiar de relevância
+  // Memórias cognitivas — todas aparecem no Obsidian; importância só muda destaque/tamanho.
   cognitiveMemories
-    .filter(memory => (memory.importance ?? 0) >= 0.4)
     .forEach((memory, memoryIndex) => {
     const createdAt = parseDate(memory.created_at || memory.last_accessed, memoryIndex * 3_600_000)
     const tags = [...new Set([memory.memory_type, ...(memory.tags ?? []), ...getTopics(memory.content, 4)])]
@@ -299,7 +291,7 @@ function buildMemoryNodes(
       label: compactLabel(memory.content, memory.is_core ? 'Core Memory' : `Memória ${memory.memory_type}`, 68),
       summary: memory.content,
       kind: 'memoria',
-      weight: (memory.is_core ? 18 : 9) + Math.round(importance * 8) + Math.min(memory.access_count ?? 0, 4),
+      weight: (memory.is_core ? 18 : 8) + Math.round(importance * 7) + Math.min(memory.access_count ?? 0, 4),
       createdAt,
       source: memory.origin_type ? `Origem: ${memory.origin_type}` : `Memória ${memory.memory_type}`,
       tags,
@@ -454,7 +446,7 @@ function createTextLabelSprite(node: MemoryNode, color: THREE.Color, textColor: 
   return sprite
 }
 
-function ThreeMemoryGraph({
+export function ThreeMemoryGraph({
   nodes,
   selectedId,
   thoughtMode,
@@ -807,6 +799,118 @@ function ThreeMemoryGraph({
   return <div ref={mountRef} className="memory-three-canvas" aria-label="Mapa neural 3D interativo" />
 }
 
+function ObsidianMemoryGraph({
+  nodes,
+  selectedId,
+  onSelect,
+}: {
+  nodes: MemoryNode[]
+  selectedId: string
+  onSelect: (id: string) => void
+}) {
+  const graph = useMemo(() => {
+    const center = { x: 500, y: 430 }
+    const points = nodes.map((node, index) => {
+      const kindBias: Record<MemoryKind, { x: number; y: number; r: number }> = {
+        memoria: { x: -70, y: 35, r: 235 },
+        fonte: { x: 60, y: -20, r: 285 },
+        entidade: { x: 105, y: 70, r: 245 },
+        topico: { x: 0, y: 0, r: 368 },
+        sistema: { x: 0, y: 0, r: 38 },
+      }
+      const bias = kindBias[node.kind]
+      const ring = node.kind === 'topico' ? 1 : index % 4
+      const angle = node.angle + (node.kind === 'topico' ? index * 0.03 : 0)
+      const radius = node.kind === 'sistema'
+        ? bias.r + index * 8
+        : bias.r * (0.54 + (ring * 0.13)) + Math.min(node.weight, 20) * 2.8
+      const wave = Math.sin(index * 1.7) * 28
+      return {
+        ...node,
+        gx: center.x + bias.x + Math.cos(angle) * radius,
+        gy: center.y + bias.y + Math.sin(angle) * radius * 0.78 + wave,
+        size: Math.max(4.2, Math.min(11.5, 3.2 + node.weight * 0.38)),
+      }
+    })
+
+    const pointById = new Map(points.map(point => [point.id, point]))
+    const links: Array<{ a: typeof points[number]; b: typeof points[number]; strong: boolean }> = []
+    const core = points.find(point => point.kind === 'sistema') ?? points[0]
+
+    points.forEach((point, index) => {
+      if (core && point.id !== core.id && (index % 2 === 0 || point.kind !== 'topico')) {
+        links.push({ a: core, b: point, strong: point.kind === 'memoria' || point.kind === 'fonte' })
+      }
+
+      for (let nextIndex = index + 1; nextIndex < Math.min(points.length, index + 9); nextIndex += 1) {
+        const next = points[nextIndex]
+        const sharesTag = point.tags.some(tag => next.tags.includes(tag))
+        const sameSource = point.source === next.source
+        const near = Math.hypot(point.gx - next.gx, point.gy - next.gy) < 180
+        if (sharesTag || sameSource || near) links.push({ a: point, b: next, strong: sharesTag || sameSource })
+      }
+    })
+
+    return { points, links, pointById }
+  }, [nodes])
+
+  const selectedPoint = graph.pointById.get(selectedId)
+
+  return (
+    <div className="obsidian-graph-viewport" aria-label="Visualização em gráfico das memórias do Nexus">
+      <svg viewBox="0 0 1000 860" role="img" aria-label="Grafo de memórias">
+        <defs>
+          <radialGradient id="obsidianNodeGlow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="currentColor" stopOpacity="0.95" />
+            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <circle className="obsidian-graph-boundary" cx="500" cy="430" r="382" />
+        <g className="obsidian-graph-links">
+          {graph.links.slice(0, 520).map((link, index) => (
+            <line
+              key={`${link.a.id}-${link.b.id}-${index}`}
+              className={link.strong ? 'is-strong' : ''}
+              x1={link.a.gx}
+              y1={link.a.gy}
+              x2={link.b.gx}
+              y2={link.b.gy}
+            />
+          ))}
+        </g>
+        <g className="obsidian-graph-nodes">
+          {graph.points.map(point => {
+            const active = point.id === selectedId
+            return (
+              <g
+                key={point.id}
+                className={`obsidian-graph-node node-${point.kind} ${active ? 'is-active' : ''}`}
+                style={{ color: KIND_COLOR[point.kind] }}
+                onClick={() => onSelect(point.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') onSelect(point.id)
+                }}
+                aria-label={point.label}
+              >
+                <circle className="node-glow" cx={point.gx} cy={point.gy} r={point.size * 3.1} />
+                <circle className="node-dot" cx={point.gx} cy={point.gy} r={point.size} />
+                {active && <circle className="node-ring" cx={point.gx} cy={point.gy} r={point.size + 10} />}
+              </g>
+            )
+          })}
+        </g>
+        {selectedPoint && (
+          <g className="obsidian-selected-ray">
+            <line x1="500" y1="430" x2={selectedPoint.gx} y2={selectedPoint.gy} />
+          </g>
+        )}
+      </svg>
+    </div>
+  )
+}
+
 // Mapa Obsidian do cérebro da IA: memórias, fontes e raciocínio em uma cena 3D interativa.
 export function BrainMap({
   messages,
@@ -822,7 +926,6 @@ export function BrainMap({
   const [selectedId, setSelectedId] = useState(allNodes[0]?.id ?? 'sistema-contexto')
   const [isStatsOpen, setIsStatsOpen] = useState(false)
   const [period, setPeriod] = useState<MemoryPeriod>('all')
-  const [thoughtMode, setThoughtMode] = useState(false)
   const [memoryAction, setMemoryAction] = useState<string | null>(null)
   const [memoryError, setMemoryError] = useState('')
   const nodes = useMemo(() => filterNodesByPeriod(allNodes, period), [allNodes, period])
@@ -921,90 +1024,94 @@ export function BrainMap({
   }, [runMemoryAction, selectedMemory])
 
   return (
-    <div className="brain-card memory-brain-card">
-      <div className="brain-card-header obsidian-glass-hud">
+    <div className="obsidian-graph-page">
+      <header className="obsidian-graph-topbar">
         <div>
-          <span className="eyebrow">Nexus · Second Brain</span>
-          <strong>Mapa cognitivo</strong>
+          <span className="eyebrow">Visualização em gráfico</span>
+          <strong>{selectedNode?.label ?? 'Memórias do Nexus'}</strong>
         </div>
-        <div className="brain-header-actions">
-          <span><Radio size={12} /> ao vivo</span>
-          <span><GitBranch size={12} /> {visibleNodes.length} nós</span>
-          <button
-            type="button"
-            className={thoughtMode ? 'is-active' : ''}
-            onClick={() => setThoughtMode(value => !value)}
-            title="Modo pensamento — traça o caminho de raciocínio"
-          >
-            <BrainCircuit size={14} />
-          </button>
-          <button type="button" onClick={() => setIsStatsOpen(true)} title="Abrir painel de memória">
+        <div className="obsidian-graph-actions">
+          {PERIODS.map(option => (
+            <button
+              key={option.id}
+              type="button"
+              className={period === option.id ? 'is-active' : ''}
+              onClick={() => setPeriod(option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+          <button type="button" onClick={() => setIsStatsOpen(true)}>
             <BarChart3 size={14} />
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="obsidian-timeline obsidian-glass-hud" aria-label="Filtro por período">
-        <div>
-          <CalendarDays size={13} />
-          <span>Período</span>
+      <main className="obsidian-graph-main">
+        <ObsidianMemoryGraph
+          nodes={visibleNodes}
+          selectedId={selectedNode?.id ?? selectedId}
+          onSelect={handleSelectNode}
+        />
+
+        <aside className="obsidian-memory-card">
+          <span>{selectedNode ? KIND_LABEL[selectedNode.kind] : 'Memória'}</span>
+          <strong>{selectedNode?.label ?? 'Nexus Core'}</strong>
+          <p>{selectedNode?.summary ?? 'Cada bolinha representa uma memória, documento, conceito ou aprendizado salvo pelo Nexus.'}</p>
+          <div className="obsidian-memory-meta">
+            <small>Origem: {selectedNode?.source ?? 'Nexus'}</small>
+            <small>Data: {selectedNode ? formatShortDate(selectedNode.createdAt) : '--'}</small>
+            <small>Peso: {selectedNode?.weight ?? 0}</small>
+          </div>
+          {selectedNode?.tags?.length ? (
+            <div className="obsidian-memory-tags">
+              {selectedNode.tags.slice(0, 7).map(tag => <em key={tag}>{tag}</em>)}
+            </div>
+          ) : null}
+          {selectedMemory && (
+            <div className="memory-curation-actions">
+              <button type="button" onClick={handleToggleCore} disabled={Boolean(memoryAction)}>
+                <Pin size={13} />
+                {selectedMemory.is_core ? 'Desfixar Core' : 'Fixar Core'}
+              </button>
+              <label>
+                Força visual
+                <input
+                  type="range"
+                  min="0.2"
+                  max="1"
+                  step="0.05"
+                  value={selectedMemory.importance ?? 0.5}
+                  disabled={Boolean(memoryAction)}
+                  onChange={event => handleImportanceChange(Number(event.target.value))}
+                />
+              </label>
+              <button type="button" className="danger" onClick={handleDeleteMemory} disabled={Boolean(memoryAction)}>
+                <Trash2 size={13} />
+                Excluir
+              </button>
+              {memoryAction && <small>Atualizando...</small>}
+              {memoryError && <small className="error-text">{memoryError}</small>}
+            </div>
+          )}
+        </aside>
+
+        <div className="obsidian-graph-legend">
+          {(['memoria', 'fonte', 'entidade', 'topico'] as MemoryKind[]).map(kind => (
+            <span key={kind}>
+              <i style={{ background: KIND_COLOR[kind] }} />
+              {KIND_LABEL[kind]}
+            </span>
+          ))}
         </div>
-        {PERIODS.map(option => (
-          <button
-            key={option.id}
-            type="button"
-            className={period === option.id ? 'is-active' : ''}
-            onClick={() => setPeriod(option.id)}
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
 
-      <div className="brain-graph memory-three-shell" aria-label="Mapa neural tridimensional de memórias">
-          <ThreeMemoryGraph
-            nodes={visibleNodes}
-            selectedId={selectedNode?.id ?? selectedId}
-            thoughtMode={thoughtMode}
-            onSelect={handleSelectNode}
-          />
-
-        <div className="nexus-core-readout">
-          <span>Nexus Core</span>
-          <strong>{allNodes.length}</strong>
-          <em>nós ativos</em>
+        <div className="obsidian-graph-stats">
+          <div><span>Nós</span><strong>{visibleNodes.length}</strong></div>
+          <div><span>Memórias</span><strong>{savedMemoryCount}</strong></div>
+          <div><span>Docs</span><strong>{learnedCount}</strong></div>
+          <div><span>Relações</span><strong>{graphEdgeCount}</strong></div>
         </div>
-
-        <div className="brain-hud memory-hud">
-          <span>Selecionado</span>
-          <strong>{selectedNode?.label ?? 'Nexus'}</strong>
-          <em>{selectedNode ? KIND_LABEL[selectedNode.kind] : 'Sistema'}</em>
-        </div>
-
-        <div className="brain-vault-status">
-          <Layers3 size={13} />
-          <span>Conexões</span>
-          <strong>{totalConnections}</strong>
-        </div>
-      </div>
-
-      <div className="brain-controls obsidian-glass-hud">
-        <span><MousePointer2 size={12} /> arrastar · girar</span>
-        <span><ZoomIn size={12} /> scroll · zoom</span>
-        <button type="button" onClick={() => setIsStatsOpen(true)}>
-          <Activity size={12} /> memória da IA
-        </button>
-      </div>
-
-      <div className="thought-path-panel obsidian-glass-hud">
-        <span>Fluxo de raciocínio</span>
-        <ol>
-          <li className={thoughtMode ? 'is-active' : ''}>Pergunta</li>
-          <li className={thoughtMode ? 'is-active' : ''}>Busca</li>
-          <li className={thoughtMode ? 'is-active' : ''}>Memórias</li>
-          <li className={thoughtMode ? 'is-active' : ''}>Resposta</li>
-        </ol>
-      </div>
+      </main>
 
       <AnimatePresence>
         {isStatsOpen && (
@@ -1120,7 +1227,7 @@ export function BrainMap({
                     {selectedMemory.is_core ? 'Desfixar Core' : 'Fixar como Core'}
                   </button>
                   <label>
-                    Importância
+                    Força visual
                     <input
                       type="range"
                       min="0.2"
@@ -1198,7 +1305,7 @@ export function BrainMap({
                       <span className={`memory-type-badge type-${memory.memory_type}`}>
                         {memory.is_core ? 'core' : memory.memory_type}
                       </span>
-                      {' '}· {Math.round((memory.importance ?? 0) * 100)}% relevância
+                      {' '}· {Math.round((memory.importance ?? 0) * 100)}% força visual
                     </small>
                   </span>
                 </button>

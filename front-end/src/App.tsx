@@ -110,6 +110,7 @@ export default function App() {
   const pageRef = useRef<HTMLDivElement>(null)
   const chatSceneRef = useRef<HTMLElement>(null)
   const obsidianSceneRef = useRef<HTMLElement>(null)
+  const obsidianFileInputRef = useRef<HTMLInputElement>(null)
   const didAutoLoadSessionRef = useRef(false)
   const [aiState, setAiState] = useState<AiState>('idle')
   const [sessions, setSessions] = useState<Session[]>([])
@@ -900,18 +901,56 @@ export default function App() {
             transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="obsidian-sticky-stage">
-              <div className="obsidian-copy-panel">
-                <span className="eyebrow">Obsidian neural</span>
-                <h2>Cérebro IA</h2>
-                <p>
-                  Rede viva do que o Nexus salvou: memórias, documentos, conceitos e relações aprendidas.
-                </p>
-                <div className="obsidian-progress-meter">
-                  <span />
-                </div>
-              </div>
-
               <div className="obsidian-stage-graph">
+                <div className="obsidian-learn-toolbar" aria-label="Ensinar e sincronizar Obsidian">
+                  <button
+                    type="button"
+                    className="obsidian-learn-file"
+                    onClick={() => obsidianFileInputRef.current?.click()}
+                    disabled={isImportingKnowledge}
+                    title="Importar PDF, TXT, Markdown, CSV ou JSON"
+                  >
+                    <Upload size={15} />
+                    <span>{isImportingKnowledge ? 'Lendo...' : 'Importar PDF'}</span>
+                  </button>
+                  <input
+                    ref={obsidianFileInputRef}
+                    type="file"
+                    accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,application/pdf"
+                    hidden
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      event.target.value = ''
+                      if (file) void handleImportKnowledgeFile(file)
+                    }}
+                  />
+                  <input
+                    value={knowledgeInput}
+                    onChange={(event) => setKnowledgeInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') void handleImportKnowledgeText()
+                    }}
+                    placeholder="Cole texto, URL ou pesquisa para criar novas memórias..."
+                    disabled={isImportingKnowledge}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleImportKnowledgeText()}
+                    disabled={isImportingKnowledge || !knowledgeInput.trim()}
+                  >
+                    Aprender
+                  </button>
+                  <button
+                    type="button"
+                    className="obsidian-sync-button"
+                    onClick={() => void handleSyncNow()}
+                    disabled={isSyncing}
+                    title="Enviar memórias e chats para o Supabase"
+                  >
+                    <Database size={15} />
+                    <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+                  </button>
+                </div>
                 <BrainMap
                   key={settings.theme}
                   messages={messages}
