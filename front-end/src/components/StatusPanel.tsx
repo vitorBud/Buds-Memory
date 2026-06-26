@@ -1,4 +1,4 @@
-import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, CloudDownload, Code2, Cpu, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Volume2, X } from 'lucide-react'
+import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, CloudDownload, Code2, Cpu, FolderOpen, Gauge, HardDrive, LogOut, RefreshCw, SlidersHorizontal, UserRound, Volume2, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { indexCodebase, setRemoteSessionToken } from '../services/api'
 import type { AiState, InterfaceSettings, SyncStatus, ThemeMode } from '../types'
@@ -21,21 +21,27 @@ interface StatusPanelProps {
   onPullCloudChats: () => void
   onSettingChange: <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => void
   onClose: () => void
+  presentation?: 'drawer' | 'page'
   children?: ReactNode
 }
 
 function ToggleRow({
   label,
+  description,
   checked,
   onChange,
 }: {
   label: string
+  description?: string
   checked: boolean
   onChange: (checked: boolean) => void
 }) {
   return (
     <label className="toggle-row">
-      <span>{label}</span>
+      <span>
+        <strong>{label}</strong>
+        {description && <small>{description}</small>}
+      </span>
       <input
         type="checkbox"
         checked={checked}
@@ -55,11 +61,10 @@ function StatusLine({ label, value }: { label: string; value: string }) {
   )
 }
 
-const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
-  { value: 'white', label: 'White' },
-  { value: 'black', label: 'Black' },
-  { value: 'gold', label: 'Gold' },
-  { value: 'silver', label: 'Silver' },
+const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; hint: string }> = [
+  { value: 'black', label: 'Black', hint: 'foco noturno' },
+  { value: 'gold', label: 'Gold', hint: 'destaque quente' },
+  { value: 'silver', label: 'Silver', hint: 'neutro e suave' },
 ]
 
 const MODEL_OPTIONS: Record<string, { label: string; hint: string }> = {
@@ -67,6 +72,18 @@ const MODEL_OPTIONS: Record<string, { label: string; hint: string }> = {
   'qwen2.5-coder:7b': { label: 'Padrão', hint: 'equilíbrio entre velocidade e qualidade' },
   'qwen2.5-coder:14b': { label: 'Mais potente', hint: 'melhor raciocínio, exige mais do Mac' },
 }
+
+type SettingsSection = 'account' | 'appearance' | 'ai' | 'sync' | 'codebase' | 'memory' | 'system'
+
+const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: string; icon: typeof UserRound }> = [
+  { id: 'account', label: 'Conta', hint: 'Login e sessão', icon: UserRound },
+  { id: 'appearance', label: 'Aparência', hint: 'Tema e interface', icon: SlidersHorizontal },
+  { id: 'ai', label: 'IA', hint: 'Modelo, voz e Google', icon: BrainCircuit },
+  { id: 'sync', label: 'Sincronização', hint: 'Supabase e nuvem', icon: Cloud },
+  { id: 'codebase', label: 'Codebase', hint: 'Projetos locais', icon: Code2 },
+  { id: 'memory', label: 'Memória', hint: 'Contexto do chat', icon: Activity },
+  { id: 'system', label: 'Sistema', hint: 'Pipeline e sessão', icon: Cpu },
+]
 
 type NexusBridge = { pickFolder?: () => Promise<string | null>; isDesktop?: boolean }
 
@@ -101,11 +118,14 @@ export function StatusPanel({
   onPullCloudChats,
   onSettingChange,
   onClose,
+  presentation = 'drawer',
   children,
 }: StatusPanelProps) {
   const [codebasePath, setCodebasePath] = useState('')
   const [codebaseStatus, setCodebaseStatus] = useState('')
   const [isIndexingCodebase, setIsIndexingCodebase] = useState(false)
+  const [activeSection, setActiveSection] = useState<SettingsSection>('account')
+  const isPage = presentation === 'page'
   const isSupabaseSession = authMode === 'supabase'
   const syncConfigured = Boolean(syncStatus?.supabase_configured && syncStatus?.online_sync_enabled)
   const syncUnavailable = isSyncing || !syncConfigured || !isSupabaseSession
@@ -140,23 +160,50 @@ export function StatusPanel({
     window.location.reload()
   }
 
+  const logout = () => {
+    setRemoteSessionToken('')
+    window.location.reload()
+  }
+
   return (
-    <aside className="settings-panel">
+    <aside className={`settings-panel ${isPage ? 'settings-panel-page' : ''}`} data-section={isPage ? activeSection : undefined}>
       <div className="settings-drawer-head">
         <div>
-          <span className="eyebrow">Aba</span>
-          <strong>Configurações</strong>
+          <span className="eyebrow">{presentation === 'page' ? 'Painel Nexus' : 'Aba'}</span>
+          <strong>{presentation === 'page' ? 'Configurações do sistema' : 'Configurações'}</strong>
         </div>
         <button type="button" onClick={onClose} aria-label="Fechar configurações" title="Fechar">
           <X size={16} />
         </button>
       </div>
 
-      <div className="panel-block">
+      {isPage && (
+        <nav className="settings-page-nav" aria-label="Categorias de configurações">
+          {SETTINGS_SECTIONS.map(({ id, label, hint, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={activeSection === id ? 'is-active' : ''}
+              onClick={() => setActiveSection(id)}
+            >
+              <Icon size={17} />
+              <span>
+                <strong>{label}</strong>
+                <small>{hint}</small>
+              </span>
+            </button>
+          ))}
+        </nav>
+      )}
+
+      <div className="panel-block settings-interface-block">
         <div className="panel-heading">
           <span>Configurações da interface</span>
           <SlidersHorizontal size={15} />
         </div>
+        <p className="settings-section-copy">
+          Ajuste a aparência geral do Nexus e escolha quais elementos ficam visíveis durante o uso.
+        </p>
 
         <div className="accent-picker theme-grid" aria-label="Tema do sistema">
           {THEME_OPTIONS.map(option => (
@@ -169,7 +216,8 @@ export function StatusPanel({
             >
               <Circle size={13} />
               <span />
-              {option.label}
+              <strong>{option.label}</strong>
+              <small>{option.hint}</small>
             </button>
           ))}
         </div>
@@ -177,31 +225,74 @@ export function StatusPanel({
         <div className="toggle-stack">
           <ToggleRow
             label="Prompts rapidos"
+            description="Mostra sugestões curtas para começar conversas mais rápido."
             checked={settings.showQuickPrompts}
             onChange={(checked) => onSettingChange('showQuickPrompts', checked)}
           />
           <ToggleRow
             label="Cérebro IA"
+            description="Exibe visualizações do conhecimento salvo no Nexus."
             checked={settings.showBrainMap}
             onChange={(checked) => onSettingChange('showBrainMap', checked)}
           />
+        </div>
+      </div>
+
+      <div className="panel-block settings-account-block">
+        <div className="panel-heading">
+          <span>Conta</span>
+          <UserRound size={15} />
+        </div>
+        <p className="settings-section-copy">
+          Controle a sessão atual. O modo Supabase libera sincronização entre dispositivos.
+        </p>
+        <div className="sync-status-card">
+          <div className="sync-orb" data-state={authMode ? 'online' : 'offline'}>
+            <UserRound size={16} />
+          </div>
+          <div>
+            <strong>{authEmail || (authMode === 'local' ? 'Modo local' : 'Sessão Nexus')}</strong>
+            <span>
+              {authMode === 'supabase'
+                ? 'Conta Supabase conectada'
+                : authMode === 'local'
+                  ? 'Dados salvos apenas neste dispositivo'
+                  : 'Sessão ativa'}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          className="account-logout-button"
+          onClick={logout}
+          title="Remove a sessão salva neste navegador ou app. Seus chats locais permanecem no banco local."
+        >
+          <LogOut size={14} />
+          <span>Sair da conta</span>
+        </button>
+      </div>
+
+      <div className="panel-block settings-model-block">
+        <div className="panel-heading">
+          <span>Modelo da IA</span>
+          <BrainCircuit size={15} />
+        </div>
+        <p className="settings-section-copy">
+          Escolha entre velocidade, equilíbrio e raciocínio mais pesado. Modelos maiores exigem mais do Mac.
+        </p>
+        <div className="toggle-stack">
           <ToggleRow
             label="Voz automática"
+            description="Faz o Nexus falar as respostas quando possível."
             checked={settings.autoPlayAudio}
             onChange={(checked) => onSettingChange('autoPlayAudio', checked)}
           />
           <ToggleRow
             label="Buscar no Google"
+            description="Permite consulta em tempo real quando a pergunta precisar de dados atuais."
             checked={settings.webSearchEnabled}
             onChange={(checked) => onSettingChange('webSearchEnabled', checked)}
           />
-        </div>
-      </div>
-
-      <div className="panel-block">
-        <div className="panel-heading">
-          <span>Modelo da IA</span>
-          <BrainCircuit size={15} />
         </div>
         <div className="settings-model-list" aria-label="Selecionar modelo da IA">
           {models.map(option => {
@@ -222,11 +313,14 @@ export function StatusPanel({
         </div>
       </div>
 
-      <div className="panel-block">
+      <div className="panel-block settings-codebase-block">
         <div className="panel-heading">
           <span>Codebase</span>
           <Code2 size={15} />
         </div>
+        <p className="settings-section-copy">
+          Ensine uma pasta de projeto para o Nexus responder sobre arquivos, funções, rotas e dependências.
+        </p>
         <div className="codebase-index-card">
           <span>Ensinar um projeto ao Nexus</span>
           <div>
@@ -236,11 +330,11 @@ export function StatusPanel({
               onChange={(event) => setCodebasePath(event.target.value)}
               placeholder="/Users/vitor/projeto"
             />
-            <button type="button" onClick={pickCodebaseFolder} title="Selecionar pasta">
+          <button type="button" onClick={pickCodebaseFolder} title="Selecionar pasta">
               <FolderOpen size={14} />
             </button>
           </div>
-          <button type="button" onClick={runCodebaseIndex} disabled={isIndexingCodebase}>
+          <button type="button" onClick={runCodebaseIndex} disabled={isIndexingCodebase} title="Lê arquivos do projeto e salva um índice local para perguntas de código.">
             <RefreshCw size={14} className={isIndexingCodebase ? 'is-spinning' : ''} />
             {isIndexingCodebase ? 'Indexando' : 'Indexar codebase'}
           </button>
@@ -248,11 +342,14 @@ export function StatusPanel({
         </div>
       </div>
 
-      <div className="panel-block sync-panel-block">
+      <div className="panel-block sync-panel-block settings-sync-block">
         <div className="panel-heading">
           <span>Supabase Sync</span>
           <Cloud size={15} />
         </div>
+        <p className="settings-section-copy">
+          Envie e baixe chats da nuvem. Por segurança, a sincronização só fica ativa com login Supabase.
+        </p>
 
         <div className="sync-status-card">
           <div className="sync-orb" data-state={isSupabaseSession && syncStatus?.supabase_configured ? 'online' : 'offline'}>
@@ -302,6 +399,7 @@ export function StatusPanel({
             type="button"
             className="sync-now-button sync-login-button"
             onClick={openSupabaseLogin}
+            title="Volta para a tela de entrada para conectar uma conta Supabase."
           >
             <Cloud size={14} />
             <span>Entrar com Supabase</span>
@@ -313,6 +411,7 @@ export function StatusPanel({
           className="sync-now-button"
           onClick={onSyncNow}
           disabled={syncUnavailable}
+          title="Envia dados locais e busca novos registros da sua conta Supabase."
         >
           <RefreshCw size={14} className={isSyncing ? 'is-spinning' : ''} />
           <span>{isSyncing ? 'Sincronizando' : 'Sincronizar agora'}</span>
@@ -323,17 +422,21 @@ export function StatusPanel({
           className="sync-now-button sync-download-button"
           onClick={onPullCloudChats}
           disabled={syncUnavailable}
+          title="Baixa conversas salvas na nuvem para este dispositivo."
         >
           <CloudDownload size={14} />
           <span>{isSyncing ? 'Baixando' : 'Baixar chats da nuvem'}</span>
         </button>
       </div>
 
-      <div className="panel-block">
+      <div className="panel-block settings-session-block">
         <div className="panel-heading">
           <span>Sessao</span>
           <Activity size={15} />
         </div>
+        <p className="settings-section-copy">
+          Estado da conversa aberta agora, útil para conferir latência e atividade.
+        </p>
         <div className="status-grid">
           <StatusLine label="Estado" value={aiState} />
           <StatusLine label="Mensagens" value={String(msgCount)} />
@@ -342,11 +445,14 @@ export function StatusPanel({
         </div>
       </div>
 
-      <div className="panel-block">
+      <div className="panel-block settings-pipeline-block">
         <div className="panel-heading">
           <span>Pipeline</span>
           <Cpu size={15} />
         </div>
+        <p className="settings-section-copy">
+          Componentes que sustentam a experiência: modelo local, voz, transcrição e busca.
+        </p>
         <div className="pipeline-list">
           <div>
             <Cpu size={14} />

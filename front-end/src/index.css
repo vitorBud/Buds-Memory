@@ -5768,6 +5768,216 @@ input {
   padding: 8px 10px;
 }
 
+.account-logout-button {
+  align-items: center;
+  background: var(--liquid-panel);
+  border: 1px solid var(--liquid-border);
+  border-radius: 13px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 750;
+  gap: 7px;
+  justify-content: center;
+  margin-top: 8px;
+  min-height: 36px;
+  padding: 8px 10px;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+  width: 100%;
+}
+
+.account-logout-button:hover {
+  background: color-mix(in srgb, var(--liquid-panel), var(--accent) 10%);
+  border-color: color-mix(in srgb, var(--liquid-border), var(--accent) 38%);
+  transform: translateY(-1px);
+}
+
+/* Settings page: transforma a antiga gaveta em um painel full-screen organizado. */
+.settings-page-shell {
+  background:
+    radial-gradient(circle at 18% 12%, color-mix(in srgb, var(--accent-hot), transparent 86%), transparent 34%),
+    radial-gradient(circle at 82% 4%, color-mix(in srgb, var(--accent), transparent 88%), transparent 30%),
+    color-mix(in srgb, var(--bg), black 2%);
+  inset: 0;
+  overflow-y: auto;
+  padding:
+    max(24px, env(safe-area-inset-top))
+    clamp(16px, 3vw, 38px)
+    calc(96px + env(safe-area-inset-bottom));
+  position: fixed;
+  z-index: 6200;
+}
+
+.settings-page-shell .settings-backdrop {
+  display: none;
+}
+
+.settings-panel.settings-panel-page {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  display: grid !important;
+  gap: 14px !important;
+  grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+  height: auto !important;
+  inset: auto !important;
+  margin: 0 auto !important;
+  max-height: none !important;
+  max-width: 1280px !important;
+  overflow: visible !important;
+  padding: 0 !important;
+  position: static !important;
+  transform: none !important;
+  width: 100% !important;
+}
+
+.settings-panel-page .settings-drawer-head {
+  align-items: center;
+  backdrop-filter: blur(28px) saturate(155%);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--liquid-highlight), transparent 8%), transparent 62%),
+    color-mix(in srgb, var(--liquid-panel), transparent 8%);
+  border: 1px solid var(--liquid-border);
+  border-radius: 22px;
+  box-shadow: 0 24px 70px color-mix(in srgb, var(--shadow), transparent 70%);
+  display: flex !important;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  min-height: 78px;
+  padding: 16px 18px;
+  position: sticky;
+  top: max(12px, env(safe-area-inset-top));
+  z-index: 4;
+}
+
+.settings-panel-page .settings-drawer-head strong {
+  font-size: clamp(22px, 3vw, 34px);
+  letter-spacing: 0;
+}
+
+.settings-panel-page .settings-drawer-head button {
+  min-height: 42px;
+  width: 42px;
+}
+
+.settings-panel-page .panel-block {
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 52%),
+    color-mix(in srgb, var(--liquid-panel-soft), transparent 4%) !important;
+  border: 1px solid var(--liquid-border) !important;
+  border-radius: 22px !important;
+  box-shadow: 0 22px 64px color-mix(in srgb, var(--shadow), transparent 78%) !important;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  grid-column: span 4;
+  min-height: 188px;
+  overflow: hidden;
+  padding: 16px !important;
+}
+
+.settings-panel-page .settings-interface-block,
+.settings-panel-page .settings-model-block,
+.settings-panel-page .settings-insights-block {
+  grid-column: span 6;
+}
+
+.settings-panel-page .settings-sync-block {
+  grid-column: span 5;
+}
+
+.settings-panel-page .settings-codebase-block {
+  grid-column: span 4;
+}
+
+.settings-panel-page .settings-account-block,
+.settings-panel-page .settings-session-block,
+.settings-panel-page .settings-pipeline-block {
+  grid-column: span 3;
+}
+
+.settings-panel-page .theme-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.settings-panel-page .settings-model-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-panel-page .toggle-stack {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-panel-page .sync-metrics-grid,
+.settings-panel-page .status-grid,
+.settings-panel-page .pipeline-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-panel-page .rail-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-panel-page .rail-panel {
+  min-height: 0;
+}
+
+@media (max-width: 1120px) {
+  .settings-panel.settings-panel-page {
+    grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
+  }
+
+  .settings-panel-page .panel-block,
+  .settings-panel-page .settings-codebase-block,
+  .settings-panel-page .settings-sync-block {
+    grid-column: span 4;
+  }
+
+  .settings-panel-page .settings-interface-block,
+  .settings-panel-page .settings-model-block,
+  .settings-panel-page .settings-insights-block {
+    grid-column: span 8;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-page-shell {
+    padding:
+      max(12px, env(safe-area-inset-top))
+      10px
+      calc(96px + env(safe-area-inset-bottom));
+  }
+
+  .settings-panel.settings-panel-page {
+    grid-template-columns: 1fr !important;
+  }
+
+  .settings-panel-page .settings-drawer-head,
+  .settings-panel-page .panel-block,
+  .settings-panel-page .settings-interface-block,
+  .settings-panel-page .settings-model-block,
+  .settings-panel-page .settings-insights-block,
+  .settings-panel-page .settings-sync-block,
+  .settings-panel-page .settings-codebase-block,
+  .settings-panel-page .settings-account-block,
+  .settings-panel-page .settings-session-block,
+  .settings-panel-page .settings-pipeline-block {
+    grid-column: 1 / -1;
+  }
+
+  .settings-panel-page .theme-grid,
+  .settings-panel-page .settings-model-list,
+  .settings-panel-page .toggle-stack,
+  .settings-panel-page .sync-metrics-grid,
+  .settings-panel-page .status-grid,
+  .settings-panel-page .pipeline-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .codebase-index-card button:disabled {
   cursor: progress;
   opacity: 0.65;
@@ -7595,7 +7805,7 @@ input {
     radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--voice-b) 12%, transparent), transparent 48%),
     linear-gradient(180deg, var(--bg), color-mix(in srgb, var(--bg) 88%, #000 12%));
   display: grid;
-  grid-template-rows: 1fr auto auto 1fr;
+  grid-template-rows: 1fr auto auto auto 1fr;
   height: 100vh;
   isolation: isolate;
   justify-items: center;
@@ -7797,6 +8007,105 @@ input {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.voice-controls {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.035)),
+    color-mix(in srgb, var(--glass) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--voice-c) 16%, transparent);
+  border-radius: 24px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  display: flex;
+  gap: 10px;
+  grid-row: 4;
+  margin-top: 18px;
+  max-width: min(92vw, 760px);
+  padding: 8px;
+  -webkit-backdrop-filter: blur(20px) saturate(1.28);
+  backdrop-filter: blur(20px) saturate(1.28);
+}
+
+.voice-select-wrap {
+  align-items: center;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
+  color: var(--voice-c);
+  display: inline-flex;
+  gap: 8px;
+  min-height: 38px;
+  min-width: min(48vw, 260px);
+  padding: 0 10px;
+}
+
+.voice-select-wrap select {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 0;
+  outline: none;
+  width: 100%;
+}
+
+.voice-select-wrap option {
+  color: #0f172a;
+}
+
+.voice-sensitivity {
+  align-items: center;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  display: inline-flex;
+  gap: 4px;
+  min-height: 38px;
+  padding: 3px;
+}
+
+.voice-sensitivity button,
+.voice-interrupt-button {
+  align-items: center;
+  appearance: none;
+  border: 0;
+  border-radius: 14px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 11px;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.voice-sensitivity button {
+  background: transparent;
+}
+
+.voice-sensitivity button.is-active {
+  background: color-mix(in srgb, var(--voice-a) 22%, rgba(255,255,255,0.1));
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+.voice-sensitivity button:hover,
+.voice-interrupt-button:hover {
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.voice-interrupt-button {
+  background: rgba(244, 63, 94, 0.15);
+  border: 1px solid rgba(244, 63, 94, 0.24);
+  color: #fecdd3;
 }
 
 .voice-end-button {
@@ -9486,7 +9795,7 @@ input {
 /* Voice mode alignment and mobile-safe controls. */
 .voice-mode {
   box-sizing: border-box;
-  grid-template-rows: minmax(0, 1fr) auto auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto auto auto minmax(0, 1fr);
   place-items: center;
 }
 
@@ -9514,7 +9823,7 @@ input {
   .voice-mode {
     align-content: center !important;
     box-sizing: border-box;
-    grid-template-rows: minmax(0, 1fr) auto auto minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) auto auto auto minmax(0, 1fr) !important;
     height: 100svh !important;
     justify-content: center !important;
     min-height: 100svh !important;
@@ -9522,7 +9831,7 @@ input {
     padding:
       calc(18px + env(safe-area-inset-top))
       14px
-      calc(112px + env(safe-area-inset-bottom)) !important;
+      calc(128px + env(safe-area-inset-bottom)) !important;
     place-items: center !important;
   }
 
@@ -9555,8 +9864,38 @@ input {
     max-width: 280px;
   }
 
+  .voice-controls {
+    align-items: stretch;
+    border-radius: 20px;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+    max-width: min(360px, calc(100vw - 28px));
+    padding: 8px;
+    width: 100%;
+  }
+
+  .voice-select-wrap {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .voice-sensitivity {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .voice-sensitivity button,
+  .voice-interrupt-button {
+    justify-content: center;
+    min-width: 0;
+    padding-inline: 8px;
+    width: 100%;
+  }
+
   .voice-end-button {
-    bottom: calc(62px + env(safe-area-inset-bottom)) !important;
+    bottom: calc(14px + env(safe-area-inset-bottom)) !important;
     left: 50%;
     max-width: calc(100vw - 32px);
     min-height: 42px;
@@ -9584,4 +9923,547 @@ input {
     top: calc(14px + env(safe-area-inset-top));
     width: 38px;
   }
+}
+
+/* Final override: Settings agora é página/tela cheia, não gaveta lateral. */
+.settings-page-shell {
+  inset: 0 !important;
+  overflow-y: auto !important;
+  position: fixed !important;
+  z-index: 6200 !important;
+}
+
+.settings-page-shell .settings-backdrop {
+  display: none !important;
+}
+
+.settings-page-shell .settings-panel.settings-panel-page {
+  display: grid !important;
+  height: auto !important;
+  inset: auto !important;
+  max-height: none !important;
+  max-width: 1280px !important;
+  overflow: visible !important;
+  position: static !important;
+  right: auto !important;
+  top: auto !important;
+  transform: none !important;
+  width: 100% !important;
+}
+
+.settings-page-shell .settings-panel-page .settings-drawer-head {
+  grid-column: 1 / -1 !important;
+}
+
+@media (max-width: 760px) {
+  .settings-page-shell .settings-panel.settings-panel-page {
+    grid-template-columns: 1fr !important;
+    padding-bottom: calc(92px + env(safe-area-inset-bottom)) !important;
+  }
+
+  .settings-page-shell .settings-panel-page .settings-drawer-head,
+  .settings-page-shell .settings-panel-page .panel-block {
+    grid-column: 1 / -1 !important;
+  }
+}
+
+/* Settings layout balance: áreas fixas para leitura rápida e menos sensação de bagunça. */
+.settings-page-shell .settings-panel.settings-panel-page {
+  align-items: stretch !important;
+  grid-auto-flow: row dense !important;
+  grid-template-areas:
+    "head head head head head head head head head head head head"
+    "interface interface interface interface model model model model model account account account"
+    "sync sync sync sync sync codebase codebase codebase codebase session session session"
+    "insights insights insights insights insights insights insights insights pipeline pipeline pipeline pipeline" !important;
+  grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+}
+
+.settings-page-shell .settings-drawer-head {
+  grid-area: head !important;
+}
+
+.settings-page-shell .settings-interface-block {
+  grid-area: interface !important;
+}
+
+.settings-page-shell .settings-model-block {
+  grid-area: model !important;
+}
+
+.settings-page-shell .settings-account-block {
+  grid-area: account !important;
+}
+
+.settings-page-shell .settings-sync-block {
+  grid-area: sync !important;
+}
+
+.settings-page-shell .settings-codebase-block {
+  grid-area: codebase !important;
+}
+
+.settings-page-shell .settings-session-block {
+  grid-area: session !important;
+}
+
+.settings-page-shell .settings-pipeline-block {
+  grid-area: pipeline !important;
+}
+
+.settings-page-shell .settings-insights-block {
+  grid-area: insights !important;
+}
+
+.settings-page-shell .settings-panel-page .panel-block {
+  min-height: 0 !important;
+}
+
+.settings-page-shell .settings-interface-block,
+.settings-page-shell .settings-model-block,
+.settings-page-shell .settings-account-block {
+  min-height: 214px !important;
+}
+
+.settings-page-shell .settings-sync-block,
+.settings-page-shell .settings-codebase-block,
+.settings-page-shell .settings-session-block {
+  min-height: 244px !important;
+}
+
+.settings-page-shell .settings-insights-block,
+.settings-page-shell .settings-pipeline-block {
+  min-height: 274px !important;
+}
+
+.settings-page-shell .settings-panel-page .settings-model-list {
+  align-content: stretch;
+  height: 100%;
+}
+
+.settings-page-shell .settings-panel-page .settings-model-list button {
+  min-height: 112px;
+}
+
+.settings-page-shell .settings-account-block .sync-status-card,
+.settings-page-shell .settings-session-block .status-grid,
+.settings-page-shell .settings-pipeline-block .pipeline-list {
+  flex: 1;
+}
+
+.settings-page-shell .settings-insights-block .rail-panel {
+  background: color-mix(in srgb, var(--surface), transparent 42%);
+  border: 1px solid color-mix(in srgb, var(--liquid-border), transparent 18%);
+  border-radius: 16px;
+  max-height: 184px;
+  overflow: auto;
+}
+
+.settings-page-shell .settings-insights-block .memory-stack,
+.settings-page-shell .settings-insights-block .rail-list {
+  max-height: 142px;
+  overflow: auto;
+}
+
+.settings-page-shell .sync-error {
+  max-height: 58px;
+  overflow: auto;
+}
+
+@media (max-width: 1120px) {
+  .settings-page-shell .settings-panel.settings-panel-page {
+    grid-template-areas:
+      "head head head head head head head head"
+      "interface interface interface interface model model model model"
+      "account account sync sync sync sync session session"
+      "codebase codebase codebase codebase pipeline pipeline pipeline pipeline"
+      "insights insights insights insights insights insights insights insights" !important;
+    grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-page-shell .settings-panel.settings-panel-page {
+    grid-template-areas:
+      "head"
+      "interface"
+      "account"
+      "model"
+      "sync"
+      "codebase"
+      "session"
+      "pipeline"
+      "insights" !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .settings-page-shell .settings-interface-block,
+  .settings-page-shell .settings-model-block,
+  .settings-page-shell .settings-account-block,
+  .settings-page-shell .settings-sync-block,
+  .settings-page-shell .settings-codebase-block,
+  .settings-page-shell .settings-session-block,
+  .settings-page-shell .settings-insights-block,
+  .settings-page-shell .settings-pipeline-block {
+    min-height: auto !important;
+  }
+
+  .settings-page-shell .settings-insights-block .rail-panel,
+  .settings-page-shell .settings-insights-block .memory-stack,
+  .settings-page-shell .settings-insights-block .rail-list {
+    max-height: none;
+  }
+}
+
+/* Apple Settings layout: navegação lateral + página de conteúdo focada. */
+.settings-page-shell .settings-panel.settings-panel-page {
+  align-items: start !important;
+  gap: 16px !important;
+  grid-template-areas:
+    "head head"
+    "nav content" !important;
+  grid-template-columns: minmax(230px, 280px) minmax(0, 1fr) !important;
+}
+
+.settings-page-shell .settings-drawer-head {
+  grid-area: head !important;
+}
+
+.settings-page-nav {
+  backdrop-filter: blur(28px) saturate(150%);
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 56%),
+    color-mix(in srgb, var(--liquid-panel-soft), transparent 5%);
+  border: 1px solid var(--liquid-border);
+  border-radius: 22px;
+  box-shadow: 0 22px 64px color-mix(in srgb, var(--shadow), transparent 82%);
+  display: grid;
+  gap: 7px;
+  grid-area: nav;
+  padding: 10px;
+  position: sticky;
+  top: calc(106px + env(safe-area-inset-top));
+}
+
+.settings-page-nav button {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 15px;
+  color: var(--muted);
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  min-height: 58px;
+  padding: 8px 10px;
+  text-align: left;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.settings-page-nav button > svg {
+  background: color-mix(in srgb, var(--surface), transparent 12%);
+  border: 1px solid var(--liquid-border);
+  border-radius: 11px;
+  color: var(--accent);
+  height: 34px;
+  padding: 8px;
+  width: 34px;
+}
+
+.settings-page-nav button span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-page-nav button strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-page-nav button small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.settings-page-nav button:hover,
+.settings-page-nav button.is-active {
+  background: color-mix(in srgb, var(--liquid-panel), var(--accent) 10%);
+  border-color: color-mix(in srgb, var(--liquid-border), var(--accent) 36%);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.settings-page-shell .settings-panel-page .panel-block {
+  grid-area: content !important;
+  grid-column: auto !important;
+  max-width: 920px;
+  min-height: 520px !important;
+  width: 100%;
+}
+
+.settings-panel-page[data-section] .panel-block {
+  display: none !important;
+}
+
+.settings-panel-page[data-section='account'] .settings-account-block,
+.settings-panel-page[data-section='appearance'] .settings-interface-block,
+.settings-panel-page[data-section='ai'] .settings-model-block,
+.settings-panel-page[data-section='sync'] .settings-sync-block,
+.settings-panel-page[data-section='codebase'] .settings-codebase-block,
+.settings-panel-page[data-section='memory'] .settings-insights-block,
+.settings-panel-page[data-section='system'] .settings-session-block,
+.settings-panel-page[data-section='system'] .settings-pipeline-block {
+  display: flex !important;
+}
+
+.settings-panel-page[data-section='system'] .settings-session-block {
+  min-height: 196px !important;
+}
+
+.settings-panel-page[data-section='system'] .settings-pipeline-block {
+  margin-top: 212px;
+  min-height: 292px !important;
+}
+
+.settings-page-shell .settings-interface-block .toggle-stack,
+.settings-page-shell .settings-model-block .toggle-stack {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-page-shell .settings-model-block .settings-model-list,
+.settings-page-shell .settings-interface-block .theme-grid {
+  margin-top: 4px;
+}
+
+.settings-page-shell .settings-account-block,
+.settings-page-shell .settings-sync-block,
+.settings-page-shell .settings-codebase-block {
+  justify-content: flex-start;
+}
+
+.settings-page-shell .settings-insights-block {
+  max-width: 980px;
+}
+
+.settings-page-shell .settings-insights-block .rail-panel {
+  max-height: 360px;
+}
+
+@media (max-width: 860px) {
+  .settings-page-shell .settings-panel.settings-panel-page {
+    grid-template-areas:
+      "head"
+      "nav"
+      "content" !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .settings-page-nav {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    position: static;
+    scroll-snap-type: x mandatory;
+  }
+
+  .settings-page-nav button {
+    grid-template-columns: 28px minmax(112px, 1fr);
+    min-width: 178px;
+    scroll-snap-align: start;
+  }
+
+  .settings-page-nav button > svg {
+    height: 28px;
+    padding: 6px;
+    width: 28px;
+  }
+
+  .settings-page-shell .settings-panel-page .panel-block {
+    min-height: auto !important;
+    max-width: none;
+  }
+
+  .settings-panel-page[data-section='system'] .settings-pipeline-block {
+    margin-top: 0;
+  }
+}
+
+/* Settings detail pass: textos de apoio e espaçamento Apple-like. */
+.settings-page-shell .settings-section-copy {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: -3px 0 4px;
+  max-width: 680px;
+}
+
+.settings-page-shell .settings-panel-page .panel-heading {
+  margin-bottom: 2px;
+}
+
+.settings-page-shell .settings-panel-page .panel-block {
+  gap: 18px !important;
+  padding: clamp(18px, 2.3vw, 26px) !important;
+}
+
+.settings-page-shell .settings-panel-page .toggle-stack {
+  gap: 12px !important;
+}
+
+.settings-page-shell .toggle-row {
+  align-items: center;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--liquid-highlight), transparent 16%), transparent 55%),
+    color-mix(in srgb, var(--surface), transparent 24%);
+  border: 1px solid color-mix(in srgb, var(--liquid-border), transparent 8%);
+  border-radius: 16px;
+  min-height: 68px;
+  padding: 12px 14px;
+}
+
+.settings-page-shell .toggle-row > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-page-shell .toggle-row strong {
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.settings-page-shell .toggle-row small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.settings-page-shell .toggle-row i {
+  height: 24px !important;
+  min-width: 44px;
+  width: 44px !important;
+}
+
+.settings-page-shell .theme-grid {
+  gap: 12px !important;
+}
+
+.settings-page-shell .theme-swatch {
+  align-items: center;
+  display: grid;
+  gap: 3px 10px;
+  grid-template-columns: 16px 18px minmax(0, 1fr);
+  min-height: 72px;
+  padding: 12px 13px;
+}
+
+.settings-page-shell .theme-swatch > svg {
+  grid-row: 1 / span 2;
+}
+
+.settings-page-shell .theme-swatch > span {
+  grid-row: 1 / span 2;
+}
+
+.settings-page-shell .theme-swatch strong,
+.settings-page-shell .theme-swatch small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-page-shell .theme-swatch strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-page-shell .theme-swatch small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.settings-page-shell .settings-model-list {
+  gap: 12px !important;
+}
+
+.settings-page-shell .settings-model-list button {
+  gap: 7px;
+  min-height: 124px;
+  padding: 16px;
+}
+
+.settings-page-shell .sync-status-card,
+.settings-page-shell .sync-metrics-grid > div,
+.settings-page-shell .status-grid > div,
+.settings-page-shell .pipeline-list > div,
+.settings-page-shell .codebase-index-card {
+  border-radius: 18px;
+}
+
+.settings-page-shell .sync-now-button,
+.settings-page-shell .account-logout-button,
+.settings-page-shell .codebase-index-card button {
+  min-height: 44px;
+}
+
+.settings-page-shell .sync-download-button {
+  margin-top: 10px;
+}
+
+.settings-page-shell .codebase-index-card {
+  gap: 13px;
+  padding: 14px;
+}
+
+.settings-page-shell .codebase-index-card > span {
+  font-size: 14px;
+}
+
+.settings-page-shell .codebase-index-card input {
+  min-height: 44px;
+}
+
+.settings-page-shell .settings-page-nav {
+  gap: 9px;
+}
+
+.settings-page-shell .settings-page-nav button {
+  min-height: 64px;
+}
+
+.settings-page-shell .settings-page-nav button strong {
+  font-size: 13px;
+}
+
+.settings-page-shell .settings-page-nav button small {
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .settings-page-shell .settings-interface-block .toggle-stack,
+  .settings-page-shell .settings-model-block .toggle-stack {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-page-shell .theme-swatch,
+  .settings-page-shell .toggle-row {
+    min-height: 64px;
+  }
+}
+
+:root[data-theme='black'] .settings-page-nav button > svg {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+:root[data-theme='black'] .settings-page-nav button.is-active > svg,
+:root[data-theme='black'] .settings-page-nav button:hover > svg {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
 }

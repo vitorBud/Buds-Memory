@@ -6,6 +6,7 @@ interface UseChatOptions {
   sessionId: string | null
   selectedModel: string
   webSearchEnabled: boolean
+  selectedVoiceURI?: string
   onNeedSession: () => Promise<string>
   onStateChange: (s: AiState) => void
   onLatency: (ms: number) => void
@@ -50,10 +51,13 @@ function scoreVoice(voice: SpeechSynthesisVoice) {
   return score
 }
 
-function pickPreferredVoice() {
+function pickPreferredVoice(selectedVoiceURI?: string) {
   if (!('speechSynthesis' in window)) return null
 
   const voices = window.speechSynthesis.getVoices()
+  const selectedVoice = voices.find(voice => voice.voiceURI === selectedVoiceURI)
+  if (selectedVoice) return selectedVoice
+
   return voices
     .filter(voice => normalizeVoiceText(voice.lang || '').startsWith('pt'))
     .sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] ?? voices[0] ?? null
@@ -109,6 +113,7 @@ export function useChat({
   sessionId,
   selectedModel,
   webSearchEnabled,
+  selectedVoiceURI,
   onNeedSession,
   onStateChange,
   onLatency,
@@ -118,6 +123,7 @@ export function useChat({
 }: UseChatOptions) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
   const audioQueueRef = useRef<string[]>([])
   const isPlayingRef  = useRef(false)
   const speechQueueRef = useRef<string[]>([])
@@ -133,7 +139,9 @@ export function useChat({
     if (!('speechSynthesis' in window)) return
 
     const refreshVoice = () => {
-      preferredVoiceRef.current = pickPreferredVoice()
+      const voices = window.speechSynthesis.getVoices()
+      setAvailableVoices(voices)
+      preferredVoiceRef.current = pickPreferredVoice(selectedVoiceURI)
     }
 
     refreshVoice()
@@ -142,7 +150,7 @@ export function useChat({
     return () => {
       window.speechSynthesis.removeEventListener?.('voiceschanged', refreshVoice)
     }
-  }, [])
+  }, [selectedVoiceURI])
 
   function playNextSpeech() {
     if (!('speechSynthesis' in window)) return
@@ -155,7 +163,7 @@ export function useChat({
 
     const cleanText = speechQueueRef.current.shift()!
     const utterance = new SpeechSynthesisUtterance(cleanText)
-    const voice = preferredVoiceRef.current ?? pickPreferredVoice()
+    const voice = preferredVoiceRef.current ?? pickPreferredVoice(selectedVoiceURI)
     preferredVoiceRef.current = voice
 
     if (voice) utterance.voice = voice
@@ -469,5 +477,5 @@ export function useChat({
     onMsgCountChange(msgs.length)
   }, [onMsgCountChange])
 
-  return { messages, isProcessing, sendText, sendAudio, stopOutput, clearMessages, loadMessages }
+  return { messages, isProcessing, availableVoices, sendText, sendAudio, stopOutput, clearMessages, loadMessages }
 }

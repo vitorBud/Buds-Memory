@@ -25,6 +25,7 @@ import type { SystemHealth } from './components/BootScreen'
 import { NetworkStatus } from './components/NetworkStatus'
 import { HomeBrain } from './components/HomeBrain'
 import { VoiceMode } from './components/VoiceMode'
+import type { VoiceSilenceMode } from './components/VoiceMode'
 import { KnowledgeImportPanel } from './components/panels/KnowledgeImportPanel'
 import { MemoryPanel } from './components/panels/MemoryPanel'
 import { FilesPanel } from './components/panels/FilesPanel'
@@ -33,28 +34,39 @@ import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { useHealthPolling } from './hooks/useHealthPolling'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, pullCloudChats, getCognitiveMemories, getKnowledgeGraph } from './services/api'
-import type { AiState, Session, ActivityItem, InterfaceSettings, Message, SyncStatus, CognitiveMemory, KnowledgeGraph } from './types'
+import type { AiState, Session, ActivityItem, InterfaceSettings, SyncStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
 
 const SETTINGS_KEY = 'nexus-interface-settings'
 const DESKTOP_THEME_BOOT_KEY = 'nexus-desktop-theme-boot-v1'
+const VOICE_URI_KEY = 'nexus-voice-uri-v1'
+const VOICE_SILENCE_MODE_KEY = 'nexus-voice-silence-mode-v1'
 const FALLBACK_MODEL = 'qwen2.5-coder:3b'
 const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
 type AppView = 'home' | 'chat' | 'voice' | 'obsidian'
 
 const DEFAULT_SETTINGS: InterfaceSettings = {
-  theme: 'white',
+  theme: 'silver',
   density: 'compact',
   showInsights: true,
   showBrainMap: true,
   showQuickPrompts: true,
   autoPlayAudio: true,
   webSearchEnabled: false,
-  accentColor: 'white',
+  accentColor: 'silver',
 }
 
-const OFFICIAL_THEMES = ['white', 'black', 'gold', 'silver'] as const
+const OFFICIAL_THEMES = ['black', 'gold', 'silver'] as const
+const VOICE_SILENCE_CONFIG: Record<VoiceSilenceMode, {
+  silenceSeconds: number
+  speechThreshold: number
+  noSpeechTimeoutSeconds: number
+}> = {
+  fast: { silenceSeconds: 0.55, speechThreshold: 0.055, noSpeechTimeoutSeconds: 5 },
+  balanced: { silenceSeconds: 0.78, speechThreshold: 0.06, noSpeechTimeoutSeconds: 7 },
+  patient: { silenceSeconds: 1.18, speechThreshold: 0.052, noSpeechTimeoutSeconds: 10 },
+}
 
 function isDesktopApp() {
   return Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
@@ -77,14 +89,20 @@ function getInitialSettings(): InterfaceSettings {
       localStorage.setItem(DESKTOP_THEME_BOOT_KEY, '1')
     }
 
-    if (parsed.theme === 'light') parsed.theme = 'white'
+    if (parsed.theme === 'light' || parsed.theme === 'white') parsed.theme = 'silver'
     if (parsed.theme === 'dark') parsed.theme = parsed.accentColor === 'amber' ? 'gold' : 'black'
+    if (parsed.accentColor === 'white') parsed.accentColor = 'silver'
     if (!OFFICIAL_THEMES.includes(parsed.theme)) parsed.theme = DEFAULT_SETTINGS.theme
     if (!OFFICIAL_THEMES.includes(parsed.accentColor)) parsed.accentColor = parsed.theme
     return parsed
   } catch {
     return DEFAULT_SETTINGS
   }
+}
+
+function getInitialVoiceSilenceMode(): VoiceSilenceMode {
+  const saved = localStorage.getItem(VOICE_SILENCE_MODE_KEY)
+  return saved === 'fast' || saved === 'patient' || saved === 'balanced' ? saved : 'balanced'
 }
 
 
@@ -123,6 +141,8 @@ export default function App() {
   const [knowledgeGraph, setKnowledgeGraph] = useState<KnowledgeGraph | null>(null)
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
   const [bootDone, setBootDone] = useState(false)
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState(() => localStorage.getItem(VOICE_URI_KEY) || '')
+  const [voiceSilenceMode, setVoiceSilenceMode] = useState<VoiceSilenceMode>(getInitialVoiceSilenceMode)
 
   const handleBootDone = useCallback((h: SystemHealth) => {
     setSystemHealth(h)
@@ -244,10 +264,11 @@ export default function App() {
     showToast(`Modelo alterado para ${label}`, 'success')
   }, [pushActivity, showToast])
 
-  const { messages, isProcessing, sendText, sendAudio, stopOutput, clearMessages, loadMessages } = useChat({
+  const { messages, isProcessing, availableVoices, sendText, sendAudio, stopOutput, clearMessages, loadMessages } = useChat({
     sessionId: currentSessionId,
     selectedModel,
     webSearchEnabled: settings.webSearchEnabled,
+    selectedVoiceURI,
     onNeedSession: ensureSession,
     onStateChange: setAiState,
     onLatency: (ms) => setLatency(ms + 'ms'),
@@ -255,6 +276,8 @@ export default function App() {
     onSessionUpdate: handleSessionUpdate,
     autoPlayAudio: settings.autoPlayAudio,
   })
+
+  const voiceRecorderConfig = VOICE_SILENCE_CONFIG[voiceSilenceMode]
 
   const { isRecording, seconds, volume: micVolume, toggle: toggleMic, cancel: cancelRecording } = useRecorder({
     onStop: async (blob) => {
@@ -264,11 +287,22 @@ export default function App() {
     },
     onStateChange: setAiState,
     autoStopOnSilence: activeView === 'voice',
-    silenceSeconds: activeView === 'voice' ? 0.78 : 1.15,
-    speechThreshold: activeView === 'voice' ? 0.06 : 0.075,
+    silenceSeconds: activeView === 'voice' ? voiceRecorderConfig.silenceSeconds : 1.15,
+    speechThreshold: activeView === 'voice' ? voiceRecorderConfig.speechThreshold : 0.075,
     maxSeconds: activeView === 'voice' ? 45 : 30,
-    noSpeechTimeoutSeconds: activeView === 'voice' ? 7 : 10,
+    noSpeechTimeoutSeconds: activeView === 'voice' ? voiceRecorderConfig.noSpeechTimeoutSeconds : 10,
   })
+
+  const handleVoiceChange = useCallback((voiceURI: string) => {
+    setSelectedVoiceURI(voiceURI)
+    if (voiceURI) localStorage.setItem(VOICE_URI_KEY, voiceURI)
+    else localStorage.removeItem(VOICE_URI_KEY)
+  }, [])
+
+  const handleVoiceSilenceModeChange = useCallback((mode: VoiceSilenceMode) => {
+    setVoiceSilenceMode(mode)
+    localStorage.setItem(VOICE_SILENCE_MODE_KEY, mode)
+  }, [])
 
   const loadSessionData = useCallback(async (session: Session, announce = true) => {
     stopOutput() // aborta fluxo anterior antes de mudar
@@ -842,7 +876,13 @@ export default function App() {
               recSeconds={seconds}
               micVolume={micVolume}
               isProcessing={isProcessing}
+              availableVoices={availableVoices}
+              selectedVoiceURI={selectedVoiceURI}
+              silenceMode={voiceSilenceMode}
               onMicToggle={toggleMic}
+              onStopOutput={stopOutput}
+              onVoiceChange={handleVoiceChange}
+              onSilenceModeChange={handleVoiceSilenceModeChange}
               onExit={handleExitVoice}
             />
           </motion.div>
@@ -887,7 +927,7 @@ export default function App() {
       </AnimatePresence>
 
       {settingsOpen && (
-        <>
+        <section className="settings-page-shell" aria-label="Configurações do Nexus IA">
           <button
             className="settings-backdrop"
             type="button"
@@ -912,6 +952,7 @@ export default function App() {
             onPullCloudChats={handlePullCloudChats}
             onSettingChange={updateSetting}
             onClose={() => setSettingsOpen(false)}
+            presentation="page"
           >
             <div className="panel-block settings-insights-block">
               <div className="panel-heading">
@@ -944,7 +985,7 @@ export default function App() {
               )}
             </div>
           </StatusPanel>
-        </>
+        </section>
       )}
     </div>
   )

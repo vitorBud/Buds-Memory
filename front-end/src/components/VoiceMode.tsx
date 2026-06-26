@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
 import type { CSSProperties } from 'react'
-import { Mic, MicOff, PhoneOff } from 'lucide-react'
+import { Mic, MicOff, PhoneOff, Square, Volume2 } from 'lucide-react'
 import type { AiState, ThemeMode } from '../types'
+
+export type VoiceSilenceMode = 'fast' | 'balanced' | 'patient'
 
 interface VoiceModeProps {
   aiState: AiState
@@ -10,7 +12,13 @@ interface VoiceModeProps {
   recSeconds: number
   micVolume: number
   isProcessing: boolean
+  availableVoices: SpeechSynthesisVoice[]
+  selectedVoiceURI: string
+  silenceMode: VoiceSilenceMode
   onMicToggle: () => void
+  onStopOutput: () => void
+  onVoiceChange: (voiceURI: string) => void
+  onSilenceModeChange: (mode: VoiceSilenceMode) => void
   onExit: () => void
 }
 
@@ -45,18 +53,45 @@ export function VoiceMode({
   recSeconds,
   micVolume,
   isProcessing,
+  availableVoices,
+  selectedVoiceURI,
+  silenceMode,
   onMicToggle,
+  onStopOutput,
+  onVoiceChange,
+  onSilenceModeChange,
   onExit,
 }: VoiceModeProps) {
   const tone = useMemo(() => getVoiceTone(theme), [theme])
   const volume = Math.max(0.04, Math.min(1, micVolume))
   const status = STATUS_LABEL[aiState]
-  const canToggleMic = !isProcessing || isRecording
+  const canInterrupt = isProcessing || aiState === 'speaking' || aiState === 'thinking'
+  const voiceOptions = useMemo(() => {
+    const ptVoices = availableVoices.filter(voice => voice.lang.toLowerCase().startsWith('pt'))
+    return ptVoices.length ? ptVoices : availableVoices
+  }, [availableVoices])
   const statusHint = isRecording
-    ? `${recSeconds}s`
+    ? `${recSeconds}s · toque para enviar`
     : aiState === 'error'
       ? 'Toque no nucleo e permita o microfone no Safari'
-      : 'Toque no nucleo para permitir o microfone e falar'
+      : canInterrupt
+        ? 'Toque no nucleo para interromper e falar'
+        : 'Toque no nucleo para falar'
+
+  const handleCoreClick = () => {
+    if (isRecording) {
+      onMicToggle()
+      return
+    }
+
+    if (canInterrupt) {
+      onStopOutput()
+      window.setTimeout(onMicToggle, 80)
+      return
+    }
+
+    onMicToggle()
+  }
 
   return (
     <section
@@ -74,10 +109,9 @@ export function VoiceMode({
       <button
         type="button"
         className="voice-core"
-        onClick={canToggleMic ? onMicToggle : undefined}
-        disabled={!canToggleMic}
-        aria-label={isRecording ? 'Enviar fala' : 'Ativar microfone'}
-        title={isRecording ? 'Enviar fala' : 'Ativar microfone'}
+        onClick={handleCoreClick}
+        aria-label={isRecording ? 'Enviar fala' : canInterrupt ? 'Interromper e falar' : 'Ativar microfone'}
+        title={isRecording ? 'Enviar fala' : canInterrupt ? 'Interromper e falar' : 'Ativar microfone'}
       >
         <span className="voice-core-halo" />
         <span className="voice-core-orb">
@@ -97,6 +131,48 @@ export function VoiceMode({
       <div className="voice-status" aria-live="polite">
         <strong>{status}</strong>
         <span>{statusHint}</span>
+      </div>
+
+      <div className="voice-controls" aria-label="Controles do modo conversa">
+        <label className="voice-select-wrap">
+          <Volume2 size={15} />
+          <select
+            value={selectedVoiceURI}
+            onChange={(event) => onVoiceChange(event.target.value)}
+            aria-label="Selecionar voz"
+          >
+            <option value="">Voz automática</option>
+            {voiceOptions.map(voice => (
+              <option key={voice.voiceURI} value={voice.voiceURI}>
+                {voice.name} · {voice.lang}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="voice-sensitivity" aria-label="Tempo de resposta">
+          {[
+            ['fast', 'Rápida'],
+            ['balanced', 'Normal'],
+            ['patient', 'Paciente'],
+          ].map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className={silenceMode === mode ? 'is-active' : ''}
+              onClick={() => onSilenceModeChange(mode as VoiceSilenceMode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {canInterrupt && (
+          <button type="button" className="voice-interrupt-button" onClick={onStopOutput}>
+            <Square size={13} />
+            <span>Interromper</span>
+          </button>
+        )}
       </div>
 
       <button type="button" className="voice-end-button" onClick={onExit}>
