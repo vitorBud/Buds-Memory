@@ -1,5 +1,5 @@
 """
-cognitive/search.py — Busca Global Unificada do Nexus IA.
+cognitive/search.py — Busca Global Unificada do Aether Memory.
 
 Pesquisa em paralelo em todas as fontes:
   sessions, messages, knowledge_sources, memories,

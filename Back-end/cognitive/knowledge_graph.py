@@ -1,12 +1,12 @@
 """
-cognitive/knowledge_graph.py — Grafo de Conhecimento do Nexus IA.
+cognitive/knowledge_graph.py — Grafo de Conhecimento do Aether Memory.
 
 Representa entidades (tecnologias, projetos, conceitos, pessoas, eventos)
 e relações entre elas, armazenado em tabelas de adjacência no SQLite.
 
 Exemplo:
   React ─[uses]→ useState
-  Nexus IA ─[part_of]→ Python
+  Aether Memory ─[part_of]→ Python
   useState ─[learned_in]→ Projeto ProgressDay
 """
 

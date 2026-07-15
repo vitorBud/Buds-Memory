@@ -1,5 +1,5 @@
 """
-cognitive/memory.py — Sistema de memória hierárquica do Nexus IA.
+cognitive/memory.py — Sistema de memória hierárquica do Aether Memory.
 
 Três níveis:
   - short   → expira em 24 horas (contexto da sessão)
@@ -35,6 +35,13 @@ MIN_LONG_IMPORTANCE   = 0.65   # importância mínima para long-term
 
 # ── Escrita ──────────────────────────────────────────────────────────────────
 
+def _normalize_content(text: str) -> str:
+    """Normaliza conteúdo para comparação de duplicatas."""
+    import unicodedata
+    text = unicodedata.normalize("NFKC", (text or "").strip().lower())
+    return re.sub(r"\s+", " ", text)
+
+
 def save_memory(
     content: str,
     memory_type: str = "short",
@@ -49,7 +56,10 @@ def save_memory(
     source_table: Optional[str] = None,
     source_id: Optional[int] = None,
 ) -> dict:
-    """Salva uma memória no nível indicado com expiração automática."""
+    """Salva uma memória no nível indicado com expiração automática.
+    Se uma memória com conteúdo semanticamente idêntico já existir (não expirada),
+    incrementa seu access_count em vez de criar duplicata.
+    """
     tags = tags or []
     if is_core:
         memory_type = "long"
@@ -58,7 +68,32 @@ def save_memory(
         importance = max(float(importance), 0.95)
     expires_at = None if is_core or locked else _compute_expiry(memory_type, importance)
 
+    # ── Deduplicação por conteúdo normalizado ──────────────────────────────────
+    normalized = _normalize_content(content)
     with get_db_connection() as conn:
+        existing = conn.execute(
+            """
+            SELECT id FROM memories
+            WHERE LOWER(TRIM(content)) = ?
+              AND memory_type = ?
+              AND (expires_at IS NULL OR expires_at > ?)
+            LIMIT 1
+            """,
+            (normalized, memory_type, now_iso()),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE memories SET access_count = access_count + 1, last_accessed = ?, importance = MAX(importance, ?) WHERE id = ?",
+                (now_iso(), importance, existing["id"]),
+            )
+            conn.commit()
+            return {"id": existing["id"], "memory_type": memory_type, "content": content,
+                    "importance": importance, "tags": tags, "expires_at": expires_at,
+                    "is_core": is_core, "locked": locked, "user_confirmed": user_confirmed,
+                    "origin_type": origin_type, "origin_id": origin_id,
+                    "source_table": source_table, "source_id": source_id,
+                    "_deduplicated": True}
+
         cursor = conn.execute(
             """
             INSERT INTO memories
@@ -170,27 +205,69 @@ def get_memories(
 
 def recall(query: str, memory_types: Optional[list] = None, limit: int = 8) -> list[dict]:
     """
-    Recupera memórias relevantes para uma consulta.
-    Usa correspondência de termos simples (tokens) — o RAG semântico
-    complementa isso via rag.py.
+    Recupera memórias relevantes para uma consulta de forma extremamente rápida.
+    Usa tabela virtual memories_fts via FTS5 do SQLite com MATCH e ranking cognitivo.
     """
     tokens = _tokenize(query)
     if not tokens:
         return get_memories(memory_types=memory_types, limit=limit)
 
-    candidates = get_memories(memory_types=memory_types, include_expired=False, limit=500)
+    # Prepara consulta MATCH
+    # Usamos OR para maior abrangência de busca textual
+    match_query = " OR ".join(f'"{t}"' for t in tokens)
+
+    # Filtros de tipo de memória
+    type_conditions = []
+    params: list = [match_query, now_iso()]
+
+    if memory_types:
+        placeholders = ",".join("?" * len(memory_types))
+        type_conditions.append(f"m.memory_type IN ({placeholders})")
+        params.extend(memory_types)
+
+    type_filter = f"AND {' AND '.join(type_conditions)}" if type_conditions else ""
+    params.append(limit * 4) # Pega uma quantidade maior de candidatos para re-rankear em Python com o core_boost
+
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT m.*, fts.rank as fts_rank FROM memories m
+            JOIN memories_fts fts ON m.id = fts.rowid
+            WHERE fts.content MATCH ?
+              AND (m.expires_at IS NULL OR m.expires_at > ?)
+              {type_filter}
+            LIMIT ?
+            """,
+            params
+        ).fetchall()
+
+    candidates = [_row_to_dict(row) for row in rows]
+
+    # Fallback se não houver candidatos textuais via FTS5
+    if not candidates:
+        return get_memories(memory_types=memory_types, limit=limit)
 
     scored = []
     for mem in candidates:
-        score = _text_score(mem["content"] + " " + " ".join(mem.get("tags", [])), tokens)
-        if score > 0 or mem.get("is_core"):
-            core_boost = 2.0 if mem.get("is_core") else 0.0
-            scored.append((score * 0.6 + mem["importance"] * 0.4 + core_boost, mem))
+        # No SQLite FTS5, valores de rank mais baixos/negativos são melhores.
+        # Normalizamos o fts_rank para um score positivo para a fórmula.
+        rank_val = float(mem.get("fts_rank") or 0.0)
+        text_score = max(0.1, -rank_val)
+
+        # Boost de tags caso coincida com os tokens da busca
+        tag_match_count = sum(1 for t in mem.get("tags", []) if t.lower() in tokens)
+        tag_boost = tag_match_count * 0.5
+
+        core_boost = 3.0 if mem.get("is_core") else 0.0
+        # Combina relevância do texto, importância intrínseca, tags e se é Core Memory
+        final_score = text_score * 0.5 + mem["importance"] * 0.5 + tag_boost + core_boost
+        scored.append((final_score, mem))
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
-    # Registra acesso nas memórias retornadas
     top = [m for _, m in scored[:limit]]
+
+    # Registra acesso nas memórias retornadas
     _bump_access([m["id"] for m in top])
 
     return top

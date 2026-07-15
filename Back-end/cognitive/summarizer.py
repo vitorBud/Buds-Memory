@@ -1,5 +1,5 @@
 """
-cognitive/summarizer.py — Sistema de Resumos Automáticos do Nexus IA.
+cognitive/summarizer.py — Sistema de Resumos Automáticos do Aether Memory.
 
 Gera resumos de:
   - Sessões individuais de chat
@@ -18,8 +18,8 @@ import re
 from typing import Optional
 from database_v2 import get_db_connection, now_iso
 
-SUMMARY_TRIGGER_MESSAGES = 50
-SUMMARY_UPDATE_EVERY = 12
+SUMMARY_TRIGGER_MESSAGES = 12
+SUMMARY_UPDATE_EVERY = 8
 
 
 # ── Resumo de sessão ──────────────────────────────────────────────────────────

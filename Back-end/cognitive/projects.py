@@ -1,5 +1,5 @@
 """
-cognitive/projects.py — Modo Projeto do Nexus IA.
+cognitive/projects.py — Modo Projeto do Aether Memory.
 
 Gerencia entidades de projeto: criação, status, vinculação com sessões
 e documentos, geração de contexto para o LLM.

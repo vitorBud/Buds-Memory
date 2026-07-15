@@ -114,6 +114,19 @@ const KIND_COLOR: Record<MemoryKind, string> = {
   sistema: '#cfd7e6',
 }
 
+const MAX_OBSIDIAN_GRAPH_NODES = 260
+const COMPACT_GRAPH_THRESHOLD = 180
+const MAX_OBSIDIAN_LINKS = 720
+const MAX_OBSIDIAN_LINKS_COMPACT = 520
+
+const KIND_RENDER_PRIORITY: Record<MemoryKind, number> = {
+  sistema: 80,
+  memoria: 58,
+  fonte: 54,
+  entidade: 38,
+  topico: 26,
+}
+
 function normalize(text: string) {
   return text
     .normalize('NFD')
@@ -177,7 +190,7 @@ function buildBaseMemoryNodes(): Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y'
       kind: 'sistema',
       weight: 8,
       createdAt: new Date(),
-      source: 'Nexus Core',
+      source: 'Aether Core',
       tags: ['contexto', 'sessão'],
     },
     {
@@ -207,7 +220,7 @@ function buildBaseMemoryNodes(): Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y'
       kind: 'sistema',
       weight: 7,
       createdAt: new Date(),
-      source: 'Nexus Core',
+      source: 'Aether Core',
       tags: ['aprendizado', 'conceitos'],
     },
   ]
@@ -232,6 +245,26 @@ function positionNodes(nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 
       weight: node.weight + Math.round((index / total) * 2),
     }
   })
+}
+
+function selectGraphNodes<T extends { kind: MemoryKind; weight: number; createdAt: Date; isCore?: boolean }>(
+  nodes: T[],
+  limit = MAX_OBSIDIAN_GRAPH_NODES,
+): T[] {
+  if (nodes.length <= limit) return nodes
+  const now = Date.now()
+  const ranked = nodes
+    .map((node, index) => {
+      const ageDays = Math.max(0, (now - node.createdAt.getTime()) / 86_400_000)
+      const freshness = Math.max(0, 22 - Math.min(ageDays, 22))
+      const score = KIND_RENDER_PRIORITY[node.kind] + node.weight * 2 + freshness + (node.isCore ? 120 : 0)
+      return { node, index, score }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .sort((a, b) => a.index - b.index)
+
+  return ranked.map(item => item.node)
 }
 
 function buildMemoryNodes(
@@ -329,7 +362,7 @@ function buildMemoryNodes(
   // Mensagens brutas NÃO entram no Obsidian.
   // O grafo representa conhecimento adquirido, não histórico de chat.
 
-  return positionNodes(nodes.slice(0, 80))
+  return positionNodes(selectGraphNodes(nodes))
 }
 
 function filterNodesByPeriod(nodes: MemoryNode[], period: MemoryPeriod) {
@@ -810,6 +843,9 @@ function ObsidianMemoryGraph({
 }) {
   const graph = useMemo(() => {
     const center = { x: 500, y: 430 }
+    const compact = nodes.length > COMPACT_GRAPH_THRESHOLD
+    const linkBudget = compact ? MAX_OBSIDIAN_LINKS_COMPACT : MAX_OBSIDIAN_LINKS
+    const neighborWindow = compact ? 5 : 9
     const points = nodes.map((node, index) => {
       const kindBias: Record<MemoryKind, { x: number; y: number; r: number }> = {
         memoria: { x: -70, y: 35, r: 235 },
@@ -842,7 +878,7 @@ function ObsidianMemoryGraph({
         links.push({ a: core, b: point, strong: point.kind === 'memoria' || point.kind === 'fonte' })
       }
 
-      for (let nextIndex = index + 1; nextIndex < Math.min(points.length, index + 9); nextIndex += 1) {
+      for (let nextIndex = index + 1; nextIndex < Math.min(points.length, index + neighborWindow); nextIndex += 1) {
         const next = points[nextIndex]
         const sharesTag = point.tags.some(tag => next.tags.includes(tag))
         const sameSource = point.source === next.source
@@ -851,13 +887,13 @@ function ObsidianMemoryGraph({
       }
     })
 
-    return { points, links, pointById }
+    return { points, links: links.slice(0, linkBudget), pointById }
   }, [nodes])
 
   const selectedPoint = graph.pointById.get(selectedId)
 
   return (
-    <div className="obsidian-graph-viewport" aria-label="Visualização em gráfico das memórias do Nexus">
+    <div className="obsidian-graph-viewport" aria-label="Visualização em gráfico das memórias do Aether Memory">
       <svg viewBox="0 0 1000 860" role="img" aria-label="Grafo de memórias">
         <defs>
           <radialGradient id="obsidianNodeGlow" cx="50%" cy="50%" r="50%">
@@ -867,7 +903,7 @@ function ObsidianMemoryGraph({
         </defs>
         <circle className="obsidian-graph-boundary" cx="500" cy="430" r="382" />
         <g className="obsidian-graph-links">
-          {graph.links.slice(0, 520).map((link, index) => (
+          {graph.links.map((link, index) => (
             <line
               key={`${link.a.id}-${link.b.id}-${index}`}
               className={link.strong ? 'is-strong' : ''}
@@ -881,6 +917,7 @@ function ObsidianMemoryGraph({
         <g className="obsidian-graph-nodes">
           {graph.points.map(point => {
             const active = point.id === selectedId
+            const showGlow = active || point.isCore || point.kind === 'sistema' || point.weight >= 14
             return (
               <g
                 key={point.id}
@@ -894,7 +931,7 @@ function ObsidianMemoryGraph({
                 }}
                 aria-label={point.label}
               >
-                <circle className="node-glow" cx={point.gx} cy={point.gy} r={point.size * 3.1} />
+                {showGlow && <circle className="node-glow" cx={point.gx} cy={point.gy} r={point.size * 3.1} />}
                 <circle className="node-dot" cx={point.gx} cy={point.gy} r={point.size} />
                 {active && <circle className="node-ring" cx={point.gx} cy={point.gy} r={point.size + 10} />}
               </g>
@@ -1028,7 +1065,7 @@ export function BrainMap({
       <header className="obsidian-graph-topbar">
         <div>
           <span className="eyebrow">Visualização em gráfico</span>
-          <strong>{selectedNode?.label ?? 'Memórias do Nexus'}</strong>
+          <strong>{selectedNode?.label ?? 'Memórias do Aether'}</strong>
         </div>
         <div className="obsidian-graph-actions">
           {PERIODS.map(option => (
@@ -1056,10 +1093,10 @@ export function BrainMap({
 
         <aside className="obsidian-memory-card">
           <span>{selectedNode ? KIND_LABEL[selectedNode.kind] : 'Memória'}</span>
-          <strong>{selectedNode?.label ?? 'Nexus Core'}</strong>
-          <p>{selectedNode?.summary ?? 'Cada bolinha representa uma memória, documento, conceito ou aprendizado salvo pelo Nexus.'}</p>
+          <strong>{selectedNode?.label ?? 'Aether Core'}</strong>
+          <p>{selectedNode?.summary ?? 'Cada bolinha representa uma memória, documento, conceito ou aprendizado salvo pelo Aether Memory.'}</p>
           <div className="obsidian-memory-meta">
-            <small>Origem: {selectedNode?.source ?? 'Nexus'}</small>
+            <small>Origem: {selectedNode?.source ?? 'Aether'}</small>
             <small>Data: {selectedNode ? formatShortDate(selectedNode.createdAt) : '--'}</small>
             <small>Peso: {selectedNode?.weight ?? 0}</small>
           </div>
@@ -1127,7 +1164,7 @@ export function BrainMap({
             {/* ── Cabeçalho ─────────────────────────────────────────── */}
             <div className="brain-stats-popover-head">
               <div>
-                <span className="eyebrow">Nexus · Second Brain</span>
+                <span className="eyebrow">Aether · Second Brain</span>
                 <strong>Painel de memória</strong>
               </div>
               <button type="button" onClick={() => setIsStatsOpen(false)} aria-label="Fechar" title="Fechar">
@@ -1211,11 +1248,11 @@ export function BrainMap({
               </div>
               <strong>
                 {selectedNode?.isCore && <LockKeyhole size={14} />}
-                {selectedNode?.label ?? 'Nexus Core'}
+                {selectedNode?.label ?? 'Aether Core'}
               </strong>
               <p>{selectedNode?.summary ?? 'Selecione um nó no grafo para ver detalhes.'}</p>
               <div className="memory-meta-grid">
-                <small>Origem: {selectedNode?.source ?? 'Nexus Core'}</small>
+                <small>Origem: {selectedNode?.source ?? 'Aether Core'}</small>
                 <small>Data: {selectedNode ? formatShortDate(selectedNode.createdAt) : '--'}</small>
                 <small>Peso: {selectedNode?.weight ?? 0}</small>
                 <small>Tipo: {selectedNode ? KIND_LABEL[selectedNode.kind] : '--'}</small>
@@ -1310,7 +1347,7 @@ export function BrainMap({
                   </span>
                 </button>
               )) : (
-                <p>Nenhuma memória cognitiva salva ainda. Converse com o Nexus para ele começar a aprender.</p>
+                <p>Nenhuma memória cognitiva salva ainda. Converse com o Aether para ele começar a aprender.</p>
               )}
             </div>
 

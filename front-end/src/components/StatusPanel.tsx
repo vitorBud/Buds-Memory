@@ -85,7 +85,7 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: strin
   { id: 'system', label: 'Sistema', hint: 'Pipeline e sessão', icon: Cpu },
 ]
 
-type NexusBridge = { pickFolder?: () => Promise<string | null>; isDesktop?: boolean }
+type AetherBridge = { pickFolder?: () => Promise<string | null>; isDesktop?: boolean }
 
 function formatSyncDate(value?: string | null) {
   if (!value) return 'Nunca'
@@ -131,7 +131,7 @@ export function StatusPanel({
   const syncUnavailable = isSyncing || !syncConfigured || !isSupabaseSession
 
   const pickCodebaseFolder = async () => {
-    const bridge = (window as unknown as { nexus?: NexusBridge }).nexus
+    const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
     if (!bridge?.pickFolder) return
     const path = await bridge.pickFolder()
     if (path) setCodebasePath(path)
@@ -169,7 +169,7 @@ export function StatusPanel({
     <aside className={`settings-panel ${isPage ? 'settings-panel-page' : ''}`} data-section={isPage ? activeSection : undefined}>
       <div className="settings-drawer-head">
         <div>
-          <span className="eyebrow">{presentation === 'page' ? 'Painel Nexus' : 'Aba'}</span>
+          <span className="eyebrow">{presentation === 'page' ? 'Painel Aether' : 'Aba'}</span>
           <strong>{presentation === 'page' ? 'Configurações do sistema' : 'Configurações'}</strong>
         </div>
         <button type="button" onClick={onClose} aria-label="Fechar configurações" title="Fechar">
@@ -202,7 +202,7 @@ export function StatusPanel({
           <SlidersHorizontal size={15} />
         </div>
         <p className="settings-section-copy">
-          Ajuste a aparência geral do Nexus e escolha quais elementos ficam visíveis durante o uso.
+          Ajuste a aparência geral do Aether Memory e escolha quais elementos ficam visíveis durante o uso.
         </p>
 
         <div className="accent-picker theme-grid" aria-label="Tema do sistema">
@@ -231,7 +231,7 @@ export function StatusPanel({
           />
           <ToggleRow
             label="Cérebro IA"
-            description="Exibe visualizações do conhecimento salvo no Nexus."
+            description="Exibe visualizações do conhecimento salvo no Aether Memory."
             checked={settings.showBrainMap}
             onChange={(checked) => onSettingChange('showBrainMap', checked)}
           />
@@ -251,7 +251,7 @@ export function StatusPanel({
             <UserRound size={16} />
           </div>
           <div>
-            <strong>{authEmail || (authMode === 'local' ? 'Modo local' : 'Sessão Nexus')}</strong>
+            <strong>{authEmail || (authMode === 'local' ? 'Modo local' : 'Sessão Aether')}</strong>
             <span>
               {authMode === 'supabase'
                 ? 'Conta Supabase conectada'
@@ -283,7 +283,7 @@ export function StatusPanel({
         <div className="toggle-stack">
           <ToggleRow
             label="Voz automática"
-            description="Faz o Nexus falar as respostas quando possível."
+            description="Faz o Aether falar as respostas quando possível."
             checked={settings.autoPlayAudio}
             onChange={(checked) => onSettingChange('autoPlayAudio', checked)}
           />
@@ -319,10 +319,10 @@ export function StatusPanel({
           <Code2 size={15} />
         </div>
         <p className="settings-section-copy">
-          Ensine uma pasta de projeto para o Nexus responder sobre arquivos, funções, rotas e dependências.
+          Ensine uma pasta de projeto para o Aether Memory responder sobre arquivos, funções, rotas e dependências.
         </p>
         <div className="codebase-index-card">
-          <span>Ensinar um projeto ao Nexus</span>
+          <span>Ensinar um projeto ao Aether</span>
           <div>
             <input
               type="text"

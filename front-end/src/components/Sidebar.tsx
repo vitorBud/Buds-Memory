@@ -1,6 +1,8 @@
 import { Bot, Clock3, MessageSquare, Plus, Search, Trash2 } from 'lucide-react'
-import type { Session } from '../types'
+import type { AiState, Session } from '../types'
 import { formatSessionDate, truncate } from '../utils/formatters'
+import { SystemStatus } from './SystemStatus'
+import type { SystemHealth } from './BootScreen'
 
 interface SidebarProps {
   sessions: Session[]
@@ -11,6 +13,17 @@ interface SidebarProps {
   onSelect: (s: Session) => void
   onDelete: (id: string) => void
   systemUptime: string
+  aiState: AiState
+  systemHealth?: SystemHealth | null
+}
+
+const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
+  idle: { label: 'Aguardando', tone: 'muted' },
+  listening: { label: 'Ouvindo', tone: 'cyan' },
+  transcribing: { label: 'Transcrevendo', tone: 'amber' },
+  thinking: { label: 'Pensando', tone: 'violet' },
+  speaking: { label: 'Falando', tone: 'emerald' },
+  error: { label: 'Erro', tone: 'rose' },
 }
 
 // Barra lateral de conversas, responsável por listar sessões e criar/remover chats.
@@ -23,7 +36,10 @@ export function Sidebar({
   onSelect,
   onDelete,
   systemUptime,
+  aiState,
+  systemHealth = null,
 }: SidebarProps) {
+  const stateInfo = STATE_MAP[aiState]
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const visibleSessions = normalizedSearch
     ? sessions.filter(session => session.title.toLowerCase().includes(normalizedSearch))
@@ -37,7 +53,7 @@ export function Sidebar({
             <Bot size={18} />
           </div>
           <div>
-            <strong>Nexus IA</strong>
+            <strong>Aether Memory</strong>
             <span>Conversas</span>
           </div>
         </div>
@@ -108,8 +124,15 @@ export function Sidebar({
       </div>
 
       <div className="sidebar-footer">
-        <Clock3 size={13} />
-        <span>{systemUptime}</span>
+        <div className="sidebar-runtime">
+          <Clock3 size={13} />
+          <span>{systemUptime}</span>
+        </div>
+        <div className={`state-pill tone-${stateInfo.tone}`}>
+          <span />
+          {stateInfo.label}
+        </div>
+        <SystemStatus health={systemHealth} />
       </div>
     </aside>
   )

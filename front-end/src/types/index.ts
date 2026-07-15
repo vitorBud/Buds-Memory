@@ -39,7 +39,7 @@ export interface KnowledgeSource {
 }
 
 export interface ChatStreamEvent {
-  type: 'transcription' | 'token' | 'audio_sentence' | 'session_update' | 'web_search' | 'done' | 'error'
+  type: 'transcription' | 'token' | 'replace_response' | 'audio_sentence' | 'session_update' | 'web_search' | 'done' | 'error'
   content?: string
   text?: string
   url?: string

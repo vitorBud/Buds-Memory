@@ -1,5 +1,5 @@
 """
-cognitive/insights.py — Gerador de Insights Automáticos do Nexus IA.
+cognitive/insights.py — Gerador de Insights Automáticos do Aether Memory.
 
 Gera insights determinísticos baseados em padrões reais de uso:
   - "Você está estudando mais Python"
@@ -199,7 +199,7 @@ def _insights_knowledge_growth() -> list[dict]:
         insight = _save_insight(
             title=f"Base de conhecimento crescendo: {total_ks} documentos",
             body=(
-                f"Você importou {total_ks} documento(s) para o Nexus. "
+                f"Você importou {total_ks} documento(s) para o Aether Memory. "
                 f"O cérebro digital já conecta {total_entities} conceitos com {total_relations} relações."
             ),
             insight_type="achievement",
@@ -230,7 +230,7 @@ def _insights_memory_stats() -> list[dict]:
         insight = _save_insight(
             title=f"{row['long_count']} memórias permanentes consolidadas",
             body=(
-                f"O Nexus consolidou {row['long_count']} memórias de longo prazo. "
+                f"O Aether Memory consolidou {row['long_count']} memórias de longo prazo. "
                 "Seu segundo cérebro está madurando."
             ),
             insight_type="achievement",

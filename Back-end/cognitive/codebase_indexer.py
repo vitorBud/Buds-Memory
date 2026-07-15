@@ -1,5 +1,5 @@
 """
-cognitive/codebase_indexer.py — Indexador local de codebases do Nexus IA.
+cognitive/codebase_indexer.py — Indexador local de codebases do Aether Memory.
 
 Cria um índice estrutural leve de projetos React/Python/Node/etc. sem depender
 de serviços externos. O objetivo é permitir perguntas como "onde está login?"

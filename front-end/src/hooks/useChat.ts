@@ -16,7 +16,7 @@ interface UseChatOptions {
 }
 
 const PREFER_BROWSER_VOICE = true
-const OFFLINE_QUEUE_KEY = 'nexus-offline-message-queue-v1'
+const OFFLINE_QUEUE_KEY = 'aether-offline-message-queue-v1'
 const MALE_PT_VOICE_HINTS = [
   'felipe',
   'daniel',
@@ -275,6 +275,14 @@ export function useChat({
     })
   }
 
+  function replaceStreamingText(messageId: number, text: string) {
+    setMessages(prev => prev.map(msg => (
+      msg.id === messageId
+        ? { ...msg, text: text.trim(), streaming: true }
+        : msg
+    )))
+  }
+
   function appendWebSearchStatus(messageId: number, event: ChatStreamEvent) {
     const found = event.results?.length ?? 0
     const status = found > 0
@@ -331,6 +339,10 @@ export function useChat({
             extracted.sentences.forEach(queueSpeech)
             speechBuffer = extracted.rest
           }
+        } else if (event.type === 'replace_response' && event.content) {
+          streamedText = event.content
+          speechBuffer = ''
+          replaceStreamingText(assistantMessageId, event.content)
         } else if (event.type === 'web_search') {
           appendWebSearchStatus(assistantMessageId, event)
         } else if (event.type === 'session_update' && event.session) {
@@ -360,7 +372,7 @@ export function useChat({
         queueOfflineText(text)
         addMessage({
           sender: 'ia',
-          text: 'Mensagem salva neste aparelho. Vou tentar sincronizar quando a conexão com o Nexus voltar.',
+          text: 'Mensagem salva neste aparelho. Vou tentar sincronizar quando a conexão com o Aether Memory voltar.',
           created_at: new Date().toISOString(),
         })
       } else {
@@ -433,6 +445,10 @@ export function useChat({
             extracted.sentences.forEach(queueSpeech)
             speechBuffer = extracted.rest
           }
+        } else if (event.type === 'replace_response' && event.content) {
+          streamedText = event.content
+          speechBuffer = ''
+          replaceStreamingText(assistantMessageId, event.content)
         } else if (event.type === 'web_search') {
           appendWebSearchStatus(assistantMessageId, event)
         } else if (event.type === 'session_update' && event.session) {

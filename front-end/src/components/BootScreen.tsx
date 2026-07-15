@@ -167,7 +167,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
       }
       setAuthPassword('')
       setSupabaseMode('login')
-      setAuthNotice(result.message || 'Conta criada. Confirme seu e-mail e depois entre pelo Nexus.')
+      setAuthNotice(result.message || 'Conta criada. Confirme seu e-mail e depois entre pelo Aether Memory.')
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : 'Não foi possível criar a conta.')
     } finally {
@@ -332,7 +332,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
   const allDone = steps.every(s => s.state === 'ok' || s.state === 'error')
 
   return (
-    <div className={`boot-overlay ${closing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="Inicializando Nexus IA">
+    <div className={`boot-overlay ${closing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="Inicializando Aether Memory">
       <div className="boot-modal">
 
         {/* Logo / brand */}
@@ -341,7 +341,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
             <Wifi size={26} />
           </div>
           <div>
-            <h2 className="boot-title">Nexus IA</h2>
+            <h2 className="boot-title">Aether Memory</h2>
             <p className="boot-subtitle">
               {allOk ? 'Tudo pronto!' : hasError ? 'Alguns serviços não responderam' : 'Inicializando serviços…'}
             </p>
@@ -365,12 +365,12 @@ export function BootScreen({ onDone }: BootScreenProps) {
             {authPanel === 'supabase' && (
               <form className="boot-auth-stack" onSubmit={supabaseMode === 'login' ? handleSupabaseLogin : handleSupabaseSignup}>
                 <label htmlFor="nexus-supabase-email">
-                  {supabaseMode === 'login' ? 'Entrar com Supabase' : 'Criar conta Nexus'}
+                  {supabaseMode === 'login' ? 'Entrar com Supabase' : 'Criar conta Aether'}
                 </label>
                 <p>
                   {supabaseMode === 'login'
                     ? 'Entre para carregar chats da nuvem e liberar sincronização.'
-                    : 'Crie sua conta para usar o Nexus em outros dispositivos com Supabase.'}
+                    : 'Crie sua conta para usar o Aether Memory em outros dispositivos com Supabase.'}
                 </p>
                 <input
                   id="nexus-supabase-email"

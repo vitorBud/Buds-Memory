@@ -15,15 +15,15 @@ import type {
   SyncStatus,
 } from '../types'
 
-type NexusBridge = { apiBase?: string; isDesktop?: boolean }
+type AetherBridge = { apiBase?: string; isDesktop?: boolean }
 const REMOTE_SESSION_KEY = 'nexus-remote-session-token'
 
 /**
  * Resolve a URL base de forma lazy (em tempo de execução) para garantir que o
- * preload do Electron já injetou window.nexus antes da primeira chamada de API.
+ * preload do Electron já injetou a bridge antes da primeira chamada de API.
  */
 export function getBase(): string {
-  const bridge = (window as unknown as { nexus?: NexusBridge }).nexus
+  const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
   return bridge?.apiBase || import.meta.env.VITE_API_BASE_URL || '/api'
 }
 
@@ -57,7 +57,7 @@ export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Pro
 }
 
 function isDesktop(): boolean {
-  return Boolean((window as unknown as { nexus?: NexusBridge }).nexus?.isDesktop)
+  return Boolean((window as unknown as { nexus?: AetherBridge }).nexus?.isDesktop)
 }
 
 /**
@@ -271,15 +271,30 @@ export async function deleteCognitiveMemory(id: number, force = false): Promise<
   if (!res.ok) throw new Error(data.error || `deleteCognitiveMemory: ${res.status}`)
 }
 
-export async function indexCodebase(projectRoot: string, maxFiles = 900): Promise<{ indexed_files: number; indexed_rows: number; project_root: string }> {
+type CodebaseIndexResponse = {
+  error?: string
+  project_root?: string
+  files_scanned?: number
+  files_skipped?: number
+  records_indexed?: number
+  indexed_files?: number
+  indexed_rows?: number
+}
+
+export async function indexCodebase(projectRoot: string, maxFiles = 900): Promise<{ indexed_files: number; indexed_rows: number; files_skipped: number; project_root: string }> {
   const res = await authFetch(`${getBase()}/cognitive/codebase/index`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ project_root: projectRoot, max_files: maxFiles }),
   })
-  const data = await res.json().catch(() => ({}))
+  const data = await res.json().catch(() => ({})) as CodebaseIndexResponse
   if (!res.ok) throw new Error(data.error || `indexCodebase: ${res.status}`)
-  return data
+  return {
+    project_root: data.project_root || projectRoot,
+    indexed_files: data.indexed_files ?? data.files_scanned ?? 0,
+    indexed_rows: data.indexed_rows ?? data.records_indexed ?? 0,
+    files_skipped: data.files_skipped ?? 0,
+  }
 }
 
 export async function searchCodebase(query: string, projectRoot?: string, limit = 12): Promise<CodebaseIndexResult[]> {

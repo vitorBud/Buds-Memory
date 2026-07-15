@@ -3,15 +3,15 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
-APP_NAME="Nexus IA.app"
+APP_NAME="Aether Memory.app"
 BUILT_APP="$ROOT_DIR/release/mac-arm64/$APP_NAME"
 INSTALL_DIR="/Applications"
 INSTALLED_APP="$INSTALL_DIR/$APP_NAME"
-APP_SUPPORT_DIR="$HOME/Library/Application Support/Nexus IA"
+APP_SUPPORT_DIR="$HOME/Library/Application Support/Aether Memory"
 
 cd "$ROOT_DIR"
 
-echo "==> Buildando Nexus IA..."
+echo "==> Buildando Aether Memory..."
 npm run build
 
 echo "==> Gerando app macOS..."
@@ -24,7 +24,7 @@ fi
 
 echo "==> Fechando app antigo, se estiver aberto..."
 pkill -f "$APP_NAME" 2>/dev/null || true
-pkill -f "Nexus IA" 2>/dev/null || true
+pkill -f "Aether Memory" 2>/dev/null || true
 
 echo "==> Instalando em $INSTALL_DIR..."
 rm -rf "$INSTALLED_APP"
@@ -36,7 +36,7 @@ if [ -f "$PROJECT_DIR/Back-end/.env" ]; then
   cp "$PROJECT_DIR/Back-end/.env" "$APP_SUPPORT_DIR/.env"
 fi
 
-echo "==> Abrindo Nexus IA..."
+echo "==> Abrindo Aether Memory..."
 env -u ELECTRON_RUN_AS_NODE open "$INSTALLED_APP"
 
 echo "Pronto: $INSTALLED_APP"

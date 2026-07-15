@@ -1,6 +1,8 @@
-# Nexus IA
+# Aether Memory
 
-Nexus IA e um assistente local com chat, voz, memoria, RAG, importacao de conhecimento, Obsidian visual, sincronizacao local-first com Supabase e app desktop via Electron.
+Aether Memory e um assistente local com chat, voz, memoria, RAG, importacao de conhecimento, Obsidian visual, sincronizacao local-first com Supabase e app desktop via Electron.
+
+O nome vem de Aether, o eter: o quinto elemento da filosofia grega, associado ao espaco e ao conhecimento. A ideia do produto e ser um campo vivo de memoria, onde conversas, documentos, codigo e conexoes formam um segundo cerebro pessoal.
 
 O projeto foi pensado para funcionar offline no Mac/Windows sempre que possivel. A IA roda com Ollama local, o historico fica em SQLite e a sincronizacao com Supabase e opcional.
 
@@ -258,16 +260,16 @@ Esse script:
 
 - builda o frontend;
 - gera o app Electron;
-- fecha o Nexus IA antigo, se estiver aberto;
-- copia `Nexus IA.app` para `/Applications`;
-- copia `Back-end/.env` para `~/Library/Application Support/Nexus IA/.env`;
+- fecha o Aether Memory antigo, se estiver aberto;
+- copia `Aether Memory.app` para `/Applications`;
+- copia `Back-end/.env` para `~/Library/Application Support/Aether Memory/.env`;
 - abre o app.
 
 No app desktop, o Electron tenta iniciar o backend automaticamente em `127.0.0.1:5050`.
 
 ## Banco de Dados Local
 
-O Nexus usa SQLite.
+O Aether Memory usa SQLite.
 
 No desenvolvimento, o banco fica em:
 
@@ -278,7 +280,7 @@ Back-end/chat_history.db
 No app desktop, o banco fica em:
 
 ```text
-~/Library/Application Support/Nexus IA/chat_history.db
+~/Library/Application Support/Aether Memory/chat_history.db
 ```
 
 Arquivos locais de banco e audio nao devem ser commitados.
@@ -405,7 +407,7 @@ Por padrao, o semantico pode ficar desligado para deixar o app mais leve.
 
 Nas configuracoes do app existe a area `Codebase`.
 
-Ela permite indexar uma pasta de projeto. O Nexus salva:
+Ela permite indexar uma pasta de projeto. O Aether Memory salva:
 
 - arquivos;
 - funcoes;

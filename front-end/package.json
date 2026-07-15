@@ -42,8 +42,8 @@
     "vite": "^8.0.12"
   },
   "build": {
-    "appId": "com.nexusia.desktop",
-    "productName": "Nexus IA",
+    "appId": "com.aethermemory.desktop",
+    "productName": "Aether Memory",
     "directories": {
       "output": "release"
     },

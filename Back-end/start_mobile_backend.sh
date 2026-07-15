@@ -57,7 +57,7 @@ if [ -z "$OUTSIDE_API_URL" ] && [ -n "$TAILSCALE_IP" ]; then
 fi
 
 echo ""
-echo "Nexus Mobile Remote ligado"
+echo "Aether Memory Mobile Remote ligado"
 echo "Mesma Wi-Fi - Front: $LAN_FRONT_URL"
 echo "Mesma Wi-Fi - Backend/API: $LAN_API_URL"
 echo ""

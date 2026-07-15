@@ -9,7 +9,7 @@ interface HomeBrainProps {
   memoryCount: number
 }
 
-type NexusBridge = { assetBase?: string }
+type AetherBridge = { assetBase?: string }
 
 // Representação de cores Three.js baseadas no tema selecionado
 function getThemeColors(theme: ThemeMode) {
@@ -74,7 +74,7 @@ function createFallbackGlowTexture(glowColorStr: string) {
 // Resolve assets em dev, web build e Electron empacotado com base relativa.
 function getPublicAssetPath(path: string) {
   const normalizedPath = path.replace(/^\//, '')
-  const bridge = (window as unknown as { nexus?: NexusBridge }).nexus
+  const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
 
   if (bridge?.assetBase) {
     return `${bridge.assetBase}${normalizedPath}`
@@ -843,24 +843,32 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
   }, [])
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', overflow: 'visible' }}>
+    <div className="home-brain-stage">
       {loading && (
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          color: 'var(--muted)',
-          fontSize: '12px',
-          fontWeight: 500,
-          letterSpacing: '1px',
-          textTransform: 'uppercase',
-          animation: 'pulse 1.5s infinite ease-in-out'
-        }}>
-          Inicializando Cérebro...
+        <div className="home-brain-build" role="status" aria-live="polite">
+          <div className="home-brain-build-field" aria-hidden="true">
+            {Array.from({ length: 28 }).map((_, index) => (
+              <span key={index} />
+            ))}
+          </div>
+          <div className="home-brain-build-copy">
+            <strong>Montando rede neural</strong>
+            <small>Sinapses, partículas e memória visual sendo conectadas</small>
+          </div>
+          <div className="home-brain-build-progress" aria-hidden="true">
+            <span />
+          </div>
+          <div className="home-brain-build-metrics" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </div>
         </div>
       )}
-      <div ref={containerRef} className="home-brain-canvas-container" style={{ width: '100%', height: '100%', opacity: loading ? 0 : 1, transition: 'opacity 0.5s ease', overflow: 'visible' }} />
+      <div
+        ref={containerRef}
+        className={`home-brain-canvas-container ${loading ? 'is-loading' : 'is-ready'}`}
+      />
     </div>
   )
 }

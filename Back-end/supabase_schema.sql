@@ -1,4 +1,4 @@
--- Tabela genérica para sincronização local-first do Nexus IA.
+-- Tabela genérica para sincronização local-first do Aether Memory.
 -- Rode no SQL Editor do Supabase antes de ativar o sync.
 
 create table if not exists public.nexus_sync_records (

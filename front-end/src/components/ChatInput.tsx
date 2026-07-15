@@ -1,9 +1,10 @@
 import { useRef, useState, useEffect } from 'react'
-import { Bot, ChevronDown, Compass, Mic, MicOff, Send, ShieldCheck, Zap } from 'lucide-react'
+import { Bot, ChevronDown, Compass, Mic, MicOff, Send, ShieldCheck, Square, Zap } from 'lucide-react'
 import type { DensityMode } from '../types'
 
 interface ChatInputProps {
   onSend: (text: string) => void
+  onStop?: () => void
   isProcessing: boolean
   isRecording: boolean
   recSeconds: number
@@ -33,6 +34,7 @@ const MODEL_LABELS: Record<string, { label: string; hint: string }> = {
 // Campo de composição do chat com prompts rápidos, seletor de modelo, microfone e envio.
 export function ChatInput({
   onSend,
+  onStop,
   isProcessing,
   isRecording,
   recSeconds,
@@ -58,6 +60,10 @@ export function ChatInput({
   }, [text, density])
 
   function handleSend() {
+    if (isProcessing) {
+      onStop?.()
+      return
+    }
     if (!text.trim() || isProcessing) return
     onSend(text.trim())
     setText('')
@@ -148,12 +154,12 @@ export function ChatInput({
           <button
             type="button"
             onClick={handleSend}
-            disabled={!text.trim() || isProcessing || isRecording}
-            className="send-action"
-            aria-label="Enviar mensagem"
-            title="Enviar"
+            disabled={isRecording || (!isProcessing && !text.trim())}
+            className={`send-action ${isProcessing ? 'is-stopping' : ''}`}
+            aria-label={isProcessing ? 'Parar resposta' : 'Enviar mensagem'}
+            title={isProcessing ? 'Parar resposta' : 'Enviar'}
           >
-            <Send size={16} />
+            {isProcessing ? <Square size={14} fill="currentColor" /> : <Send size={16} />}
           </button>
         </div>
       </div>

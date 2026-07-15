@@ -13,7 +13,7 @@ let backendProcess = null
 let backendStartedByElectron = false
 let backendLogTail = []
 
-app.setName('Nexus IA')
+app.setName('Aether Memory')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
@@ -139,7 +139,7 @@ function createSplash() {
 <body>
   <div class="logo">⚡</div>
   <div style="text-align:center;gap:6px;display:flex;flex-direction:column;align-items:center">
-    <h1>Nexus IA</h1>
+    <h1>Aether Memory</h1>
     <p>Iniciando o servidor…</p>
   </div>
   <div class="bar-wrap"><div class="bar"></div></div>
@@ -217,14 +217,14 @@ function syncEnvFileToDataDir() {
       fs.copyFileSync(backendEnv, dataEnv)
     }
   } catch (error) {
-    console.warn('[Nexus Backend] não consegui preparar .env do app:', error)
+    console.warn('[Aether Backend] não consegui preparar .env do app:', error)
   }
 }
 
 async function startBackend() {
   // Backend já está rodando (iniciado manualmente ou por outra instância)
   if (await isBackendReady()) {
-    logLine('[Nexus Backend] usando backend já ativo em 127.0.0.1:5050')
+    logLine('[Aether Backend] usando backend já ativo em 127.0.0.1:5050')
     return true
   }
 
@@ -238,7 +238,7 @@ async function startBackend() {
   )
 
   if (!fs.existsSync(appFile)) {
-    logLine('[Nexus Backend] app.py não encontrado:', appFile)
+    logLine('[Aether Backend] app.py não encontrado:', appFile)
     await dialog.showMessageBox({
       type: 'error',
       title: 'Backend não encontrado',
@@ -250,7 +250,7 @@ async function startBackend() {
 
   syncEnvFileToDataDir()
   backendLogTail = []
-  logLine('[Nexus Backend] iniciando', pythonExecutable, appFile, 'cwd=', backendDir)
+  logLine('[Aether Backend] iniciando', pythonExecutable, appFile, 'cwd=', backendDir)
   backendStartedByElectron = true
 
   try {
@@ -264,7 +264,7 @@ async function startBackend() {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
   } catch (error) {
-    logLine('[Nexus Backend] spawn falhou:', error)
+    logLine('[Aether Backend] spawn falhou:', error)
     backendProcess = null
     return false
   }
@@ -274,12 +274,12 @@ async function startBackend() {
   backendProcess.stderr.on('data', chunk => rememberBackendLog(chunk))
 
   backendProcess.on('exit', code => {
-    logLine(`[Nexus Backend] encerrado com código ${code}`)
+    logLine(`[Aether Backend] encerrado com código ${code}`)
     backendProcess = null
   })
 
   backendProcess.on('error', error => {
-    logLine('[Nexus Backend] erro no processo:', error)
+    logLine('[Aether Backend] erro no processo:', error)
     backendProcess = null
   })
 
@@ -294,7 +294,7 @@ async function startBackend() {
   await dialog.showMessageBox({
     type: hasLocalEnv ? 'warning' : 'error',
     title: 'Backend não iniciou',
-    message: 'O Nexus IA não conseguiu ligar o backend automaticamente.',
+    message: 'O Aether Memory não conseguiu ligar o backend automaticamente.',
     detail: [
       `Backend: ${backendDir}`,
       `Python: ${pythonExecutable}`,
@@ -318,7 +318,7 @@ function createWindow() {
     height: 860,
     minWidth: 1040,
     minHeight: 720,
-    title: 'Nexus IA',
+    title: 'Aether Memory',
     backgroundColor: '#050607',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 18 },
@@ -370,7 +370,7 @@ ipcMain.handle('nexus:pick-folder', async () => {
 
 function stopBackend() {
   if (backendStartedByElectron && backendProcess) {
-    logLine('[Nexus Backend] encerrando processo filho…')
+    logLine('[Aether Backend] encerrando processo filho…')
     backendProcess.kill('SIGTERM')
     backendProcess = null
   }
@@ -394,7 +394,7 @@ app.whenReady().then(async () => {
   try {
     await startBackend()
   } catch (error) {
-    logLine('[Nexus Backend] falha ao iniciar:', error)
+    logLine('[Aether Backend] falha ao iniciar:', error)
   }
 
   // Abre janela principal (a splash fecha automaticamente via ready-to-show)

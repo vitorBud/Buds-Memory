@@ -5,6 +5,7 @@ import json
 import time
 import re
 import threading
+import concurrent.futures
 from pathlib import Path
 from typing import Optional
 from html import unescape
@@ -59,10 +60,13 @@ database_v2.migrate()
 # Registra o Blueprint da Camada Cognitiva
 app.register_blueprint(cognitive_bp)
 
+# Pool compartilhado para background cognition — evita acúmulo de threads daemon
+_COGNITION_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="aether-cognition")
+
 
 @app.before_request
 def enforce_remote_auth():
-    """Protege APIs quando o Nexus está em modo remoto/VPN."""
+    """Protege APIs quando o Aether Memory está em modo remoto/VPN."""
     if request.method == "OPTIONS" or not remote_access.REMOTE_MODE:
         return None
     if not request.path.startswith("/api/"):
@@ -252,13 +256,39 @@ def extract_pdf_text(file_storage) -> str:
     return extract_pdf_text_from_stream(file_storage.stream)
 
 
+def _is_private_address(hostname: str) -> bool:
+    """Retorna True se o hostname resolve para um IP privado/local (proteção SSRF)."""
+    import ipaddress
+    import socket
+    try:
+        ip = ipaddress.ip_address(socket.gethostbyname(hostname))
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or str(ip).startswith("169.254.")  # AWS metadata
+        )
+    except Exception:
+        return True  # em caso de dúvida, bloqueia
+
+
 def fetch_url_text(url: str) -> str:
     """Baixa uma página ou PDF público e extrai texto suficiente para contexto."""
     if not re.match(r"^https?://", url or ""):
         raise ValueError("Informe uma URL começando com http:// ou https://.")
-    import requests
 
-    response = requests.get(url, timeout=15, headers={"User-Agent": "NexusAssistant/1.0"})
+    # Proteção SSRF: bloqueia IPs internos, localhost e link-local
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    if not hostname or _is_private_address(hostname):
+        raise ValueError(
+            "URLs apontando para endereços privados, localhost ou redes internas não são permitidas."
+        )
+
+    response = requests.get(url, timeout=15, headers={"User-Agent": "AetherMemory/1.0"})
     response.raise_for_status()
     content_type = response.headers.get("content-type", "").lower()
     looks_like_pdf = ".pdf" in url.lower() or "application/pdf" in content_type or response.content[:5] == b"%PDF-"
@@ -275,7 +305,7 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
     if not session_id:
         return history, title_update, ""
 
-    history = database.get_recent_session_messages(session_id, limit=20)
+    history = database.get_recent_session_messages(session_id, limit=12)
     conversation_summary = cognitive_summarizer.get_conversation_summary(session_id)
     if not history:
         title = database.make_title_from_message(user_text)
@@ -325,6 +355,18 @@ def get_direct_profile_reply(user_text: str, session_id: Optional[str]) -> Optio
     clean = re.sub(r"\s+", " ", user_text or "").strip()
     lower = clean.lower()
 
+    asks_identity = bool(re.search(
+        r"\b(quem (?:é|e) você|quem (?:é|e) voce|qual (?:é|e) (?:o )?seu nome|como você se chama|como voce se chama|quem é o aether|quem e o aether)\b",
+        lower,
+    ))
+    if asks_identity:
+        return (
+            "Eu sou o Aether Memory, ou só Aether. Meu nome vem de Aether, o éter: "
+            "o quinto elemento da filosofia grega, associado ao espaço e ao conhecimento. "
+            "A ideia é representar uma memória viva, onde suas conversas, documentos e conexões "
+            "ficam organizados como um segundo cérebro."
+        )
+
     facts = user_profile.update_from_text(clean, session_id=session_id)
     name_fact = next((fact for fact in facts if fact.get("fact_key") == "name"), None)
     if name_fact:
@@ -353,11 +395,15 @@ def get_direct_profile_reply(user_text: str, session_id: Optional[str]) -> Optio
 
 def process_post_chat_cognition(session_id: str, user_text: str, ai_text: str) -> None:
     """Processa memória, perfil e resumo sem segurar a resposta do chat."""
-    cognitive_detector.process_chat_async(
-        session_id=session_id,
-        user_text=user_text,
-        ai_text=ai_text,
-    )
+    def _detect():
+        try:
+            cognitive_detector.process_chat_async(
+                session_id=session_id,
+                user_text=user_text,
+                ai_text=ai_text,
+            )
+        except Exception as exc:
+            print(f"[Detector] Falha no background: {exc}")
 
     def _summarize_later():
         try:
@@ -365,7 +411,8 @@ def process_post_chat_cognition(session_id: str, user_text: str, ai_text: str) -
         except Exception as exc:
             print(f"[Summarizer] Resumo assíncrono ignorado: {exc}")
 
-    threading.Thread(target=_summarize_later, daemon=True).start()
+    _COGNITION_POOL.submit(_detect)
+    _COGNITION_POOL.submit(_summarize_later)
 
 
 VAGUE_REFERENCE_WORDS = {
@@ -518,7 +565,7 @@ def auth_login():
 
 @app.route('/api/auth/local', methods=['POST'])
 def auth_local():
-    """Cria uma sessão local do Nexus sem exigir token técnico."""
+    """Cria uma sessão local do Aether Memory sem exigir token técnico."""
     session = remote_access.create_session_token(
         label=str((request.get_json(silent=True) or {}).get("label", "local")),
         auth_mode="local",
@@ -528,7 +575,7 @@ def auth_local():
 
 @app.route('/api/auth/supabase', methods=['POST'])
 def auth_supabase():
-    """Autentica com Supabase Auth e devolve uma sessão Nexus vinculada ao user_id."""
+    """Autentica com Supabase Auth e devolve uma sessão Aether vinculada ao user_id."""
     data = request.get_json(silent=True) or {}
     email = str(data.get("email", "")).strip().lower()
     password = str(data.get("password", ""))
@@ -575,7 +622,7 @@ def auth_supabase():
 
 @app.route('/api/auth/supabase/signup', methods=['POST'])
 def auth_supabase_signup():
-    """Cria conta no Supabase Auth pelo próprio Nexus."""
+    """Cria conta no Supabase Auth pelo próprio Aether Memory."""
     data = request.get_json(silent=True) or {}
     email = str(data.get("email", "")).strip().lower()
     password = str(data.get("password", ""))
@@ -618,7 +665,7 @@ def auth_supabase_signup():
         return jsonify({
             "success": True,
             "pending_confirmation": True,
-            "message": "Conta criada. Confirme seu e-mail e depois entre pelo Nexus.",
+            "message": "Conta criada. Confirme seu e-mail e depois entre pelo Aether Memory.",
             "email": user_email,
         }), 200
 
@@ -917,7 +964,7 @@ def chat():
                 user_text=user_text,
                 draft=reply,
                 context=knowledge_context,
-                llm_call=lambda prompt: llm_ollama_raw(prompt, selected_model, num_predict=900),
+                llm_call=lambda prompt: llm_ollama_raw(prompt, selected_model, num_predict=420),
             )
 
         # 2. Gera a resposta por voz usando o Piper
@@ -1033,6 +1080,17 @@ def chat_stream():
                         'url': audio_url
                     })
 
+            if not direct_reply and full_response.strip():
+                refined_response = cognitive_conversation.maybe_refine_response(
+                    user_text=user_text,
+                    draft=full_response.strip(),
+                    context=knowledge_context,
+                    llm_call=lambda prompt: llm_ollama_raw(prompt, selected_model, num_predict=420),
+                )
+                if refined_response.strip() and refined_response.strip() != full_response.strip():
+                    full_response = refined_response.strip()
+                    yield sse_event({'type': 'replace_response', 'content': full_response})
+
             # Salva a resposta completa da IA ao final do fluxo
             if session_id and full_response:
                 # Salva o texto completo gerado
@@ -1064,7 +1122,7 @@ if __name__ == "__main__":
     )
     print("")
     if remote_access.REMOTE_MODE:
-        print("Nexus Mobile Remote ligado")
+        print("Aether Memory Mobile Remote ligado")
         print(f"Mesma Wi-Fi - Front: {config['frontend_dev_url']}")
         print(f"Mesma Wi-Fi - Backend/API: {config['local_url']}")
         if config.get("public_frontend_url"):
@@ -1076,7 +1134,7 @@ if __name__ == "__main__":
         print("Use a URL do Backend/API apenas para testar /api/health ou acessar o build servido pelo Flask.")
         print(f"Token: {mobile_token}")
     else:
-        print("Nexus em modo local")
+        print("Aether Memory em modo local")
         print(f"Mac/local: http://127.0.0.1:{config['port']}")
         print("")
         print("Para abrir no iPhone, reinicie assim:")

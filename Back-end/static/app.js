@@ -1,5 +1,5 @@
 /* =============================================
-   NEXUS AI — app.js
+   AETHER MEMORY — app.js
    Frontend Logic: SSE Chat, CRUD, Voice, Canvas
    ============================================= */
 
@@ -209,7 +209,7 @@ async function deleteSession(sessionId, el) {
             app.messageCount = 0;
             clearChat();
             showHero();
-            updateTopbar('NEXUS PRIME · ONLINE');
+            updateTopbar('AETHER MEMORY · ONLINE');
             updateSessionInfo();
         }
 
@@ -223,7 +223,7 @@ async function deleteSession(sessionId, el) {
 }
 
 function updateTopbar(title) {
-    dom.topbarSessionTitle.textContent = title || 'NEXUS PRIME · ONLINE';
+    dom.topbarSessionTitle.textContent = title || 'AETHER MEMORY · ONLINE';
 }
 
 /* ═══════════════════════════════════════════════
@@ -923,5 +923,5 @@ function escapeHtml(str) {
     await loadSessions();
 
     // Check if there are sessions, don't auto-select — let user choose
-    console.log('[Nexus AI] Interface inicializada.');
+    console.log('[Aether Memory] Interface inicializada.');
 })();

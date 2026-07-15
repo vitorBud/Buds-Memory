@@ -1,5 +1,5 @@
 """
-cognitive/rag.py — RAG Cognitivo Avançado do Nexus IA.
+cognitive/rag.py — RAG Cognitivo Avançado do Aether Memory.
 
 Implementa (funcionalidades já existentes, preservadas):
   ✓ Chunking inteligente (parágrafos e código)
@@ -935,70 +935,77 @@ def bm25_search(
     source_table: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> list[dict]:
-    """BM25 simplificado sobre os chunks de texto."""
+    """Busca rápida via FTS5 do SQLite com ordenação por relevância nativa (BM25)."""
     tokens = _tokenize(query)
     if not tokens:
         return []
 
-    conditions = []
-    params: list = []
+    # Prepara consulta MATCH
+    # Usamos OR para cobrir mais chunks e termos semelhantes
+    match_query = " OR ".join(f'"{t}"' for t in tokens)
+
+    conditions = ["fts.chunk_text MATCH ?"]
+    params: list = [match_query]
 
     if source_table:
-        conditions.append("source_table = ?")
+        conditions.append("e.source_table = ?")
         params.append(source_table)
 
-    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    where = "WHERE " + " AND ".join(conditions)
 
     with get_db_connection() as conn:
         if session_id:
-            extra = " AND " if where else " WHERE "
+            # Filtra fontes de conhecimento da sessão atual ou fontes que não pertencem a knowledge_sources
             rows = conn.execute(
                 f"""
-                SELECT e.*
+                SELECT e.*, fts.rank as fts_rank
                 FROM embeddings e
+                JOIN embeddings_fts fts ON e.id = fts.rowid
                 LEFT JOIN knowledge_sources k
                   ON e.source_id = k.id AND e.source_table = 'knowledge_sources'
                 {where}
-                {extra}(k.session_id = ? OR e.source_table != 'knowledge_sources')
+                AND (k.session_id = ? OR e.source_table != 'knowledge_sources')
+                ORDER BY fts.rank
+                LIMIT ?
                 """,
-                params + [session_id],
+                params + [session_id, top_k * 4],
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT * FROM embeddings {where}", params
+                f"""
+                SELECT e.*, fts.rank as fts_rank
+                FROM embeddings e
+                JOIN embeddings_fts fts ON e.id = fts.rowid
+                {where}
+                ORDER BY fts.rank
+                LIMIT ?
+                """,
+                params + [top_k * 4],
             ).fetchall()
 
     if not rows:
         return []
 
-    avg_len = sum(len(r["chunk_text"]) for r in rows) / len(rows)
-    k1, b = 1.5, 0.75
-    scored = []
+    results = []
     for row in rows:
-        text     = row["chunk_text"].lower()
-        text_len = len(text)
-        score    = 0.0
-        for token in tokens:
-            tf = text.count(token)
-            if tf == 0:
-                continue
-            idf = math.log((len(rows) + 1) / (sum(1 for r in rows if token in r["chunk_text"].lower()) + 0.5))
-            score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * text_len / avg_len))
+        # SQLite FTS5 rank: quanto menor/mais negativo, maior a relevância
+        rank_val = float(row["fts_rank"] or 0.0)
+        bm25_score = min(max(0.01, -rank_val / 10), 1.0) # normaliza para escala [0, 1]
 
-        if score > 0:
-            scored.append({
-                "score":        0.0,
-                "bm25_score":   min(score / 10, 1.0),
-                "chunk_text":   row["chunk_text"],
-                "chunk_metadata": row["chunk_metadata"] if "chunk_metadata" in row.keys() else "{}",
-                "source_table": row["source_table"],
-                "source_id":    row["source_id"],
-                "chunk_index":  row["chunk_index"],
-                "created_at":   row["created_at"] if "created_at" in row.keys() else None,
-            })
+        results.append({
+            "score":        0.0,
+            "bm25_score":   bm25_score,
+            "chunk_text":   row["chunk_text"],
+            "chunk_metadata": row["chunk_metadata"] if "chunk_metadata" in row.keys() else "{}",
+            "source_table": row["source_table"],
+            "source_id":    row["source_id"],
+            "chunk_index":  row["chunk_index"],
+            "created_at":   row["created_at"] if "created_at" in row.keys() else None,
+        })
 
-    scored.sort(key=lambda x: x["bm25_score"], reverse=True)
-    return _enrich_results(scored[:top_k])
+    # Ordena pelo bm25_score normalizado descendente
+    results.sort(key=lambda x: x["bm25_score"], reverse=True)
+    return _enrich_results(results[:top_k])
 
 
 def hybrid_search(

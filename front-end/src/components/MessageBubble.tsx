@@ -209,7 +209,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   return (
     <article className={`message-row ${isUser ? 'is-user' : 'is-ai'}`}>
-      <div className="message-avatar">{isUser ? 'VG' : 'NX'}</div>
+      <div className="message-avatar">{isUser ? 'VG' : 'AM'}</div>
 
       <div className="message-stack">
         <div className={`message-bubble ${message.streaming && !isThinking ? 'streaming-cursor' : ''}`}>

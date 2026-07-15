@@ -1,5 +1,5 @@
 """
-database_v2.py — Migração não-destrutiva do banco cognitivo Nexus IA.
+database_v2.py — Migração não-destrutiva do banco cognitivo Aether Memory.
 
 Adiciona as tabelas do Second Brain sem tocar nas tabelas existentes
 (sessions, messages, knowledge_sources). Seguro para rodar múltiplas vezes.
@@ -41,6 +41,7 @@ def migrate():
         _migrate_knowledge_source_intelligence(conn)
         _migrate_embeddings_metadata(conn)
         _create_indexes(conn)
+        _create_fts_tables(conn)
         conn.commit()
     print("[DB v2] Migração cognitiva concluída com sucesso.")
 
@@ -286,6 +287,80 @@ def _create_indexes(conn):
     ]
     for sql in indexes:
         conn.execute(sql)
+
+
+def _create_fts_tables(conn):
+    # memories_fts
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+            content,
+            content='memories',
+            content_rowid='id'
+        );
+    """)
+    # Triggers memories
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
+            INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
+            INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
+        END;
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE OF content ON memories BEGIN
+            INSERT INTO memories_fts(memories_fts, rowid, content) VALUES('delete', old.id, old.content);
+            INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
+        END;
+    """)
+
+    # embeddings_fts
+    conn.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS embeddings_fts USING fts5(
+            chunk_text,
+            content='embeddings',
+            content_rowid='id'
+        );
+    """)
+    # Triggers embeddings
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS embeddings_ai AFTER INSERT ON embeddings BEGIN
+            INSERT INTO embeddings_fts(rowid, chunk_text) VALUES (new.id, new.chunk_text);
+        END;
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS embeddings_ad AFTER DELETE ON embeddings BEGIN
+            INSERT INTO embeddings_fts(embeddings_fts, rowid, chunk_text) VALUES('delete', old.id, old.chunk_text);
+        END;
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS embeddings_au AFTER UPDATE OF chunk_text ON embeddings BEGIN
+            INSERT INTO embeddings_fts(embeddings_fts, rowid, chunk_text) VALUES('delete', old.id, old.chunk_text);
+            INSERT INTO embeddings_fts(rowid, chunk_text) VALUES (new.id, new.chunk_text);
+        END;
+    """)
+
+    # Popula índices antigos apenas quando necessário. Rebuild em todo startup
+    # fica caro conforme memórias/documentos crescem.
+    _rebuild_fts_if_empty(conn, "memories_fts", "memories")
+    _rebuild_fts_if_empty(conn, "embeddings_fts", "embeddings")
+
+
+def _table_count(conn, table_name: str) -> int:
+    try:
+        return int(conn.execute(f"SELECT COUNT(*) as n FROM {table_name}").fetchone()["n"])
+    except Exception:
+        return 0
+
+
+def _rebuild_fts_if_empty(conn, fts_table: str, source_table: str) -> None:
+    source_count = _table_count(conn, source_table)
+    fts_count = _table_count(conn, fts_table)
+    if source_count != fts_count:
+        conn.execute(f"INSERT INTO {fts_table}({fts_table}) VALUES('rebuild');")
+
 
 
 def _add_column_if_missing(conn, table: str, column: str, definition: str):

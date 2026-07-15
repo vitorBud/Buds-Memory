@@ -1,11 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { PanelLeftClose, PanelLeftOpen, Settings, Square } from 'lucide-react'
-import type { AiState } from '../types'
-import { SystemStatus } from './SystemStatus'
-import type { SystemHealth } from './BootScreen'
 
 interface TopBarProps {
-  aiState: AiState
   sessionTitle: string | null
   latency: string
   historyHidden: boolean
@@ -14,30 +10,17 @@ interface TopBarProps {
   onToggleSettings: () => void
   canStopOutput: boolean
   onStopOutput: () => void
-  systemHealth?: SystemHealth | null
-}
-
-const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
-  idle: { label: 'Aguardando', tone: 'muted' },
-  listening: { label: 'Ouvindo', tone: 'cyan' },
-  transcribing: { label: 'Transcrevendo', tone: 'amber' },
-  thinking: { label: 'Pensando', tone: 'violet' },
-  speaking: { label: 'Falando', tone: 'emerald' },
-  error: { label: 'Erro', tone: 'rose' },
 }
 
 // Barra superior mínima do chat, mantendo só estado, histórico, parar e configurações.
 export function TopBar({
-  aiState,
   historyHidden,
   onToggleHistory,
   settingsOpen,
   onToggleSettings,
   canStopOutput,
   onStopOutput,
-  systemHealth = null,
 }: TopBarProps) {
-  const stateInfo = STATE_MAP[aiState]
   const settingsButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -54,14 +37,6 @@ export function TopBar({
 
   return (
     <header className="topbar">
-      <div className="topbar-left">
-        <div className={`state-pill tone-${stateInfo.tone}`}>
-          <span />
-          {stateInfo.label}
-        </div>
-        <SystemStatus health={systemHealth} />
-      </div>
-
       <div className="topbar-actions">
         {canStopOutput && (
           <button

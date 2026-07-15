@@ -1,5 +1,5 @@
 """
-supabase_sync.py — sincronização local-first do Nexus IA.
+supabase_sync.py — sincronização local-first do Aether Memory.
 
 O app continua funcionando offline com SQLite. Quando SUPABASE_URL e chave
 estiverem configurados, este módulo envia snapshots locais para uma tabela

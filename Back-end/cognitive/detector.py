@@ -1,5 +1,5 @@
 """
-cognitive/detector.py — Detector Cognitivo do Nexus IA com Filtro de Relevância.
+cognitive/detector.py — Detector Cognitivo do Aether Memory com Filtro de Relevância.
 
 Analisa pares (usuário, IA) de cada conversa e:
   1. Calcula score de relevância (0–100)
@@ -39,6 +39,7 @@ _NOISE_EXACT: frozenset[str] = frozenset({
     "ok", "okay", "blz", "beleza", "certo", "sim", "nao", "não", "s", "n",
     "bom dia", "boa tarde", "boa noite", "boa madrugada",
     "obrigado", "obrigada", "vlw", "valeu", "tmj",
+    "show", "top", "massa", "boa", "boa demais", "deu bom",
     "teste", "test", "testing", "ping", "hello", "hi", "hey",
     "1", "2", "3", ".", "..", "...", "???", "!!!",
 })

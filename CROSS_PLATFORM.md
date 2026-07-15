@@ -1,4 +1,4 @@
-# Nexus cross-platform notes
+# Aether Memory cross-platform notes
 
 This project is meant to run on Windows and macOS without changing the frontend API.
 

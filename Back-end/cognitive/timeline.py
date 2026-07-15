@@ -1,5 +1,5 @@
 """
-cognitive/timeline.py — Timeline Inteligente do Nexus IA.
+cognitive/timeline.py — Timeline Inteligente do Aether Memory.
 
 Registra eventos cronológicos:
   - Aprendizados

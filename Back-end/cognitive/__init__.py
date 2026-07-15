@@ -1,5 +1,5 @@
 """
-cognitive/ — Camada cognitiva do Nexus IA (Second Brain).
+cognitive/ — Camada cognitiva do Aether Memory (Second Brain).
 
 Garante que o diretório Back-end/ esteja no sys.path para que os
 sub-módulos possam importar database_v2 e agenty diretamente,

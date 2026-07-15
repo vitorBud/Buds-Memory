@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexus-mobile-shell-v3'
+const CACHE_NAME = 'aether-mobile-shell-v1'
 const SHELL_ASSETS = [
   '/',
   '/manifest.webmanifest',
@@ -31,6 +31,27 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
 
   if (request.method !== 'GET' || url.pathname.startsWith('/api/')) return
+
+  if (
+    request.mode === 'navigate' ||
+    request.destination === 'script' ||
+    request.destination === 'style' ||
+    url.pathname === '/' ||
+    url.pathname.startsWith('/assets/')
+  ) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
+          }
+          return response
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
+    )
+    return
+  }
 
   event.respondWith(
     caches.match(request).then((cached) => {

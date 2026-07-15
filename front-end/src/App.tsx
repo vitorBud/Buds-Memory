@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react'
 import {
   BrainCircuit,
   Check,
@@ -14,22 +14,13 @@ import {
   House,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { TopBar } from './components/TopBar'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { ChatInput } from './components/ChatInput'
-import { StatusPanel } from './components/StatusPanel'
-import { BrainMap } from './components/BrainMap'
 import { BootScreen } from './components/BootScreen'
 import type { SystemHealth } from './components/BootScreen'
 import { NetworkStatus } from './components/NetworkStatus'
-import { HomeBrain } from './components/HomeBrain'
-import { VoiceMode } from './components/VoiceMode'
 import type { VoiceSilenceMode } from './components/VoiceMode'
-import { KnowledgeImportPanel } from './components/panels/KnowledgeImportPanel'
-import { MemoryPanel } from './components/panels/MemoryPanel'
-import { FilesPanel } from './components/panels/FilesPanel'
-import { SummaryPanel } from './components/panels/SummaryPanel'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { useHealthPolling } from './hooks/useHealthPolling'
@@ -37,14 +28,71 @@ import { getSessions, createSession, deleteSession, getSessionMessages, getBacke
 import type { AiState, Session, ActivityItem, InterfaceSettings, SyncStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
 
-const SETTINGS_KEY = 'nexus-interface-settings'
-const DESKTOP_THEME_BOOT_KEY = 'nexus-desktop-theme-boot-v1'
-const VOICE_URI_KEY = 'nexus-voice-uri-v1'
-const VOICE_SILENCE_MODE_KEY = 'nexus-voice-silence-mode-v1'
+const HomeBrain = lazy(() => import('./components/HomeBrain').then(module => ({ default: module.HomeBrain })))
+const VoiceMode = lazy(() => import('./components/VoiceMode').then(module => ({ default: module.VoiceMode })))
+const BrainMap = lazy(() => import('./components/BrainMap').then(module => ({ default: module.BrainMap })))
+const StatusPanel = lazy(() => import('./components/StatusPanel').then(module => ({ default: module.StatusPanel })))
+const KnowledgeImportPanel = lazy(() => import('./components/panels/KnowledgeImportPanel').then(module => ({ default: module.KnowledgeImportPanel })))
+const MemoryPanel = lazy(() => import('./components/panels/MemoryPanel').then(module => ({ default: module.MemoryPanel })))
+const FilesPanel = lazy(() => import('./components/panels/FilesPanel').then(module => ({ default: module.FilesPanel })))
+const SummaryPanel = lazy(() => import('./components/panels/SummaryPanel').then(module => ({ default: module.SummaryPanel })))
+
+const SETTINGS_KEY = 'aether-interface-settings'
+const DESKTOP_THEME_BOOT_KEY = 'aether-desktop-theme-boot-v1'
+const VOICE_URI_KEY = 'aether-voice-uri-v1'
+const VOICE_SILENCE_MODE_KEY = 'aether-voice-silence-mode-v1'
+
+// Migração transparente: lê chaves legadas nexus-* e move para aether-* uma única vez
+;(function migrateStorageKeys() {
+  const migrations: [string, string][] = [
+    ['nexus-interface-settings', 'aether-interface-settings'],
+    ['nexus-desktop-theme-boot-v1', 'aether-desktop-theme-boot-v1'],
+    ['nexus-voice-uri-v1', 'aether-voice-uri-v1'],
+    ['nexus-voice-silence-mode-v1', 'aether-voice-silence-mode-v1'],
+    ['nexus_selected_model', 'aether_selected_model'],
+  ]
+  for (const [oldKey, newKey] of migrations) {
+    try {
+      if (!localStorage.getItem(newKey)) {
+        const legacy = localStorage.getItem(oldKey)
+        if (legacy !== null) {
+          localStorage.setItem(newKey, legacy)
+          localStorage.removeItem(oldKey)
+        }
+      }
+    } catch { /* localStorage indisponível */ }
+  }
+})()
 const FALLBACK_MODEL = 'qwen2.5-coder:3b'
 const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
 type AppView = 'home' | 'chat' | 'voice' | 'obsidian'
+
+function DeferredSurface({ label = 'Carregando...' }: { label?: string }) {
+  return (
+    <div className="deferred-surface" role="status" aria-live="polite">
+      <span />
+      <p>{label}</p>
+    </div>
+  )
+}
+
+function HomeBrainLoader() {
+  return (
+    <div className="home-brain-loader" role="status" aria-live="polite">
+      <div className="home-loader-orbit">
+        <i />
+        <i />
+        <i />
+        <span />
+      </div>
+      <div className="home-loader-copy">
+        <strong>Construindo núcleo cognitivo</strong>
+        <small>Montando partículas, conexões e memória visual</small>
+      </div>
+    </div>
+  )
+}
 
 const DEFAULT_SETTINGS: InterfaceSettings = {
   theme: 'silver',
@@ -145,6 +193,13 @@ export default function App() {
   const [selectedVoiceURI, setSelectedVoiceURI] = useState(() => localStorage.getItem(VOICE_URI_KEY) || '')
   const [voiceSilenceMode, setVoiceSilenceMode] = useState<VoiceSilenceMode>(getInitialVoiceSilenceMode)
 
+  const [activeView, setActiveView] = useState<AppView>(() => {
+    if (window.location.hash === '#chat') return 'chat'
+    if (window.location.hash === '#voice') return 'voice'
+    if (window.location.hash === '#obsidian') return 'obsidian'
+    return 'home'
+  })
+
   const handleBootDone = useCallback((h: SystemHealth) => {
     setSystemHealth(h)
     setBootDone(true)
@@ -152,13 +207,6 @@ export default function App() {
       setActiveView('home')
     }
   }, [])
-
-  const [activeView, setActiveView] = useState<AppView>(() => {
-    if (window.location.hash === '#chat') return 'chat'
-    if (window.location.hash === '#voice') return 'voice'
-    if (window.location.hash === '#obsidian') return 'obsidian'
-    return 'home'
-  })
 
   useEffect(() => {
     const t = setInterval(() => setUptimeSeconds(s => s + 1), 1000)
@@ -253,7 +301,7 @@ export default function App() {
 
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model)
-    localStorage.setItem('nexus_selected_model', model)
+    localStorage.setItem('aether_selected_model', model)
     pushActivity(`IA alterada para: ${model}`, 'violet')
 
     const friendlyNames: Record<string, string> = {
@@ -347,7 +395,7 @@ export default function App() {
         const models = config.models?.length ? config.models : DEFAULT_MODELS
         setAvailableModels(models)
 
-        const savedModel = localStorage.getItem('nexus_selected_model')
+        const savedModel = localStorage.getItem('aether_selected_model')
         if (savedModel && models.includes(savedModel)) {
           setSelectedModel(savedModel)
         } else {
@@ -675,42 +723,82 @@ export default function App() {
             key="home"
             className="home-landing"
             id="inicio"
-            aria-label="Tela inicial Nexus IA"
+            aria-label="Tela inicial Aether Memory"
             initial={{ opacity: 0, scale: 0.96 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 1.02 }}
             transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
           >
             <div className="home-content-column">
-              <div className="home-brand-copy">
-                <span>Nexus IA</span>
-                <h1>Assistente local inteligente</h1>
-              </div>
-              
-              <div className="home-brand-mark" aria-hidden="true">
-                <HomeBrain
-                  theme={settings.theme}
-                  aiState={aiState}
-                  memoryCount={cognitiveMemories.length}
-                />
+              <div className="home-hero-zone">
+                <div className="home-brand-copy">
+                  <span>Assistente local inteligente</span>
+                  <h1>Aether Memory</h1>
+                </div>
+
+                <div className="home-brand-copy home-hero-subcopy">
+                  <p>Chat, memória Obsidian e configurações em uma experiência compacta e local.</p>
+                </div>
+
+                <div className="home-brand-mark">
+                  <Suspense fallback={<HomeBrainLoader />}>
+                    <HomeBrain
+                      theme={settings.theme}
+                      aiState={aiState}
+                      memoryCount={cognitiveMemories.length}
+                    />
+                  </Suspense>
+                </div>
+
+                <div className="home-scroll-indicator" aria-hidden="true">
+                  <span />
+                  <small>role para baixo</small>
+                </div>
               </div>
 
-              <div className="home-brand-copy">
-                <p>Chat, memória Obsidian e configurações em uma experiência compacta e local.</p>
-              </div>
-              
-              <div className="home-status-grid" aria-label="Estado do sistema">
-                <div>
-                  <small>Modelo</small>
-                  <strong>{selectedModel}</strong>
+              <div className="home-info-reveal">
+                <div className="home-project-card" aria-label="O que é o Aether Memory">
+                  <div className="home-project-copy">
+                    <span>Por que ele existe</span>
+                    <h2>Uma IA local com memória própria, não apenas um modelo rodando.</h2>
+                    <p>
+                      O Aether Memory usa o Ollama como motor de inteligência, mas adiciona uma camada
+                      pessoal em volta dele: histórico, memórias, PDFs, busca, codebase, Obsidian visual
+                      e sincronização local-first. O modelo responde; o Aether lembra, organiza e conecta.
+                    </p>
+                  </div>
+                  <div className="home-project-points">
+                    <div>
+                      <BrainCircuit size={18} />
+                      <strong>Cérebro persistente</strong>
+                      <small>Transforma conversas e arquivos em memórias consultáveis.</small>
+                    </div>
+                    <div>
+                      <Database size={18} />
+                      <strong>Local-first</strong>
+                      <small>Funciona no seu Mac, salva em SQLite e sincroniza quando você quiser.</small>
+                    </div>
+                    <div>
+                      <Check size={18} />
+                      <strong>Contexto real</strong>
+                      <small>Usa RAG, perfil e documentos para responder sobre o que você ensinou.</small>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <small>Busca</small>
-                  <strong>{googleSearchAvailable ? 'Google pronto' : 'Offline'}</strong>
-                </div>
-                <div>
-                  <small>Memórias</small>
-                  <strong>{cognitiveMemories.length}</strong>
+
+                <div className="home-status-grid" aria-label="Estado do sistema">
+                  <div>
+                    <small>Modelo</small>
+                    <strong>{selectedModel}</strong>
+                  </div>
+                  <div>
+                    <small>Busca</small>
+                    <strong>{googleSearchAvailable ? 'Google pronto' : 'Offline'}</strong>
+                  </div>
+                  <div>
+                    <small>Memórias</small>
+                    <strong>{cognitiveMemories.length}</strong>
+                  </div>
                 </div>
               </div>
             </div>
@@ -747,76 +835,65 @@ export default function App() {
                     onSelect={handleSelectSession}
                     onDelete={handleDeleteSession}
                     systemUptime={formatUptime()}
+                    aiState={aiState}
+                    systemHealth={systemHealth}
                   />
                 </>
               )}
 
               <main className="workspace">
-                  <TopBar
-                    aiState={aiState}
-                    sessionTitle={currentSessionTitle}
-                    latency={latency}
-                    historyHidden={focusMode}
-                    onToggleHistory={() => setFocusMode(value => !value)}
-                    settingsOpen={settingsOpen}
-                    onToggleSettings={() => setSettingsOpen(v => !v)}
-                    canStopOutput={isProcessing || aiState === 'speaking'}
-                    onStopOutput={stopOutput}
-                    systemHealth={systemHealth}
-                  />
-
                 <section className="content-grid">
-                  <div className="chat-panel">
-                    <div className="chat-session-bar">
-                      <div className="chat-title-editor">
-                        {isEditingTitle ? (
-                          <input
-                            value={draftTitle}
-                            onChange={(event) => setDraftTitle(event.target.value)}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter') handleSaveCurrentTitle()
-                              if (event.key === 'Escape') setIsEditingTitle(false)
-                            }}
-                            autoFocus
-                            placeholder="Título da conversa"
-                          />
-                        ) : (
-                          <strong>{currentSessionTitle || 'Nova conversa'}</strong>
-                        )}
-                        <span>
-                          {currentSessionCreatedAt
-                            ? formatSessionDate(currentSessionCreatedAt)
-                            : currentSessionId ? 'Sessão ativa' : 'Nenhuma sessão salva'}
-                        </span>
-                      </div>
-
-                      <div className="chat-session-actions">
-                        {isEditingTitle ? (
-                          <>
-                            <button type="button" onClick={handleSaveCurrentTitle} disabled={!draftTitle.trim()} title="Salvar título">
-                              <Check size={15} />
-                            </button>
-                            <button type="button" onClick={() => setIsEditingTitle(false)} title="Cancelar edição">
-                              <X size={15} />
-                            </button>
-                          </>
-                        ) : (
-                          <button type="button" onClick={handleEditCurrentTitle} disabled={!currentSessionId} title="Editar título">
-                            <Pencil size={15} />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => setKnowledgePanelOpen(value => !value)}
-                          className={knowledgePanelOpen ? 'is-active' : ''}
-                          title="Importar conhecimento"
-                        >
-                          <Upload size={15} />
-                        </button>
-                      </div>
+                  <div className="chat-session-bar">
+                    <div className="chat-title-editor">
+                      {isEditingTitle ? (
+                        <input
+                          value={draftTitle}
+                          onChange={(event) => setDraftTitle(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') handleSaveCurrentTitle()
+                            if (event.key === 'Escape') setIsEditingTitle(false)
+                          }}
+                          autoFocus
+                          placeholder="Título da conversa"
+                        />
+                      ) : (
+                        <strong>{currentSessionTitle || 'Nova conversa'}</strong>
+                      )}
+                      <span>
+                        {currentSessionCreatedAt
+                          ? formatSessionDate(currentSessionCreatedAt)
+                          : currentSessionId ? 'Sessão ativa' : 'Nenhuma sessão salva'}
+                      </span>
                     </div>
 
-                    {knowledgePanelOpen && (
+                    <div className="chat-session-actions">
+                      {isEditingTitle ? (
+                        <>
+                          <button type="button" onClick={handleSaveCurrentTitle} disabled={!draftTitle.trim()} title="Salvar título">
+                            <Check size={15} />
+                          </button>
+                          <button type="button" onClick={() => setIsEditingTitle(false)} title="Cancelar edição">
+                            <X size={15} />
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={handleEditCurrentTitle} disabled={!currentSessionId} title="Editar título">
+                          <Pencil size={15} />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setKnowledgePanelOpen(value => !value)}
+                        className={knowledgePanelOpen ? 'is-active' : ''}
+                        title="Importar conhecimento"
+                      >
+                        <Upload size={15} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {knowledgePanelOpen && (
+                    <Suspense fallback={<DeferredSurface label="Carregando importação..." />}>
                       <KnowledgeImportPanel
                         sources={knowledgeSources}
                         value={knowledgeInput}
@@ -825,35 +902,36 @@ export default function App() {
                         onImportText={handleImportKnowledgeText}
                         onImportFile={handleImportKnowledgeFile}
                       />
-                    )}
+                    </Suspense>
+                  )}
 
-                    {!hasMessages ? (
-                      <div className="empty-state">
-                        <div>
-                          <span className="eyebrow">Pronto para operar</span>
-                          <h2>Como posso ajudar hoje?</h2>
-                          <p>Envie uma pergunta, cole um erro ou peça uma análise do seu código.</p>
-                        </div>
+                  {!hasMessages ? (
+                    <div className="empty-state">
+                      <div>
+                        <span className="eyebrow">Pronto para operar</span>
+                        <h2>Como posso ajudar hoje?</h2>
+                        <p>Envie uma pergunta, cole um erro ou peça uma análise do seu código.</p>
                       </div>
-                    ) : (
-                      <ChatWindow messages={messages} />
-                    )}
+                    </div>
+                  ) : (
+                    <ChatWindow messages={messages} />
+                  )}
 
-                    <ChatInput
-                      onSend={handleSendText}
-                      isProcessing={isProcessing}
-                      isRecording={isRecording}
-                      recSeconds={seconds}
-                      onMicToggle={toggleMic}
-                      selectedModel={selectedModel}
-                      models={availableModels}
-                      onModelChange={handleModelChange}
-                      showQuickPrompts={false}
-                      showModelSelect={false}
-                      showMeta={false}
-                      density="compact"
-                    />
-                  </div>
+                  <ChatInput
+                    onSend={handleSendText}
+                    onStop={stopOutput}
+                    isProcessing={isProcessing}
+                    isRecording={isRecording}
+                    recSeconds={seconds}
+                    onMicToggle={toggleMic}
+                    selectedModel={selectedModel}
+                    models={availableModels}
+                    onModelChange={handleModelChange}
+                    showQuickPrompts={false}
+                    showModelSelect={false}
+                    showMeta={false}
+                    density="compact"
+                  />
                 </section>
               </main>
             </div>
@@ -870,22 +948,24 @@ export default function App() {
             transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
             style={{ minHeight: '100vh' }}
           >
-            <VoiceMode
-              aiState={aiState}
-              theme={settings.theme}
-              isRecording={isRecording}
-              recSeconds={seconds}
-              micVolume={micVolume}
-              isProcessing={isProcessing}
-              availableVoices={availableVoices}
-              selectedVoiceURI={selectedVoiceURI}
-              silenceMode={voiceSilenceMode}
-              onMicToggle={toggleMic}
-              onStopOutput={stopOutput}
-              onVoiceChange={handleVoiceChange}
-              onSilenceModeChange={handleVoiceSilenceModeChange}
-              onExit={handleExitVoice}
-            />
+            <Suspense fallback={<DeferredSurface label="Carregando conversa..." />}>
+              <VoiceMode
+                aiState={aiState}
+                theme={settings.theme}
+                isRecording={isRecording}
+                recSeconds={seconds}
+                micVolume={micVolume}
+                isProcessing={isProcessing}
+                availableVoices={availableVoices}
+                selectedVoiceURI={selectedVoiceURI}
+                silenceMode={voiceSilenceMode}
+                onMicToggle={toggleMic}
+                onStopOutput={stopOutput}
+                onVoiceChange={handleVoiceChange}
+                onSilenceModeChange={handleVoiceSilenceModeChange}
+                onExit={handleExitVoice}
+              />
+            </Suspense>
           </motion.div>
         )}
 
@@ -951,14 +1031,16 @@ export default function App() {
                     <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
                   </button>
                 </div>
-                <BrainMap
-                  key={settings.theme}
-                  messages={messages}
-                  knowledgeSources={knowledgeSources}
-                  cognitiveMemories={cognitiveMemories}
-                  knowledgeGraph={knowledgeGraph}
-                  onRefresh={refreshCognitiveBrain}
-                />
+                <Suspense fallback={<DeferredSurface label="Carregando Obsidian..." />}>
+                  <BrainMap
+                    key={settings.theme}
+                    messages={messages}
+                    knowledgeSources={knowledgeSources}
+                    cognitiveMemories={cognitiveMemories}
+                    knowledgeGraph={knowledgeGraph}
+                    onRefresh={refreshCognitiveBrain}
+                  />
+                </Suspense>
               </div>
             </div>
           </motion.section>
@@ -966,64 +1048,66 @@ export default function App() {
       </AnimatePresence>
 
       {settingsOpen && (
-        <section className="settings-page-shell" aria-label="Configurações do Nexus IA">
+        <section className="settings-page-shell" aria-label="Configurações do Aether Memory">
           <button
             className="settings-backdrop"
             type="button"
             aria-label="Fechar configurações"
             onClick={() => setSettingsOpen(false)}
           />
-          <StatusPanel
-            aiState={aiState}
-            sessionId={currentSessionId}
-            msgCount={msgCount}
-            latency={latency}
-            model={selectedModel}
-            models={availableModels}
-            googleSearchAvailable={googleSearchAvailable}
-            syncStatus={syncStatus}
-            isSyncing={isSyncing}
-            authMode={systemHealth?.authMode}
-            authEmail={systemHealth?.userEmail}
-            settings={settings}
-            onModelChange={handleModelChange}
-            onSyncNow={handleSyncNow}
-            onPullCloudChats={handlePullCloudChats}
-            onSettingChange={updateSetting}
-            onClose={() => setSettingsOpen(false)}
-            presentation="page"
-          >
-            <div className="panel-block settings-insights-block">
-              <div className="panel-heading">
-                <span>Contexto da conversa</span>
-                <ListChecks size={15} />
+          <Suspense fallback={<DeferredSurface label="Carregando configurações..." />}>
+            <StatusPanel
+              aiState={aiState}
+              sessionId={currentSessionId}
+              msgCount={msgCount}
+              latency={latency}
+              model={selectedModel}
+              models={availableModels}
+              googleSearchAvailable={googleSearchAvailable}
+              syncStatus={syncStatus}
+              isSyncing={isSyncing}
+              authMode={systemHealth?.authMode}
+              authEmail={systemHealth?.userEmail}
+              settings={settings}
+              onModelChange={handleModelChange}
+              onSyncNow={handleSyncNow}
+              onPullCloudChats={handlePullCloudChats}
+              onSettingChange={updateSetting}
+              onClose={() => setSettingsOpen(false)}
+              presentation="page"
+            >
+              <div className="panel-block settings-insights-block">
+                <div className="panel-heading">
+                  <span>Contexto da conversa</span>
+                  <ListChecks size={15} />
+                </div>
+                <div className="rail-tabs settings-rail-tabs" role="tablist" aria-label="Contexto da conversa">
+                  {railTabs.map(({ id, label, icon: Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className={railTab === id ? 'is-active' : ''}
+                      onClick={() => setRailTab(id)}
+                    >
+                      <Icon size={14} />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+                {railTab === 'memory' && <MemoryPanel messages={messages} />}
+                {railTab === 'files' && <FilesPanel messages={messages} />}
+                {railTab === 'summary' && (
+                  <SummaryPanel
+                    messages={messages}
+                    aiState={aiState}
+                    latency={latency}
+                    msgCount={msgCount}
+                    selectedModel={selectedModel}
+                  />
+                )}
               </div>
-              <div className="rail-tabs settings-rail-tabs" role="tablist" aria-label="Contexto da conversa">
-                {railTabs.map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={railTab === id ? 'is-active' : ''}
-                    onClick={() => setRailTab(id)}
-                  >
-                    <Icon size={14} />
-                    <span>{label}</span>
-                  </button>
-                ))}
-              </div>
-              {railTab === 'memory' && <MemoryPanel messages={messages} />}
-              {railTab === 'files' && <FilesPanel messages={messages} />}
-              {railTab === 'summary' && (
-                <SummaryPanel
-                  messages={messages}
-                  aiState={aiState}
-                  latency={latency}
-                  msgCount={msgCount}
-                  selectedModel={selectedModel}
-                />
-              )}
-            </div>
-          </StatusPanel>
+            </StatusPanel>
+          </Suspense>
         </section>
       )}
     </div>
