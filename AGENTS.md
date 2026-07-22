@@ -4,7 +4,7 @@ Indice e regras globais para agentes de codigo trabalhando no Aether Memory.
 
 Este projeto nao deve ser recriado do zero. Ele ja possui backend Flask,
 frontend React/Vite, app desktop Electron, memoria cognitiva, RAG, Obsidian,
-voz, sincronizacao Supabase e acesso remoto. Sempre preserve a arquitetura
+voz, backup local portatil e acesso remoto. Sempre preserve a arquitetura
 existente e faca mudancas incrementais.
 
 ## Equipe de Agentes
@@ -19,8 +19,8 @@ Use estes arquivos especializados conforme a tarefa:
   perfil do usuario, RAG, contexto conversacional, documentos e resumos.
 - [Agente Obsidian Graph](.agents/obsidian-graph.md): BrainMap, grafo visual,
   memorias, documentos, pontos, zoom, arraste e interacao.
-- [Agente Desktop Mobile Sync](.agents/desktop-mobile-sync.md): Electron,
-  PWA/mobile, acesso remoto, service worker, Supabase Sync e instalacao.
+- [Agente Desktop Mobile Backup](.agents/desktop-mobile-backup.md): Electron,
+  PWA/mobile, acesso remoto, service worker, backup local e instalacao.
 
 Quando uma tarefa tocar mais de uma area, combine os agentes relevantes. Exemplo:
 importacao de PDF que aparece na Obsidian usa Memoria RAG Cognicao + Obsidian
@@ -43,7 +43,6 @@ alterados sem migracao cuidadosa:
 - Bridge Electron `window.nexus`.
 - Scheme `nexus-asset`.
 - Pasta empacotada `NexusAssets`.
-- Tabela Supabase padrao `nexus_sync_records`.
 - Chaves antigas de `localStorage` com prefixo `nexus-*`.
 
 ## Visao Rapida
@@ -52,7 +51,7 @@ O Aether Memory e um assistente local-first:
 
 - LLM local via Ollama.
 - Historico e conhecimento em SQLite.
-- Sync opcional com Supabase.
+- Backup local em JSON para mover memorias entre computadores.
 - Web opcional via Google Custom Search.
 - Voz offline com Piper e STT com faster-whisper.
 - Obsidian/Second Brain com memorias, documentos, entidades e grafo.
@@ -68,7 +67,7 @@ Back-end/
   database.py             Sessoes, mensagens e knowledge_sources
   database_v2.py          Migracoes cognitivas e tabelas do Second Brain
   cognitive_api.py        Blueprint /api/cognitive/*
-  supabase_sync.py        Sync local-first com Supabase
+  local_backup.py         Exportacao/importacao portatil do banco local
   remote_access.py        Modo remoto, tokens, LAN/ngrok/Tailscale
   storage.py              Caminhos persistentes no dev e no Electron
   cognitive/
@@ -183,7 +182,7 @@ SQLite:
 - `database_v2.py` faz migracoes idempotentes para:
   `memories`, `user_profile_facts`, `kg_entities`, `kg_relations`, `projects`,
   `timeline_events`, `insights`, `embeddings`, `conversation_summaries`,
-  `codebase_index`, `sync_state`.
+  `codebase_index`.
 
 Ao adicionar colunas/tabelas:
 
@@ -255,19 +254,20 @@ Ao melhorar busca de codigo, reaproveite:
 - `analyze_file`
 - endpoints `/api/cognitive/codebase/index` e `/api/cognitive/codebase/search`
 
-## Sync Supabase
+## Backup Local
 
-Arquivo: `Back-end/supabase_sync.py`.
+Arquivo: `Back-end/local_backup.py`.
 
 Caracteristicas:
 
 - Local-first: o app deve funcionar offline.
-- Sync opcional via `SUPABASE_SYNC_ENABLED=1`.
-- URL deve ser base do projeto Supabase, sem `/rest/v1`.
-- A tabela padrao ainda e `nexus_sync_records` por compatibilidade.
-- `run_sync(mode='both'|'push'|'pull')` envia snapshots e pode puxar chats.
+- Exporta conversas, mensagens, conhecimento, memorias, perfil, resumos, grafo,
+  embeddings, projetos e indice de codebase.
+- Importa em modo merge, sem apagar o banco local atual.
+- Endpoints principais: `/api/local-backup/status`, `/api/local-backup/export`
+  e `/api/local-backup/import`.
 
-Nao coloque chaves reais no codigo. Use `.env`.
+Nao coloque backups exportados no Git. Eles podem conter dados pessoais do usuario.
 
 ## Acesso Remoto e Mobile
 
@@ -408,7 +408,7 @@ necessidade. Identifique e pare o processo antigo somente com permissao clara.
 - Nao transforme o projeto em dependencia de nuvem. Offline precisa continuar.
 - Nao remova suporte a Ollama local.
 - Nao quebre o app Electron ao mudar caminhos.
-- Nao substitua SQLite por Supabase; Supabase e sync, nao fonte unica.
+- Nao substitua SQLite local por banco externo sem pedido explicito.
 - Nao remova memorias, banco, historico ou arquivos do usuario.
 - Nao crie novas tabelas sem migracao idempotente.
 - Nao salve mensagens triviais como memoria importante.

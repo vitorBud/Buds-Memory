@@ -11,6 +11,21 @@ interface UseRecorderOptions {
   noSpeechTimeoutSeconds?: number
 }
 
+const AUDIO_MIME_CANDIDATES = [
+  'audio/webm;codecs=opus',
+  'audio/webm',
+  'audio/mp4',
+  'audio/aac',
+  'audio/wav',
+]
+
+function getSupportedAudioMimeType() {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+    return ''
+  }
+  return AUDIO_MIME_CANDIDATES.find(type => MediaRecorder.isTypeSupported(type)) || ''
+}
+
 // Hook de gravação do microfone usado para capturar áudio e enviar ao backend.
 export function useRecorder({
   onStop,
@@ -58,7 +73,14 @@ export function useRecorder({
   const start = useCallback(async () => {
     if (isRecording) return
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
       chunksRef.current = []
       startedTalkingRef.current = false
       silenceStartedAtRef.current = null
@@ -107,11 +129,11 @@ export function useRecorder({
         measureVolume()
       }
 
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : 'audio/webm'
-
-      const mr = new MediaRecorder(stream, { mimeType })
+      const preferredMimeType = getSupportedAudioMimeType()
+      const mr = preferredMimeType
+        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+        : new MediaRecorder(stream)
+      const mimeType = mr.mimeType || preferredMimeType || 'audio/webm'
       mediaRecorderRef.current = mr
 
       mr.ondataavailable = (e) => {

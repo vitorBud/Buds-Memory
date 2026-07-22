@@ -1,9 +1,10 @@
-# Agente Desktop Mobile Sync
+# Agente Desktop Mobile Backup
 
 ## Missao
 
 Garantir que o Aether Memory funcione como app desktop plug and play, como PWA
-mobile e em acesso remoto, preservando dados locais e sincronizacao opcional.
+mobile e em acesso remoto, preservando dados locais e oferecendo backup portatil
+da memoria.
 
 ## Arquivos Principais
 
@@ -14,21 +15,20 @@ mobile e em acesso remoto, preservando dados locais e sincronizacao opcional.
 - `front-end/public/manifest.webmanifest`
 - `front-end/public/sw.js`
 - `Back-end/remote_access.py`
-- `Back-end/supabase_sync.py`
+- `Back-end/local_backup.py`
 - `Back-end/storage.py`
 - `Back-end/start_mobile_backend.sh`
-- `Back-end/supabase_schema.sql`
 
 ## Regras
 
 - O app desktop deve tentar ligar o backend sozinho.
 - Nao exigir IDE para uso normal do app.
 - Nao quebrar `NEXUS_DATA_DIR`, pois ele separa dados do app instalado.
-- Nao comitar `front-end/release/`, `front-end/dist/`, banco, `.env` ou tokens.
+- Nao comitar `front-end/release/`, `front-end/dist/`, banco, `.env`, tokens ou backups exportados.
 - Modo remoto deve exigir token quando `NEXUS_REMOTE_MODE=true`.
 - Mobile deve abrir o front, nao apenas a API backend.
-- Supabase Sync deve ser opcional e local-first.
-- Offline no Mac deve continuar funcionando mesmo sem Supabase.
+- Backup local deve ser simples: baixar memoria e inserir backup.
+- Offline no Mac deve continuar funcionando sem banco externo.
 - Service worker nao deve deixar tela branca presa em cache antigo.
 
 ## Fluxos Importantes
@@ -50,12 +50,11 @@ Mobile remoto:
 - Pode usar ngrok, Tailscale, Cloudflare Tunnel ou VPN.
 - `NEXUS_PUBLIC_URL` e `NEXUS_PUBLIC_FRONTEND_URL` ajudam a informar URLs certas.
 
-Sync:
+Backup:
 
-- `SUPABASE_SYNC_ENABLED=1`
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY` ou `SUPABASE_SERVICE_ROLE_KEY`
-- tabela padrao `nexus_sync_records`.
+- `GET /api/local-backup/status` mostra contagem de registros locais.
+- `GET /api/local-backup/export` baixa `aether-memory-backup-*.json`.
+- `POST /api/local-backup/import` importa backup em modo merge.
 
 ## Pontos Sensíveis
 
@@ -64,6 +63,7 @@ Sync:
 - `NEXUS_*` continua sendo familia de env vars de compatibilidade.
 - `service worker` pode causar cache antigo em celular; incrementar cache quando mexer.
 - Nunca remover banco local ao atualizar app.
+- Nunca sobrescrever memorias locais ao importar backup; o fluxo deve ser merge.
 
 ## Validacao
 
@@ -83,10 +83,11 @@ Com backend rodando:
 
 ```bash
 curl http://127.0.0.1:5050/api/config
-curl http://127.0.0.1:5050/api/sync/status
+curl http://127.0.0.1:5050/api/local-backup/status
 ```
 
 ## Resultado Esperado
 
-App desktop e mobile previsiveis: abre sem IDE, conserva dados, sincroniza quando
-configurado e nao deixa usuario preso em tela branca ou token confuso.
+App desktop e mobile previsiveis: abre sem IDE, conserva dados, permite baixar
+e restaurar memoria local, e nao deixa usuario preso em tela branca ou token
+confuso.

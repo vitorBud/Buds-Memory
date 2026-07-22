@@ -5728,6 +5728,67 @@ input {
   gap: 8px;
 }
 
+.settings-voice-provider {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-voice-provider button {
+  align-items: center;
+  background:
+    linear-gradient(135deg, var(--liquid-highlight), transparent 48%),
+    var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 16px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 12px;
+  text-align: left;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.settings-voice-provider button:hover {
+  border-color: var(--liquid-border-strong);
+  transform: translateY(-1px);
+}
+
+.settings-voice-provider button.is-active {
+  border-color: color-mix(in srgb, var(--accent-hot), transparent 18%);
+  box-shadow: 0 12px 36px color-mix(in srgb, var(--accent-hot), transparent 84%);
+}
+
+.settings-voice-provider svg {
+  color: var(--text);
+  flex: 0 0 auto;
+}
+
+.settings-voice-provider span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-voice-provider strong {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.settings-voice-provider small {
+  color: var(--muted-strong);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+@media (max-width: 760px) {
+  .settings-voice-provider {
+    grid-template-columns: 1fr;
+  }
+}
+
 .settings-model-list button {
   align-items: center;
   background:
@@ -6100,6 +6161,109 @@ input {
 .sync-orb[data-state='offline'] {
   background: color-mix(in srgb, var(--accent-hot), transparent 82%);
   border-color: color-mix(in srgb, var(--accent-hot), transparent 58%);
+  color: var(--accent-hot);
+}
+
+.smartphone-access-card {
+  background:
+    radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--accent-hot), transparent 82%), transparent 38%),
+    linear-gradient(135deg, var(--liquid-highlight), transparent 52%),
+    var(--liquid-panel-soft);
+  border: 1px solid var(--liquid-border);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white, transparent 70%),
+    0 18px 48px color-mix(in srgb, black, transparent 88%);
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.smartphone-access-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.smartphone-access-head > span {
+  align-items: center;
+  color: var(--text);
+  display: inline-flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.smartphone-access-head strong {
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.smartphone-access-head small {
+  color: var(--muted);
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.smartphone-access-field {
+  background: color-mix(in srgb, var(--surface), transparent 52%);
+  border: 1px solid color-mix(in srgb, var(--liquid-border), transparent 18%);
+  border-radius: 14px;
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+}
+
+.smartphone-access-field > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.smartphone-access-field code {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.smartphone-access-field div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.smartphone-access-field button,
+.smartphone-access-field a {
+  align-items: center;
+  background: color-mix(in srgb, var(--text), transparent 92%);
+  border: 1px solid color-mix(in srgb, var(--text), transparent 84%);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  gap: 6px;
+  padding: 7px 10px;
+  text-decoration: none;
+}
+
+.smartphone-access-field button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.smartphone-access-card p {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.smartphone-access-card p strong {
   color: var(--accent-hot);
 }
 
@@ -8321,6 +8485,17 @@ input {
 
 .sys-status-label.tone-ok  { color: #4ade80; }
 .sys-status-label.tone-err { color: #f87171; }
+
+.sys-status-model {
+  border-left: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.58);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  margin-left: 2px;
+  padding-left: 6px;
+  text-transform: uppercase;
+}
 
 /* Popover */
 .sys-popover {
@@ -10804,6 +10979,11 @@ input {
   font-size: 10px;
 }
 
+.chat-scroll-scene .sidebar-footer .sys-status-model {
+  font-size: 9px;
+  padding-left: 5px;
+}
+
 .chat-scroll-scene .sidebar-footer .sys-popover {
   bottom: calc(100% + 8px);
   box-sizing: border-box;
@@ -11643,6 +11823,10 @@ input {
   min-height: 214px !important;
 }
 
+.settings-page-shell .settings-account-block {
+  min-height: 420px !important;
+}
+
 .settings-page-shell .settings-sync-block,
 .settings-page-shell .settings-codebase-block,
 .settings-page-shell .settings-session-block {
@@ -11829,7 +12013,7 @@ input {
 .settings-panel-page[data-section='account'] .settings-account-block,
 .settings-panel-page[data-section='appearance'] .settings-interface-block,
 .settings-panel-page[data-section='ai'] .settings-model-block,
-.settings-panel-page[data-section='sync'] .settings-sync-block,
+.settings-panel-page[data-section='backup'] .settings-backup-block,
 .settings-panel-page[data-section='codebase'] .settings-codebase-block,
 .settings-panel-page[data-section='memory'] .settings-insights-block,
 .settings-panel-page[data-section='system'] .settings-session-block,

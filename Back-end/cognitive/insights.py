@@ -5,7 +5,7 @@ Gera insights determinísticos baseados em padrões reais de uso:
   - "Você está estudando mais Python"
   - "Projeto X está parado há 20 dias"
   - "Você usou React em 8 projetos"
-  - "Supabase é uma tecnologia recorrente"
+  - "SQLite é uma tecnologia recorrente"
 
 Insights são armazenados em banco e retornados apenas os não lidos.
 """

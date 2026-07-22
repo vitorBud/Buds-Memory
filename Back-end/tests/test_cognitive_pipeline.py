@@ -73,11 +73,11 @@ class CognitivePipelineTests(unittest.TestCase):
         self.assertIn("React", rewritten)
 
     def test_intent_detection_handles_typos_and_troubleshooting_priority(self):
-        interpretation = conversation.interpret_user_text("suapbase ta dando ruim")
-        intent = conversation.detect_intent("suapbase ta dando ruim", interpretation)
+        interpretation = conversation.interpret_user_text("pyhton ta dando ruim")
+        intent = conversation.detect_intent("pyhton ta dando ruim", interpretation)
 
         self.assertEqual(intent["primary"], "TROUBLESHOOTING")
-        self.assertTrue(any(item["correction"] == "Supabase" for item in interpretation["typos"]))
+        self.assertTrue(any(item["correction"] == "Python" for item in interpretation["typos"]))
 
     def test_rag_and_codebase_indexer_smoke(self):
         source = database.add_knowledge_source(

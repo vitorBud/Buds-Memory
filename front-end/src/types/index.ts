@@ -4,6 +4,7 @@ export type AiState = 'idle' | 'listening' | 'transcribing' | 'thinking' | 'spea
 export type ThemeMode = 'white' | 'black' | 'gold' | 'silver'
 export type DensityMode = 'compact' | 'comfortable'
 export type AccentColor = 'white' | 'black' | 'gold' | 'silver' | 'amber'
+export type VoiceProvider = 'browser' | 'piper'
 
 export interface Session {
   id: string
@@ -43,6 +44,17 @@ export interface ChatStreamEvent {
   content?: string
   text?: string
   url?: string
+  pipeline?: 'FAST_PATH' | 'STANDARD_PATH' | 'DEEP_PATH' | string
+  model?: string
+  trace?: {
+    request_id: string
+    route: string
+    pipeline: string
+    model: string
+    total_ms: number
+    metrics: Record<string, unknown>
+    events: Array<Record<string, unknown>>
+  }
   session?: Session
   results?: Array<{ title: string; link: string; snippet: string }>
 }
@@ -85,6 +97,7 @@ export interface InterfaceSettings {
   showBrainMap: boolean
   showQuickPrompts: boolean
   autoPlayAudio: boolean
+  voiceProvider: VoiceProvider
   webSearchEnabled: boolean
   accentColor: AccentColor
 }
@@ -95,6 +108,23 @@ export interface BackendConfig {
   ollama_url: string
   google_search_available: boolean
   data_dir?: string
+  mobile_token?: string
+  remote?: {
+    remote_mode: boolean
+    host: string
+    port: number
+    local_ip: string
+    local_url: string
+    frontend_dev_url: string
+    public_url: string
+    public_frontend_url: string
+    recommended_url: string
+    recommended_api_url: string
+    auth_required: boolean
+    auth_configured: boolean
+    session_ttl_seconds: number
+    compatible_with?: string[]
+  }
 }
 
 export interface CognitiveMemory {
@@ -161,24 +191,18 @@ export interface KnowledgeGraph {
   edges: KnowledgeGraphEdge[]
 }
 
-export interface SyncStatus {
-  mode: 'local-first' | string
-  online_sync_enabled: boolean
-  supabase_configured: boolean
-  service_role_configured?: boolean
-  remote_table: string
+export interface LocalBackupStatus {
+  mode: 'local-backup' | string
   device_id: string
-  last_sync_at?: string | null
-  last_sync_error?: string | null
+  last_backup_error?: string | null
   local_records: Record<string, number>
 }
 
-export interface SyncRunResult {
+export interface LocalBackupImportResult {
   success: boolean
   message: string
-  uploaded: number
-  pulled?: number
-  dry_run?: boolean
-  records_found?: number
-  status: SyncStatus
+  backup_exported_at?: string | null
+  imported: Record<string, number>
+  skipped: Record<string, number>
+  total_imported: number
 }

@@ -15,6 +15,7 @@ interface SidebarProps {
   systemUptime: string
   aiState: AiState
   systemHealth?: SystemHealth | null
+  selectedModel?: string
 }
 
 const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
@@ -38,6 +39,7 @@ export function Sidebar({
   systemUptime,
   aiState,
   systemHealth = null,
+  selectedModel,
 }: SidebarProps) {
   const stateInfo = STATE_MAP[aiState]
   const normalizedSearch = searchQuery.trim().toLowerCase()
@@ -132,7 +134,7 @@ export function Sidebar({
           <span />
           {stateInfo.label}
         </div>
-        <SystemStatus health={systemHealth} />
+        <SystemStatus health={systemHealth} selectedModel={selectedModel} />
       </div>
     </aside>
   )

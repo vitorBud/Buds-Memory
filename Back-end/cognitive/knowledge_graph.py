@@ -54,7 +54,7 @@ KNOWN_TECHNOLOGIES: dict[str, str] = {
     "flask": "library", "django": "library", "fastapi": "library",
     "node": "technology", "nodejs": "technology", "node.js": "technology",
     "postgresql": "technology", "sqlite": "technology", "mysql": "technology",
-    "mongodb": "technology", "supabase": "tool", "firebase": "tool",
+    "mongodb": "technology", "firebase": "tool",
     "docker": "tool", "git": "tool", "github": "tool",
     "ollama": "tool", "whisper": "tool", "piper": "tool",
     "three.js": "library", "framer": "library", "tailwind": "library",

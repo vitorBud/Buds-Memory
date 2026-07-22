@@ -3,7 +3,7 @@
 ## Missao
 
 Manter e evoluir a API Flask do Aether Memory sem quebrar chat, sessoes,
-importacao de conhecimento, voz, auth remoto, Supabase Sync ou Electron.
+importacao de conhecimento, voz, auth remoto, backup local ou Electron.
 
 ## Arquivos Principais
 
@@ -23,9 +23,10 @@ importacao de conhecimento, voz, auth remoto, Supabase Sync ou Electron.
 - Preserve compatibilidade com Electron e Web.
 - Mantenha porta padrao `5050`.
 - Nao remova `X-Nexus-Token` nem variaveis `NEXUS_*` sem migracao.
-- Nao exponha `.env`, tokens ou service role no front.
+- Nao exponha `.env`, tokens ou backups locais no front.
 - O app deve continuar funcionando offline.
-- Supabase e sync opcional, nao banco principal.
+- SQLite local e a fonte principal de dados.
+- Backup local deve exportar/importar em modo merge, sem apagar dados atuais.
 - O modelo padrao deve continuar leve, salvo pedido contrario.
 - Mensagens de erro devem ser amigaveis e em portugues quando forem para o usuario.
 
@@ -38,7 +39,9 @@ importacao de conhecimento, voz, auth remoto, Supabase Sync ou Electron.
 - Sessoes: `/api/sessions`.
 - Conhecimento: `/api/sessions/<session_id>/knowledge`.
 - Audio gerado: `/api/audio/<filename>`.
-- Auth remoto/local/Supabase: `/api/auth/*`.
+- Auth remoto/local: `/api/auth/*`.
+- Backup local: `/api/local-backup/status`, `/api/local-backup/export`,
+  `/api/local-backup/import`.
 
 ## Pontos Sensíveis
 

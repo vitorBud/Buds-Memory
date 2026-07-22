@@ -36,7 +36,6 @@ def migrate():
         _create_ingestion_cache(conn)
         _create_conversation_summaries(conn)
         _create_codebase_index(conn)
-        _create_sync_state(conn)
         _migrate_memories_core_columns(conn)
         _migrate_knowledge_source_intelligence(conn)
         _migrate_embeddings_metadata(conn)
@@ -245,16 +244,6 @@ def _create_codebase_index(conn):
             content        TEXT,
             metadata       TEXT DEFAULT '{}',
             indexed_at     TEXT NOT NULL
-        );
-    """)
-
-
-def _create_sync_state(conn):
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sync_state (
-            key        TEXT PRIMARY KEY,
-            value      TEXT NOT NULL,
-            updated_at TEXT NOT NULL
         );
     """)
 

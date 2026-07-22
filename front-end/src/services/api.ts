@@ -11,8 +11,8 @@ import type {
   CognitiveMemory,
   KnowledgeGraph,
   KnowledgeSource,
-  SyncRunResult,
-  SyncStatus,
+  LocalBackupImportResult,
+  LocalBackupStatus,
 } from '../types'
 
 type AetherBridge = { apiBase?: string; isDesktop?: boolean }
@@ -58,6 +58,20 @@ export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Pro
 
 function isDesktop(): boolean {
   return Boolean((window as unknown as { nexus?: AetherBridge }).nexus?.isDesktop)
+}
+
+function getAudioUploadName(blob: Blob): string {
+  const mime = blob.type.split(';')[0].toLowerCase()
+  const extByMime: Record<string, string> = {
+    'audio/webm': 'webm',
+    'audio/mp4': 'mp4',
+    'audio/aac': 'aac',
+    'audio/wav': 'wav',
+    'audio/x-wav': 'wav',
+    'audio/ogg': 'ogg',
+    'audio/mpeg': 'mp3',
+  }
+  return `recording.${extByMime[mime] || 'webm'}`
 }
 
 /**
@@ -158,73 +172,55 @@ export async function loginLocal(): Promise<{ access_token?: string; success: bo
   return data
 }
 
-export async function loginSupabase(email: string, password: string): Promise<{
-  access_token?: string
-  success: boolean
-  auth_mode?: string
-  user_id?: string
-  email?: string
-  error?: string
-}> {
-  const res = await fetch(`${getBase()}/auth/supabase`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `loginSupabase: ${res.status}`)
-  if (data.access_token) setRemoteSessionToken(data.access_token)
-  return data
+// ── Local Memory Backup ────────────────────────────────────────────────────
+
+export async function getLocalBackupStatus(): Promise<LocalBackupStatus> {
+  return fetchJsonWithStartupRetry<LocalBackupStatus>(`${getBase()}/local-backup/status`)
 }
 
-export async function signupSupabase(email: string, password: string): Promise<{
-  access_token?: string
-  success: boolean
-  pending_confirmation?: boolean
-  message?: string
-  auth_mode?: string
-  user_id?: string
-  email?: string
-  error?: string
-}> {
-  const res = await fetch(`${getBase()}/auth/supabase/signup`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `signupSupabase: ${res.status}`)
-  if (data.access_token) setRemoteSessionToken(data.access_token)
-  return data
-}
-
-// ── Local-first Sync ────────────────────────────────────────────────────────
-
-export async function getSyncStatus(): Promise<SyncStatus> {
-  return fetchJsonWithStartupRetry<SyncStatus>(`${getBase()}/sync/status`)
-}
-
-export async function runSync(): Promise<SyncRunResult> {
-  return runSyncWithMode('both')
-}
-
-export async function pullCloudChats(): Promise<SyncRunResult> {
-  return runSyncWithMode('pull')
-}
-
-async function runSyncWithMode(mode: 'both' | 'pull'): Promise<SyncRunResult> {
+export async function exportLocalMemoryBackup(): Promise<void> {
   let res: Response
   try {
-    res = await authFetch(`${getBase()}/sync/run`, {
+    res = await authFetch(`${getBase()}/local-backup/export`)
+  } catch (err) {
+    throw humanizeError(err)
+  }
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `exportLocalMemoryBackup: ${res.status}`)
+  }
+
+  const blob = await res.blob()
+  const disposition = res.headers.get('Content-Disposition') || ''
+  const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
+  const filename = filenameMatch?.[1] || `aether-memory-backup-${new Date().toISOString().slice(0, 10)}.json`
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+export async function importLocalMemoryBackup(file: File): Promise<LocalBackupImportResult> {
+  const body = new FormData()
+  body.append('file', file)
+
+  let res: Response
+  try {
+    res = await authFetch(`${getBase()}/local-backup/import`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode }),
+      body,
     })
   } catch (err) {
     throw humanizeError(err)
   }
+
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || data.message || `runSync: ${res.status}`)
+  if (!res.ok) throw new Error(data.error || `importLocalMemoryBackup: ${res.status}`)
   return data
 }
 
@@ -401,7 +397,7 @@ export async function streamChat(
 
     if (payload.audio) {
       body = new FormData()
-      body.append('audio', payload.audio, 'recording.webm')
+      body.append('audio', payload.audio, getAudioUploadName(payload.audio))
       if (payload.sessionId) body.append('session_id', payload.sessionId)
       if (payload.model) body.append('model', payload.model)
       if (payload.webSearch) body.append('web_search', 'true')

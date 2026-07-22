@@ -4,10 +4,11 @@ import type { SystemHealth } from './BootScreen'
 
 interface SystemStatusProps {
   health: SystemHealth | null
+  selectedModel?: string
 }
 
 // ── Indicador compacto de saúde dos serviços no TopBar ────────────────────────
-export function SystemStatus({ health }: SystemStatusProps) {
+export function SystemStatus({ health, selectedModel }: SystemStatusProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
 
@@ -36,7 +37,7 @@ export function SystemStatus({ health }: SystemStatusProps) {
       icon: Bot,
       label: 'IA Ollama',
       ok: health?.ollama ?? null,
-      detail: health?.model || null,
+      detail: selectedModel || health?.model || null,
     },
     {
       id: 'database',
@@ -71,6 +72,7 @@ export function SystemStatus({ health }: SystemStatusProps) {
         <span className={`sys-status-label ${allOk ? 'tone-ok' : anyError ? 'tone-err' : ''}`}>
           {health == null ? 'Verificando…' : allOk ? 'Online' : anyError ? 'Degradado' : 'Online'}
         </span>
+        {selectedModel && <span className="sys-status-model">{selectedModel.replace('qwen2.5-coder:', '')}</span>}
       </button>
 
       {open && (

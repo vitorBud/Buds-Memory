@@ -1,17 +1,14 @@
 # pyrefly: ignore [missing-import]
 from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
+import contextlib
 import json
 import time
 import re
-import threading
 import concurrent.futures
+import uuid
 from pathlib import Path
 from typing import Optional
-from html import unescape
-from io import BytesIO
-
-import requests
 
 # Importações de agenty.py (reaproveitando lógica já existente)
 from agenty import (
@@ -29,7 +26,7 @@ from agenty import (
     search_google,
 )
 import database
-import supabase_sync
+import local_backup
 import remote_access
 from storage import get_data_dir
 
@@ -38,10 +35,22 @@ import database_v2
 from cognitive_api import cognitive_bp
 from cognitive import detector as cognitive_detector
 from cognitive import conversation as cognitive_conversation
+from cognitive import finance as cognitive_finance
 from cognitive import knowledge_graph
 from cognitive import rag as cognitive_rag
+from cognitive import response_safety
 from cognitive import summarizer as cognitive_summarizer
 from cognitive import user_profile
+from performance import (
+    DEEP_PATH,
+    FAST_PATH,
+    PerfTrace,
+    budget_for_pipeline,
+    classify_pipeline,
+    clip_context,
+    diagnostics_requested,
+    select_model_for_pipeline,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR.parent / "front-end" / "dist"
@@ -63,6 +72,10 @@ app.register_blueprint(cognitive_bp)
 # Pool compartilhado para background cognition — evita acúmulo de threads daemon
 _COGNITION_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="aether-cognition")
 
+# Pool dedicado ao TTS — roda Piper em paralelo ao streaming de tokens
+# max_workers=2 cobre sobreposição de sentenças sem saturar CPU no M1
+_TTS_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="aether-tts")
+
 
 @app.before_request
 def enforce_remote_auth():
@@ -74,9 +87,6 @@ def enforce_remote_auth():
     if request.path in {
         "/api/health",
         "/api/auth/login",
-        "/api/auth/local",
-        "/api/auth/supabase",
-        "/api/auth/supabase/signup",
         "/api/auth/status",
     }:
         return None
@@ -111,220 +121,88 @@ def gerar_audio_url(texto: str, filename: str) -> Optional[str]:
         return None
 
 
-def clean_imported_text(text: str) -> str:
-    """Normaliza textos importados antes de salvar como conhecimento."""
-    text = unescape(text or "")
-    text = re.sub(r"<script[\s\S]*?</script>", " ", text, flags=re.I)
-    text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+_AUDIO_EXT_BY_MIME = {
+    "audio/webm": ".webm",
+    "audio/mp4": ".mp4",
+    "audio/aac": ".aac",
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/ogg": ".ogg",
+    "audio/mpeg": ".mp3",
+}
+_ALLOWED_AUDIO_EXTS = set(_AUDIO_EXT_BY_MIME.values())
 
 
-def extract_topics(text: str, limit: int = 10):
-    """Extrai palavras-chave simples para mostrar no cérebro/Obsidian."""
-    stop_words = {
-        "para", "como", "uma", "com", "que", "por", "mais", "menos", "isso", "esse", "essa",
-        "esta", "está", "das", "dos", "nas", "nos", "não", "nao", "seu", "sua", "sobre",
-        "entre", "quando", "onde", "porque", "qual", "quais", "todo", "toda", "the", "and",
-        "from", "with", "this", "that", "http", "https", "www",
-    }
-    normalized = (text or "").lower()
-    normalized = re.sub(r"https?://\S+", " ", normalized)
-    words = re.findall(r"[a-zA-ZÀ-ÿ0-9_-]{4,}", normalized)
-    counts = {}
-    for word in words:
-        plain = word.strip("_-")
-        if plain in stop_words or plain.isnumeric():
-            continue
-        counts[plain] = counts.get(plain, 0) + 1
-    return [word for word, _count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]]
+def save_uploaded_audio(audio_file) -> Path:
+    """Salva áudio enviado pelo browser preservando o formato real do arquivo."""
+    raw_suffix = Path(audio_file.filename or "").suffix.lower()
+    mimetype = (audio_file.mimetype or "").split(";")[0].lower()
+    suffix = raw_suffix if raw_suffix in _ALLOWED_AUDIO_EXTS else _AUDIO_EXT_BY_MIME.get(mimetype, ".webm")
+    filename = f"upload_{int(time.time())}_{uuid.uuid4().hex[:8]}{suffix}"
+    filepath = OUT_DIR / filename
+    audio_file.save(str(filepath))
+    return filepath
 
 
-def make_knowledge_title(text: str, fallback: str = "Conhecimento importado") -> str:
-    """Cria título legível a partir do nome do arquivo ou primeira frase do conteúdo."""
-    candidate = clean_imported_text(text) or fallback
-    candidate = re.sub(r"\.[a-zA-Z0-9]{2,5}$", "", candidate)
-    first_sentence = re.split(r"(?<=[.!?])\s+", candidate)[0].strip()
-    title = first_sentence if 8 <= len(first_sentence) <= 72 else candidate[:72]
-    title = title.strip(" .,:;!?-_")
-    return (title[:69].rstrip() + "...") if len(title) > 72 else title or fallback
+# Importações do pipeline de ingestão cognitivo (eliminadas duplicatas locais)
+from cognitive.ingestion import (
+    clean_imported_text,
+    extract_topics,
+    make_knowledge_title,
+    make_learning_title,
+    summarize_imported_text,
+    analyze_imported_document,
+    extract_pdf_text,
+    fetch_url_text,
+)
 
 
-def make_learning_title(topics, summary: str, fallback: str = "Conhecimento importado") -> str:
-    """Cria um título curto em português para um aprendizado importado."""
-    readable = []
-    aliases = {
-        "python": "Python",
-        "javascript": "JavaScript",
-        "react": "React",
-        "flask": "Flask",
-        "dados": "dados",
-        "database": "banco de dados",
-        "backend": "backend",
-        "frontend": "frontend",
-        "api": "APIs",
-        "programacao": "programação",
-        "programação": "programação",
-        "classe": "classes",
-        "função": "funções",
-        "funcao": "funções",
-    }
-
-    for topic in topics or []:
-        clean = re.sub(r"[_-]+", " ", str(topic)).strip().lower()
-        if len(clean) < 3 or clean.isnumeric():
-            continue
-        readable.append(aliases.get(clean, clean.capitalize()))
-        if len(readable) == 3:
-            break
-
-    if readable:
-        if len(readable) == 1:
-            return f"Aprendizado sobre {readable[0]}"
-        return f"Aprendizado: {', '.join(readable[:-1])} e {readable[-1]}"
-
-    return make_knowledge_title(summary, fallback=fallback)
-
-
-def summarize_imported_text(text: str) -> str:
-    """Gera resumo curto determinístico, sem chamar LLM para não travar upload."""
-    text = clean_imported_text(text)
-    if len(text) <= 520:
-        return text
-    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", text) if part.strip()]
-    summary = " ".join(sentences[:3]).strip()
-    return summary[:700].rstrip() + ("..." if len(summary) > 700 else "")
-
-
-def analyze_imported_document(content: str, source_type: str, source_name: str, topics: list[str]) -> dict:
-    """Gera metadados úteis para segundo cérebro sem bloquear em LLM."""
-    clean = clean_imported_text(content)
-    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", clean) if part.strip()]
-    executive = " ".join(sentences[:5])[:1400].strip()
-    technical_bits = []
-    tech_entities = cognitive_detector.detect_technologies(clean)
-    detected_entities = sorted(set(tech_entities + topics[:8]))
-
-    if tech_entities:
-        technical_bits.append(f"Tecnologias detectadas: {', '.join(tech_entities[:12])}.")
-    if topics:
-        technical_bits.append(f"Tópicos principais: {', '.join(topics[:12])}.")
-    technical_bits.append("Trechos representativos: " + " ".join(sentences[:8])[:1800])
-
-    questions = [
-        "O que este documento ensina?",
-        "Quais são os principais tópicos?",
-        "Quais tecnologias ou ferramentas aparecem?",
-        "Como posso aplicar este conteúdo no meu projeto?",
-    ]
-    if source_type == "pdf":
-        questions.insert(1, "Faça um resumo do PDF por partes.")
-    if tech_entities:
-        questions.append(f"Explique a relação entre {tech_entities[0]} e este documento.")
-
-    return {
-        "executive_summary": executive or summarize_imported_text(clean),
-        "technical_summary": "\n".join(technical_bits)[:2600],
-        "suggested_questions": questions[:6],
-        "detected_entities": detected_entities[:20],
-        "metadata": {
-            "source_type": source_type,
-            "source_name": source_name,
-            "char_count": len(clean),
-            "estimated_tokens": max(1, len(clean) // 4),
-        },
-    }
-
-
-def extract_pdf_text_from_stream(stream) -> str:
-    """Extrai texto de um stream PDF usando PyPDF2 quando disponível."""
-    try:
-        from PyPDF2 import PdfReader
-    except ImportError as exc:
-        raise RuntimeError("Leitura de PDF precisa do pacote PyPDF2. Rode: pip install PyPDF2") from exc
-
-    reader = PdfReader(stream)
-    pages = []
-    for page in reader.pages[:80]:
-        pages.append(page.extract_text() or "")
-    return clean_imported_text("\n".join(pages))
-
-
-def extract_pdf_text(file_storage) -> str:
-    """Extrai texto de PDF enviado pelo navegador."""
-    return extract_pdf_text_from_stream(file_storage.stream)
-
-
-def _is_private_address(hostname: str) -> bool:
-    """Retorna True se o hostname resolve para um IP privado/local (proteção SSRF)."""
-    import ipaddress
-    import socket
-    try:
-        ip = ipaddress.ip_address(socket.gethostbyname(hostname))
-        return (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-            or str(ip).startswith("169.254.")  # AWS metadata
-        )
-    except Exception:
-        return True  # em caso de dúvida, bloqueia
-
-
-def fetch_url_text(url: str) -> str:
-    """Baixa uma página ou PDF público e extrai texto suficiente para contexto."""
-    if not re.match(r"^https?://", url or ""):
-        raise ValueError("Informe uma URL começando com http:// ou https://.")
-
-    # Proteção SSRF: bloqueia IPs internos, localhost e link-local
-    from urllib.parse import urlparse
-    parsed = urlparse(url)
-    hostname = parsed.hostname or ""
-    if not hostname or _is_private_address(hostname):
-        raise ValueError(
-            "URLs apontando para endereços privados, localhost ou redes internas não são permitidas."
-        )
-
-    response = requests.get(url, timeout=15, headers={"User-Agent": "AetherMemory/1.0"})
-    response.raise_for_status()
-    content_type = response.headers.get("content-type", "").lower()
-    looks_like_pdf = ".pdf" in url.lower() or "application/pdf" in content_type or response.content[:5] == b"%PDF-"
-    if looks_like_pdf:
-        return extract_pdf_text_from_stream(BytesIO(response.content))
-
-    return clean_imported_text(response.text)
-
-
-def prepare_session_context(session_id: Optional[str], user_text: str):
+def prepare_session_context(
+    session_id: Optional[str],
+    user_text: str,
+    *,
+    pipeline: str = "STANDARD_PATH",
+    trace: Optional[PerfTrace] = None,
+):
     history = []
     title_update = None
+    budget = budget_for_pipeline(pipeline)
 
     if not session_id:
         return history, title_update, ""
 
-    history = database.get_recent_session_messages(session_id, limit=12)
-    conversation_summary = cognitive_summarizer.get_conversation_summary(session_id)
+    with trace.span("db_recent_history") if trace else _nullcontext():
+        history = database.get_recent_session_messages(session_id, limit=budget["history_messages"])
+    with trace.span("conversation_summary_load") if trace else _nullcontext():
+        conversation_summary = cognitive_summarizer.get_conversation_summary(session_id)
     if not history:
         title = database.make_title_from_message(user_text)
         title_update = database.update_session_title(session_id, title)
 
-    database.add_message(session_id, "user", user_text)
+    with trace.span("db_save_user_message") if trace else _nullcontext():
+        database.add_message(session_id, "user", user_text)
+
+    if pipeline == FAST_PATH:
+        if trace:
+            trace.set("context_skipped_reason", "fast_path")
+            trace.set("knowledge_context_chars", 0)
+        return history, title_update, ""
+
     try:
-        pipeline = cognitive_conversation.build_conversation_context(
-            user_text=user_text,
-            session_id=session_id,
-            history=history,
-            conversation_summary=conversation_summary,
-        )
-        knowledge_context = pipeline.get("context", "")
+        with trace.span("conversation_context") if trace else _nullcontext():
+            conversation_pipeline = cognitive_conversation.build_conversation_context(
+                user_text=user_text,
+                session_id=session_id,
+                history=history,
+                conversation_summary=conversation_summary,
+            )
+        knowledge_context = conversation_pipeline.get("context", "")
     except Exception as pipeline_err:
         print(f"[ConversationPipeline] Fallback para contexto antigo: {pipeline_err}")
-        retrieval_query = build_contextual_retrieval_query(user_text, history, session_id)
-        knowledge_context = database.build_knowledge_context(session_id, query=retrieval_query)
-        rag_context = cognitive_rag.build_rag_context(retrieval_query, session_id=session_id, top_k=4)
+        with trace.span("legacy_context_fallback") if trace else _nullcontext():
+            retrieval_query = build_contextual_retrieval_query(user_text, history, session_id)
+            knowledge_context = database.build_knowledge_context(session_id, query=retrieval_query)
+            rag_context = cognitive_rag.build_rag_context(retrieval_query, session_id=session_id, top_k=4)
         if rag_context:
             knowledge_context = f"{knowledge_context}\n\n{rag_context}" if knowledge_context else rag_context
         if conversation_summary and conversation_summary.get("summary"):
@@ -335,7 +213,15 @@ def prepare_session_context(session_id: Optional[str], user_text: str):
             )
             knowledge_context = f"{summary_context}\n\n{knowledge_context}" if knowledge_context else summary_context
 
+    knowledge_context = clip_context(knowledge_context, budget["context_chars"])
+    if trace:
+        trace.set("knowledge_context_chars", len(knowledge_context))
     return history, title_update, knowledge_context
+
+
+@contextlib.contextmanager
+def _nullcontext():
+    yield
 
 
 def _format_person_name(name: str) -> str:
@@ -391,6 +277,84 @@ def get_direct_profile_reply(user_text: str, session_id: Optional[str]) -> Optio
         return "Ainda não tenho informações salvas sobre você."
 
     return None
+
+
+def _model_personality(model: str) -> tuple[str, str]:
+    model_lower = (model or "").lower()
+    if "14b" in model_lower:
+        return "Mais potente", "melhor para raciocínio mais pesado, auditorias e análises longas; tende a ser mais lento."
+    if "7b" in model_lower:
+        return "Padrão", "equilibra qualidade e velocidade para conversas, código e explicações moderadas."
+    if "3b" in model_lower:
+        return "Rápido", "mais leve para respostas curtas, menor consumo de RAM/CPU/GPU e menor aquecimento."
+    return "Personalizado", "modelo local do Ollama selecionado no Aether Memory."
+
+
+def _pipeline_description(pipeline: str) -> str:
+    labels = {
+        FAST_PATH: "FAST_PATH: contexto mínimo, sem RAG/grafo/reflection, pensado para conversa simples.",
+        "STANDARD_PATH": "STANDARD_PATH: usa memória e contexto seletivo quando a pergunta precisa.",
+        DEEP_PATH: "DEEP_PATH: usa contexto maior e camadas cognitivas mais completas para tarefas difíceis.",
+    }
+    return labels.get(pipeline, pipeline or "pipeline padrão")
+
+
+def get_direct_self_reply(user_text: str, selected_model: str, pipeline: str) -> Optional[str]:
+    """Responde dúvidas sobre o próprio Aether sem depender do LLM."""
+    clean = re.sub(r"\s+", " ", user_text or "").strip()
+    lower = clean.lower()
+
+    asks_model = bool(re.search(
+        r"\b(qual|que|em qual|em que).{0,28}(modelo|modo|vers[aã]o|ia).{0,40}(voc[eê]|voce|est[aá]|usa|usando|rodando)\b"
+        r"|\b(voc[eê]|voce).{0,28}(modelo|modo|vers[aã]o).{0,40}(usa|est[aá]|rodando)\b"
+        r"|\b(est[aá] em qual modo|qual modo voc[eê] est[aá]|qual modelo est[aá] ativo)\b"
+        r"|\b(qual (?:é|e|sua|a sua) (?:vers[aã]o|modelo|modo)|qual modelo|qual vers[aã]o|modelo ativo)\b",
+        lower,
+    ))
+    if asks_model:
+        label, hint = _model_personality(selected_model)
+        return (
+            f"Estou respondendo com `{selected_model}` agora.\n\n"
+            f"No Aether Memory, isso aparece como modo **{label}**: {hint}\n"
+            f"Pipeline desta pergunta: `{_pipeline_description(pipeline)}`\n\n"
+            "Importante: o modelo selecionado nas configurações é respeitado. "
+            "Se você trocar para 7B ou 14B, as próximas respostas usam esse modelo, salvo se ele não estiver instalado no Ollama."
+        )
+
+    asks_obsidian = "obsidian" in lower and bool(re.search(
+        r"\b(o que|oque|explica|explique|serve|faz|funciona|c[eé]rebro|mem[oó]ria|bolinha|grafo)\b",
+        lower,
+    ))
+    if asks_obsidian:
+        return (
+            "A Obsidian do Aether é o meu mapa visual de memória, inspirado em um segundo cérebro. "
+            "Ela não é só decoração: mostra aquilo que eu salvei e relacionei localmente.\n\n"
+            "- Cada ponto pode representar uma memória, documento, entidade, tópico, projeto ou item da codebase.\n"
+            "- As conexões representam relações do Knowledge Graph, como assuntos relacionados, tecnologias usadas e aprendizados vindos de PDFs/textos.\n"
+            "- Quando você importa PDFs, textos ou ensina uma codebase, esses conteúdos viram fontes, chunks, tópicos e entidades que podem aparecer no grafo.\n"
+            "- Ao clicar em memórias, você consegue ver origem, importância, tags e controlar o que fica fixado como Core Memory.\n\n"
+            "Em resumo: o chat conversa, a memória guarda, e a Obsidian mostra o cérebro do Aether se formando."
+        )
+
+    return None
+
+
+def get_direct_reply(
+    user_text: str,
+    session_id: Optional[str],
+    history: Optional[list[dict]] = None,
+    *,
+    selected_model: str = "",
+    pipeline: str = "STANDARD_PATH",
+) -> Optional[str]:
+    """Respostas determinísticas para casos onde chamar o modelo tende a inventar."""
+    self_reply = get_direct_self_reply(user_text, selected_model, pipeline)
+    if self_reply:
+        return self_reply
+    profile_reply = get_direct_profile_reply(user_text, session_id)
+    if profile_reply:
+        return profile_reply
+    return cognitive_finance.build_financial_reply(user_text, history=history)
 
 
 def process_post_chat_cognition(session_id: str, user_text: str, ai_text: str) -> None:
@@ -573,112 +537,6 @@ def auth_local():
     return jsonify({"success": True, **session}), 200
 
 
-@app.route('/api/auth/supabase', methods=['POST'])
-def auth_supabase():
-    """Autentica com Supabase Auth e devolve uma sessão Aether vinculada ao user_id."""
-    data = request.get_json(silent=True) or {}
-    email = str(data.get("email", "")).strip().lower()
-    password = str(data.get("password", ""))
-    if not email or not password:
-        return jsonify({"error": "Informe e-mail e senha."}), 400
-
-    config = supabase_sync.get_supabase_config()
-    anon_key = config.get("anon_key") or config.get("key") or ""
-    if not config.get("url") or not anon_key:
-        return jsonify({"error": "Supabase não configurado no backend."}), 503
-
-    try:
-        response = requests.post(
-            f"{config['url']}/auth/v1/token?grant_type=password",
-            headers={
-                "apikey": anon_key,
-                "Content-Type": "application/json",
-            },
-            json={"email": email, "password": password},
-            timeout=20,
-        )
-        payload = response.json() if response.content else {}
-    except Exception as exc:
-        return jsonify({"error": f"Falha ao conectar ao Supabase Auth: {exc}"}), 502
-
-    if response.status_code >= 400:
-        message = payload.get("error_description") or payload.get("msg") or payload.get("error") or "Login Supabase recusado."
-        return jsonify({"error": message}), 401
-
-    user = payload.get("user") or {}
-    user_id = user.get("id")
-    user_email = user.get("email") or email
-    if not user_id:
-        return jsonify({"error": "Supabase não retornou o usuário autenticado."}), 502
-
-    session = remote_access.create_session_token(
-        label=user_email,
-        auth_mode="supabase",
-        user_id=user_id,
-        email=user_email,
-    )
-    return jsonify({"success": True, **session}), 200
-
-
-@app.route('/api/auth/supabase/signup', methods=['POST'])
-def auth_supabase_signup():
-    """Cria conta no Supabase Auth pelo próprio Aether Memory."""
-    data = request.get_json(silent=True) or {}
-    email = str(data.get("email", "")).strip().lower()
-    password = str(data.get("password", ""))
-    if not email or not password:
-        return jsonify({"error": "Informe e-mail e senha."}), 400
-    if len(password) < 6:
-        return jsonify({"error": "A senha precisa ter pelo menos 6 caracteres."}), 400
-
-    config = supabase_sync.get_supabase_config()
-    anon_key = config.get("anon_key") or config.get("key") or ""
-    if not config.get("url") or not anon_key:
-        return jsonify({"error": "Supabase não configurado no backend."}), 503
-
-    try:
-        response = requests.post(
-            f"{config['url']}/auth/v1/signup",
-            headers={
-                "apikey": anon_key,
-                "Content-Type": "application/json",
-            },
-            json={"email": email, "password": password},
-            timeout=20,
-        )
-        payload = response.json() if response.content else {}
-    except Exception as exc:
-        return jsonify({"error": f"Falha ao criar conta no Supabase Auth: {exc}"}), 502
-
-    if response.status_code >= 400:
-        message = payload.get("error_description") or payload.get("msg") or payload.get("error") or "Cadastro Supabase recusado."
-        return jsonify({"error": message}), 400
-
-    user = payload.get("user") or {}
-    session_payload = payload.get("session") or {}
-    access_token = session_payload.get("access_token") or payload.get("access_token")
-    user_id = user.get("id")
-    user_email = user.get("email") or email
-
-    # Quando confirmação por e-mail está ativa, o Supabase cria o usuário sem sessão imediata.
-    if not access_token or not user_id:
-        return jsonify({
-            "success": True,
-            "pending_confirmation": True,
-            "message": "Conta criada. Confirme seu e-mail e depois entre pelo Aether Memory.",
-            "email": user_email,
-        }), 200
-
-    session = remote_access.create_session_token(
-        label=user_email,
-        auth_mode="supabase",
-        user_id=user_id,
-        email=user_email,
-    )
-    return jsonify({"success": True, **session}), 200
-
-
-
 # ====== ENDPOINTS DE HISTÓRICO (CRUD SESSÕES) ======
 
 @app.route('/api/sessions', methods=['GET'])
@@ -703,41 +561,56 @@ def get_config():
         "google_search_available": is_google_search_configured(),
         "data_dir": str(get_data_dir()),
         "remote": remote_access.get_remote_config(),
+        "mobile_token": remote_access.get_or_create_mobile_token(),
     }), 200
 
 
-@app.route('/api/sync/status', methods=['GET'])
-def get_sync_status():
-    """Retorna o estado da sincronização local-first com Supabase."""
+@app.route('/api/local-backup/export', methods=['GET'])
+def export_local_backup():
+    """Baixa um backup JSON com toda a memória local do Aether."""
     try:
-        return jsonify(supabase_sync.get_status()), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/sync/run', methods=['POST'])
-def run_sync():
-    """Executa a sincronização manual dos dados locais para o Supabase."""
-    try:
-        data = request.get_json(silent=True) or {}
-        user_context = remote_access.request_session(request)
-        if user_context.get("auth_mode") != "supabase":
-            return jsonify({
-                "success": False,
-                "error": "Entre com uma conta Supabase para sincronizar com a nuvem.",
-                "auth_required": True,
-            }), 403
-        result = supabase_sync.run_sync(
-            table=data.get("table"),
-            limit=data.get("limit"),
-            dry_run=bool(data.get("dry_run")),
-            mode=data.get("mode", "both"),
-            user_context=user_context,
+        payload = local_backup.export_backup()
+        body = json.dumps(payload, ensure_ascii=False)
+        filename = local_backup.make_backup_filename()
+        return Response(
+            body,
+            mimetype="application/json; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
         )
-        status = 200 if result.get("success") else 400
-        return jsonify(result), status
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao exportar backup local: {exc}"}), 500
+
+
+@app.route('/api/local-backup/status', methods=['GET'])
+def get_local_backup_status():
+    """Retorna contagem dos dados locais que entram no backup portátil."""
+    try:
+        return jsonify(local_backup.get_status()), 200
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao ler status do backup local: {exc}"}), 500
+
+
+@app.route('/api/local-backup/import', methods=['POST'])
+def import_local_backup():
+    """Importa um backup JSON do Aether em modo merge, sem apagar dados locais."""
+    try:
+        if "file" in request.files:
+            raw = request.files["file"].read()
+            payload = json.loads(raw.decode("utf-8"))
+        else:
+            payload = request.get_json(silent=True) or {}
+
+        result = local_backup.import_backup(payload)
+        # Garante FTS/triggers/colunas novas após importar backups antigos.
+        database_v2.migrate()
+        return jsonify(result), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao importar backup local: {exc}"}), 500
 
 
 def get_requested_model() -> str:
@@ -929,9 +802,7 @@ def chat():
     # Se receber um arquivo de áudio
     if 'audio' in request.files:
         audio_file = request.files['audio']
-        filename = f"upload_{int(time.time())}.wav"
-        filepath = OUT_DIR / filename
-        audio_file.save(str(filepath))
+        filepath = save_uploaded_audio(audio_file)
         user_text = stt_local(filepath)
     # Se receber texto em formato JSON
     elif request.is_json:
@@ -943,50 +814,105 @@ def chat():
     if not user_text:
         return jsonify({"error": "Nenhum texto ou áudio fornecido"}), 400
 
+    diagnostics = diagnostics_requested(request.args, request.headers)
+    pipeline = classify_pipeline(
+        user_text,
+        web_search=should_search_web,
+        has_audio="audio" in request.files,
+    )
+    selected_model = select_model_for_pipeline(selected_model, pipeline, get_ollama_models())
+    trace = PerfTrace(route="/api/chat", pipeline=pipeline, model=selected_model, diagnostics=diagnostics)
+    trace.set("web_search", should_search_web)
+    trace.set("tts_requested", should_generate_tts)
+
     try:
-        history, title_update, knowledge_context = prepare_session_context(session_id, user_text)
-        direct_reply = get_direct_profile_reply(user_text, session_id)
+        history, title_update, knowledge_context = prepare_session_context(
+            session_id,
+            user_text,
+            pipeline=pipeline,
+            trace=trace,
+        )
+        with trace.span("direct_reply"):
+            direct_reply = get_direct_reply(
+                user_text,
+                session_id,
+                history,
+                selected_model=selected_model,
+                pipeline=pipeline,
+            )
 
         web_results = []
         web_context = None
         if should_search_web and not direct_reply:
-            web_results = search_google(user_text)
-            web_context = format_web_context(web_results)
+            with trace.span("web_search"):
+                web_results = search_google(user_text)
+                web_context = format_web_context(web_results)
 
         if direct_reply:
             reply = direct_reply
         else:
             # 1. Envia o texto para a IA (Ollama)
-            reply = llm_ollama(user_text, history, selected_model, web_context, knowledge_context)
+            reply = llm_ollama(
+                user_text,
+                history,
+                selected_model,
+                web_context,
+                knowledge_context,
+                pipeline=pipeline,
+                trace=trace,
+            )
             if not reply:
                 return jsonify({"error": "Nenhuma resposta foi obtida da IA."}), 500
-            reply = cognitive_conversation.maybe_refine_response(
-                user_text=user_text,
-                draft=reply,
-                context=knowledge_context,
-                llm_call=lambda prompt: llm_ollama_raw(prompt, selected_model, num_predict=420),
-            )
+            if pipeline == DEEP_PATH and budget_for_pipeline(pipeline).get("reflection"):
+                with trace.span("reflection"):
+                    reply = cognitive_conversation.maybe_refine_response(
+                        user_text=user_text,
+                        draft=reply,
+                        context=knowledge_context,
+                        llm_call=lambda prompt: llm_ollama_raw(
+                            prompt,
+                            selected_model,
+                            num_predict=420,
+                            pipeline=pipeline,
+                            trace=trace,
+                        ),
+                    )
+        reply = response_safety.sanitize_response(reply, user_text=user_text)
+        reply = cognitive_finance.repair_financial_response(user_text, reply, history)
+        reply = response_safety.sanitize_response(reply, user_text=user_text)
 
         # 2. Gera a resposta por voz usando o Piper
-        audio_filename = f"reply_{int(time.time())}.wav"
-        audio_url = gerar_audio_url(reply, audio_filename)
+        audio_url = None
+        if should_generate_tts:
+            with trace.span("tts_full_response"):
+                audio_filename = f"reply_{int(time.time())}.wav"
+                audio_url = gerar_audio_url(reply, audio_filename)
 
         # 3. Salva a resposta da IA no banco de dados se houver sessão ativa
         msg_data = None
         if session_id:
-            msg_data = database.add_message(session_id, "ia", reply, audio_url)
+            with trace.span("db_save_ai_message"):
+                msg_data = database.add_message(session_id, "ia", reply, audio_url)
             process_post_chat_cognition(session_id, user_text, reply)
 
-        return jsonify({
+        payload = {
             "user_text": user_text,
             "response_text": reply,
             "audio_url": audio_url,
             "message": msg_data,
             "session": title_update,
             "web_results": web_results,
-        }), 200
+            "pipeline": pipeline,
+            "model": selected_model,
+        }
+        if diagnostics:
+            payload["trace"] = trace.as_dict()
+        trace.log()
+        return jsonify(payload), 200
 
     except Exception as e:
+        trace.mark("error", message=str(e))
+        trace.log()
         return jsonify({"error": f"Erro interno: {str(e)}"}), 500
 
 
@@ -1004,9 +930,7 @@ def chat_stream():
     user_text = ""
     if 'audio' in request.files:
         audio_file = request.files['audio']
-        filename = f"upload_{int(time.time())}.wav"
-        filepath = OUT_DIR / filename
-        audio_file.save(str(filepath))
+        filepath = save_uploaded_audio(audio_file)
         user_text = stt_local(filepath)
     elif request.is_json:
         user_text = request.json.get("text", "")
@@ -1016,91 +940,195 @@ def chat_stream():
     if not user_text:
         return jsonify({"error": "Nenhum texto ou áudio fornecido"}), 400
 
-    history, title_update, knowledge_context = prepare_session_context(session_id, user_text)
-    direct_reply = get_direct_profile_reply(user_text, session_id)
+    diagnostics = diagnostics_requested(request.args, request.headers)
+    pipeline = classify_pipeline(
+        user_text,
+        web_search=should_search_web,
+        has_audio="audio" in request.files,
+    )
+    selected_model = select_model_for_pipeline(selected_model, pipeline, get_ollama_models())
+    trace = PerfTrace(route="/api/chat/stream", pipeline=pipeline, model=selected_model, diagnostics=diagnostics)
+    trace.set("web_search", should_search_web)
+    trace.set("tts_requested", should_generate_tts)
 
     def generate():
-        # Envia a transcrição do áudio do usuário primeiro
-        yield sse_event({'type': 'transcription', 'content': user_text})
-        if title_update:
-            yield sse_event({'type': 'session_update', 'session': title_update})
-
-        web_context = None
-        if should_search_web and not direct_reply:
-            try:
-                web_results = search_google(user_text)
-                web_context = format_web_context(web_results)
-                yield sse_event({'type': 'web_search', 'content': 'Busca Google concluída', 'results': web_results})
-            except Exception as e:
-                yield sse_event({'type': 'web_search', 'content': f'Busca Google indisponível: {str(e)}', 'results': []})
-
-        buffer = ""
-        full_response = ""
-        sentence_idx = 0
-        
+        history = []
+        knowledge_context = ""
+        direct_reply = None
+        visible_started = False
+        yield sse_event({
+            'type': 'transcription',
+            'content': user_text,
+            'pipeline': pipeline,
+            'model': selected_model,
+        })
+        trace.mark("sse_transcription_sent")
         try:
-            token_source = [direct_reply] if direct_reply else llm_ollama_stream(user_text, history, selected_model, web_context, knowledge_context)
-            for token in token_source:
-                # Envia o token de texto gerado para o Front-end imprimir na tela
-                yield sse_event({'type': 'token', 'content': token})
-                full_response += token
-                
-                if not should_generate_tts:
-                    continue
+            history, title_update, knowledge_context = prepare_session_context(
+                session_id,
+                user_text,
+                pipeline=pipeline,
+                trace=trace,
+            )
+            with trace.span("direct_reply"):
+                direct_reply = get_direct_reply(
+                    user_text,
+                    session_id,
+                    history,
+                    selected_model=selected_model,
+                    pipeline=pipeline,
+                )
 
-                buffer += token
+            if title_update:
+                yield sse_event({'type': 'session_update', 'session': title_update})
 
-                # Split de sentenças por pontuação seguida de espaço
+            web_context = None
+            if should_search_web and not direct_reply:
+                try:
+                    with trace.span("web_search"):
+                        web_results = search_google(user_text)
+                        web_context = format_web_context(web_results)
+                    yield sse_event({'type': 'web_search', 'content': 'Busca Google concluída', 'results': web_results})
+                except Exception as e:
+                    yield sse_event({'type': 'web_search', 'content': f'Busca Google indisponível: {str(e)}', 'results': []})
+
+            buffer = ""
+            raw_response = ""
+            visible_response = ""
+            sentence_idx = 0
+            defer_streaming = cognitive_finance.should_use_financial_context(user_text, history) and not direct_reply
+            trace.set("defer_streaming", defer_streaming)
+
+            # Lista de futures TTS submetidas em background durante o streaming.
+            # (future, audio_url, sentence_text) — coletadas após o loop de tokens.
+            tts_futures: list[tuple] = []
+
+            def mark_visible_once() -> None:
+                nonlocal visible_started
+                if not visible_started:
+                    visible_started = True
+                    trace.mark("first_visible_token")
+                    trace.set("ttft_visible_ms", trace.elapsed_ms())
+
+            def enqueue_tts(text_delta: str) -> None:
+                """Submete TTS para o pool sem bloquear o generator SSE."""
+                nonlocal buffer, sentence_idx
+                if not should_generate_tts or not text_delta:
+                    return
+
+                buffer += text_delta
                 parts = re.split(r'(?<=[.!?\n])\s+', buffer)
                 if len(parts) > 1:
                     for sentence in parts[:-1]:
                         sentence_clean = sentence.strip()
                         if sentence_clean:
                             audio_filename = f"reply_{int(time.time())}_{sentence_idx}.wav"
-                            audio_url = gerar_audio_url(sentence_clean, audio_filename)
-                            if audio_url:
-                                # Envia o evento de áudio pronto para aquela frase
-                                yield sse_event({
-                                    'type': 'audio_sentence',
-                                    'text': sentence_clean,
-                                    'url': audio_url
-                                })
+                            out_file = OUT_DIR / audio_filename
+                            # Submete ao pool e NÃO espera — o stream continua imediatamente
+                            fut = _TTS_POOL.submit(tts_piper, sentence_clean, out_file)
+                            tts_futures.append((fut, f"/api/audio/{audio_filename}", sentence_clean))
                             sentence_idx += 1
                     buffer = parts[-1]
-            
-            # Processa o que restou no buffer
+
+            token_source = [direct_reply] if direct_reply else llm_ollama_stream(
+                user_text,
+                history,
+                selected_model,
+                web_context,
+                knowledge_context,
+                pipeline=pipeline,
+                trace=trace,
+            )
+            for token in token_source:
+                raw_response += token
+                if defer_streaming:
+                    continue
+                safe_so_far = response_safety.sanitize_response(raw_response, user_text=user_text, streaming=True)
+                if safe_so_far == visible_response:
+                    continue
+
+                if safe_so_far.startswith(visible_response):
+                    delta = safe_so_far[len(visible_response):]
+                    if delta:
+                        mark_visible_once()
+                        yield sse_event({'type': 'token', 'content': delta})
+                        enqueue_tts(delta)  # não bloqueia — submete TTS ao pool
+                else:
+                    mark_visible_once()
+                    yield sse_event({'type': 'replace_response', 'content': safe_so_far})
+                    buffer = ""
+                visible_response = safe_so_far
+
+            # Enfileira o que restou no buffer de sentenças
             if should_generate_tts and buffer.strip():
                 sentence_clean = buffer.strip()
                 audio_filename = f"reply_{int(time.time())}_{sentence_idx}.wav"
-                audio_url = gerar_audio_url(sentence_clean, audio_filename)
-                if audio_url:
+                out_file = OUT_DIR / audio_filename
+                fut = _TTS_POOL.submit(tts_piper, sentence_clean, out_file)
+                tts_futures.append((fut, f"/api/audio/{audio_filename}", sentence_clean))
+
+            # Coleta futures TTS já concluídas durante o stream e emite eventos
+            # O Piper rodou em paralelo — a maioria das futures já está pronta aqui
+            for fut, audio_url, sentence_text in tts_futures:
+                try:
+                    fut.result(timeout=8.0)  # aguarda no máximo 8s por sentença
                     yield sse_event({
                         'type': 'audio_sentence',
-                        'text': sentence_clean,
-                        'url': audio_url
+                        'text': sentence_text,
+                        'url': audio_url,
                     })
+                except Exception as tts_exc:
+                    print(f"[TTS] Sentença ignorada ({tts_exc})")
 
-            if not direct_reply and full_response.strip():
-                refined_response = cognitive_conversation.maybe_refine_response(
-                    user_text=user_text,
-                    draft=full_response.strip(),
-                    context=knowledge_context,
-                    llm_call=lambda prompt: llm_ollama_raw(prompt, selected_model, num_predict=420),
-                )
-                if refined_response.strip() and refined_response.strip() != full_response.strip():
-                    full_response = refined_response.strip()
-                    yield sse_event({'type': 'replace_response', 'content': full_response})
+            full_response = response_safety.sanitize_response(raw_response, user_text=user_text)
+
+            if (
+                not direct_reply
+                and full_response.strip()
+                and pipeline == DEEP_PATH
+                and budget_for_pipeline(pipeline).get("reflection")
+            ):
+                with trace.span("reflection"):
+                    refined_response = cognitive_conversation.maybe_refine_response(
+                        user_text=user_text,
+                        draft=full_response,
+                        context=knowledge_context,
+                        llm_call=lambda prompt: llm_ollama_raw(
+                            prompt,
+                            selected_model,
+                            num_predict=420,
+                            pipeline=pipeline,
+                            trace=trace,
+                        ),
+                    )
+                refined_response = response_safety.sanitize_response(refined_response, user_text=user_text)
+                if refined_response and refined_response != full_response:
+                    full_response = refined_response
+
+            full_response = cognitive_finance.repair_financial_response(user_text, full_response, history)
+            full_response = response_safety.sanitize_response(full_response, user_text=user_text)
+
+            if full_response and full_response != visible_response:
+                mark_visible_once()
+                yield sse_event({'type': 'replace_response', 'content': full_response})
 
             # Salva a resposta completa da IA ao final do fluxo
             if session_id and full_response:
                 # Salva o texto completo gerado
-                database.add_message(session_id, "ia", full_response.strip())
+                with trace.span("db_save_ai_message"):
+                    database.add_message(session_id, "ia", full_response.strip())
                 process_post_chat_cognition(session_id, user_text, full_response.strip())
 
         except Exception as e:
+            trace.mark("error", message=str(e))
             yield sse_event({'type': 'error', 'content': str(e)})
-            
-        yield sse_event({'type': 'done'})
+        finally:
+            trace.log()
+
+        done_payload = {'type': 'done', 'pipeline': pipeline, 'model': selected_model}
+        if diagnostics:
+            done_payload['trace'] = trace.as_dict()
+        yield sse_event(done_payload)
 
     return Response(generate(), mimetype='text/event-stream')
 

@@ -25,17 +25,19 @@ O módulo funciona sem sentence-transformers (BM25 puro como fallback).
 
 from __future__ import annotations
 
-import json
+import concurrent.futures
 import hashlib
-import math
+import json
 import os
 import re
 import struct
-import threading
 import time
+import threading
+from pathlib import Path
 from typing import Optional
 
 from database_v2 import get_db_connection, now_iso, json_dumps, json_loads
+from cognitive.utils import freshness_score as _freshness_score
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -83,8 +85,8 @@ _QUERY_ALIASES: dict[str, list[str]] = {
     "hooks":        ["usestate", "useeffect", "usecallback", "hook"],
     "flask":        ["flask api", "python backend", "rota flask"],
     "api":          ["endpoint", "rota", "rest api", "http"],
-    "banco":        ["database", "sqlite", "supabase", "sql", "db"],
-    "database":     ["banco", "sqlite", "supabase", "sql"],
+    "banco":        ["database", "sqlite", "sql", "db"],
+    "database":     ["banco", "sqlite", "sql"],
     "autenticacao": ["auth", "jwt", "login", "token"],
     "auth":         ["autenticacao", "jwt", "login", "token"],
     "componente":   ["component", "tsx", "jsx"],
@@ -391,38 +393,10 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FRESHNESS SCORE
+# FRESHNESS SCORE — importado de cognitive/utils (eliminada duplicata local)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _freshness_score(created_at: Optional[str]) -> float:
-    """
-    Calcula score de frescor baseado na data de criação.
-    Prioriza informações recentes na recuperação.
-      Hoje        → 1.0
-      Última semana → 0.9
-      Último mês  → 0.7
-      6 meses     → 0.5
-      1 ano       → 0.35
-      Mais antigo → 0.2
-    """
-    if not created_at:
-        return 0.5
-
-    try:
-        import datetime
-        ts = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-        ts = ts.replace(tzinfo=None)  # naive comparison
-        age_days = (datetime.datetime.now() - ts).days
-    except Exception:
-        return 0.5
-
-    if age_days <= 1:   return 1.0
-    if age_days <= 7:   return 0.9
-    if age_days <= 30:  return 0.7
-    if age_days <= 90:  return 0.55
-    if age_days <= 180: return 0.45
-    if age_days <= 365: return 0.35
-    return 0.2
+# _freshness_score(created_at) disponível via import acima.
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

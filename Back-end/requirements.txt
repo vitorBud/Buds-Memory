@@ -9,6 +9,7 @@ flask-cors
 faster-whisper
 huggingface-hub
 PyPDF2
+piper-tts
 
 # ── Camada Cognitiva (Second Brain) ──────────────────────────────────────────
 

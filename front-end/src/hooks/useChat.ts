@@ -1,12 +1,13 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { streamChat } from '../services/api'
-import type { Message, AiState, Session, ChatStreamEvent } from '../types'
+import type { Message, AiState, Session, ChatStreamEvent, VoiceProvider } from '../types'
 
 interface UseChatOptions {
   sessionId: string | null
   selectedModel: string
   webSearchEnabled: boolean
   selectedVoiceURI?: string
+  voiceProvider?: VoiceProvider
   onNeedSession: () => Promise<string>
   onStateChange: (s: AiState) => void
   onLatency: (ms: number) => void
@@ -15,7 +16,6 @@ interface UseChatOptions {
   autoPlayAudio?: boolean
 }
 
-const PREFER_BROWSER_VOICE = true
 const OFFLINE_QUEUE_KEY = 'aether-offline-message-queue-v1'
 const MALE_PT_VOICE_HINTS = [
   'felipe',
@@ -81,8 +81,8 @@ function extractCompleteSentences(buffer: string) {
   }
 }
 
-function canUseBrowserVoice() {
-  return PREFER_BROWSER_VOICE && 'speechSynthesis' in window
+function canUseBrowserVoice(voiceProvider: VoiceProvider) {
+  return voiceProvider === 'browser' && 'speechSynthesis' in window
 }
 
 function getOfflineQueue(): string[] {
@@ -114,6 +114,7 @@ export function useChat({
   selectedModel,
   webSearchEnabled,
   selectedVoiceURI,
+  voiceProvider = 'browser',
   onNeedSession,
   onStateChange,
   onLatency,
@@ -324,12 +325,13 @@ export function useChat({
     let streamedText = ''
     let speechBuffer = ''
     let receivedAudio = false
-    const useBrowserVoice = autoPlayAudio && canUseBrowserVoice()
+    const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
+    const useBackendVoice = autoPlayAudio && voiceProvider === 'piper'
     const controller = new AbortController()
     activeAbortRef.current = controller
 
     try {
-      await streamChat({ text, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled }, (event) => {
+      await streamChat({ text, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled, tts: useBackendVoice }, (event) => {
         if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
@@ -406,7 +408,7 @@ export function useChat({
     flushOfflineQueue()
     return () => window.removeEventListener('online', flushOfflineQueue)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProcessing, sessionId, selectedModel, webSearchEnabled])
+  }, [isProcessing, sessionId, selectedModel, voiceProvider, webSearchEnabled])
 
   // ── Send audio ─────────────────────────────────────────────────────────────
   async function sendAudio(blob: Blob) {
@@ -419,12 +421,13 @@ export function useChat({
     let streamedText = ''
     let speechBuffer = ''
     let receivedAudio = false
-    const useBrowserVoice = autoPlayAudio && canUseBrowserVoice()
+    const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
+    const useBackendVoice = autoPlayAudio && voiceProvider === 'piper'
     const controller = new AbortController()
     activeAbortRef.current = controller
 
     try {
-      await streamChat({ audio: blob, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled }, (event) => {
+      await streamChat({ audio: blob, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled, tts: useBackendVoice }, (event) => {
         if (event.type === 'transcription' && event.content) {
           // Show user transcription
           setMessages(prev => {

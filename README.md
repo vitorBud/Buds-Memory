@@ -1,10 +1,10 @@
 # Aether Memory
 
-Aether Memory e um assistente local com chat, voz, memoria, RAG, importacao de conhecimento, Obsidian visual, sincronizacao local-first com Supabase e app desktop via Electron.
+Aether Memory e um assistente local com chat, voz, memoria, RAG, importacao de conhecimento, Obsidian visual, backup portatil da memoria e app desktop via Electron.
 
 O nome vem de Aether, o eter: o quinto elemento da filosofia grega, associado ao espaco e ao conhecimento. A ideia do produto e ser um campo vivo de memoria, onde conversas, documentos, codigo e conexoes formam um segundo cerebro pessoal.
 
-O projeto foi pensado para funcionar offline no Mac/Windows sempre que possivel. A IA roda com Ollama local, o historico fica em SQLite e a sincronizacao com Supabase e opcional.
+O projeto foi pensado para funcionar offline no Mac/Windows sempre que possivel. A IA roda com Ollama local, o historico fica em SQLite e a memoria pode ser exportada/importada em um arquivo JSON.
 
 ## Recursos Principais
 
@@ -19,7 +19,7 @@ O projeto foi pensado para funcionar offline no Mac/Windows sempre que possivel.
 - TTS offline com Piper.
 - STT com faster-whisper.
 - Busca Google opcional via Google Custom Search.
-- Supabase Sync local-first.
+- Backup local portatil para levar conversas, PDFs, memorias, RAG e grafo para outro computador.
 - App macOS plug and play via Electron.
 
 ## Estrutura
@@ -31,10 +31,9 @@ Nexus-Assistent-v1/
 │   ├── agenty.py                 # Ollama, voz, STT/TTS e prompt principal
 │   ├── database.py               # Historico, sessoes e conhecimento importado
 │   ├── database_v2.py            # Tabelas cognitivas e migracoes
-│   ├── supabase_sync.py          # Sync local-first com Supabase
+│   ├── local_backup.py           # Exportacao/importacao da memoria local
 │   ├── start_backend.sh          # Atalho para iniciar backend no macOS
 │   ├── requirements.txt          # Dependencias Python
-│   ├── supabase_schema.sql       # SQL para criar tabela de sync no Supabase
 │   ├── cognitive/
 │   │   ├── memory.py             # Memorias e Core Memory
 │   │   ├── rag.py                # RAG e contexto de conhecimento
@@ -78,7 +77,6 @@ Nexus-Assistent-v1/
 
 ### Opcionais
 
-- Supabase para sincronizacao em nuvem.
 - Google Custom Search para busca web em tempo real.
 - Modelo `faster-whisper-base` local para STT.
 - Embeddings `sentence-transformers` para RAG semantico opcional.
@@ -169,12 +167,6 @@ Exemplo:
 GOOGLE_API_KEY=
 GOOGLE_CSE_ID=
 
-SUPABASE_SYNC_ENABLED=0
-SUPABASE_URL=https://seu-projeto.supabase.co
-SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-SUPABASE_SYNC_TABLE=nexus_sync_records
-
 OLLAMA_NUM_CTX=12288
 OLLAMA_NUM_PREDICT=-1
 OLLAMA_MODEL=qwen2.5-coder:7b
@@ -182,8 +174,7 @@ OLLAMA_MODEL=qwen2.5-coder:7b
 
 Observacoes:
 
-- Nao coloque `/rest/v1` no final de `SUPABASE_URL`.
-- Para uso local pessoal, `SUPABASE_SERVICE_ROLE_KEY` funciona, mas nao distribua app com essa chave.
+- O Aether Memory nao precisa de conta ou banco externo para salvar memoria.
 - Se o Mac estiver travando, reduza `OLLAMA_NUM_CTX` para `8192` ou `4096`.
 - O projeto carrega `.env` manualmente, entao `python-dotenv` nao e obrigatorio.
 
@@ -285,51 +276,53 @@ No app desktop, o banco fica em:
 
 Arquivos locais de banco e audio nao devem ser commitados.
 
-## Supabase Sync
+## Backup Local
 
-O Supabase e opcional. O app funciona offline sem ele.
+O Aether Memory salva tudo em SQLite local. Para trocar de computador ou guardar
+uma copia da memoria, use a aba `Config > Backup`.
 
-### 1. Criar tabela no Supabase
+### Baixar memoria
 
-No SQL Editor do Supabase, rode o arquivo:
-
-```text
-Back-end/supabase_schema.sql
-```
-
-Ele cria a tabela generica:
+No app ou site:
 
 ```text
-nexus_sync_records
+Config > Backup > Baixar memoria
 ```
 
-### 2. Configurar `.env`
+Isso gera um arquivo:
 
-```env
-SUPABASE_SYNC_ENABLED=1
-SUPABASE_URL=https://seu-projeto.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=sua_service_role_key
-SUPABASE_SYNC_TABLE=nexus_sync_records
+```text
+aether-memory-backup-AAAAMMDD-HHMMSS.json
 ```
 
-Ou use `SUPABASE_ANON_KEY`, se suas policies permitirem.
+O backup inclui conversas, mensagens, PDFs/textos importados, memorias, Core
+Memory, perfil do usuario, resumos, Knowledge Graph, embeddings do RAG,
+projetos e indice de codebase.
 
-### 3. Testar sync
+### Inserir em outro sistema
+
+No outro Mac ou instalacao:
+
+```text
+Config > Backup > Inserir backup
+```
+
+A importacao funciona em modo merge: ela adiciona ou atualiza registros do
+backup sem apagar o banco local atual.
+
+### Testar pelo terminal
 
 Com backend ligado:
 
 ```bash
-curl http://127.0.0.1:5050/api/sync/status
+curl http://127.0.0.1:5050/api/local-backup/status
 ```
 
-Pelo frontend/app, use o botao `Sincronizar agora`.
+Para baixar manualmente:
 
-Se aparecer erro como `Failed to resolve`, confira:
-
-- se o projeto Supabase nao esta pausado;
-- se `SUPABASE_URL` esta correta;
-- se a URL nao tem `/rest/v1`;
-- se sua internet/DNS/VPN esta funcionando.
+```bash
+curl -o aether-memory-backup.json http://127.0.0.1:5050/api/local-backup/export
+```
 
 ## Busca Google
 
@@ -440,8 +433,9 @@ GET  /api/sessions/<id>/knowledge
 POST /api/sessions/<id>/knowledge
 POST /api/chat
 POST /api/chat/stream
-GET  /api/sync/status
-POST /api/sync/run
+GET  /api/local-backup/status
+GET  /api/local-backup/export
+POST /api/local-backup/import
 GET  /api/cognitive/health
 GET  /api/cognitive/memory
 GET  /api/cognitive/graph
@@ -503,21 +497,6 @@ curl http://127.0.0.1:5050/api/config
 ```
 
 O Ollama precisa estar aberto e com modelo baixado.
-
-### Supabase `Failed to resolve`
-
-Provaveis causas:
-
-- projeto Supabase pausado;
-- `SUPABASE_URL` errada;
-- DNS/VPN bloqueando;
-- URL com `/rest/v1` no final.
-
-Formato correto:
-
-```env
-SUPABASE_URL=https://seu-projeto.supabase.co
-```
 
 ### Frontend branco no Electron
 
@@ -596,5 +575,5 @@ Com tudo funcionando:
 - Ollama lista pelo menos um modelo;
 - chat responde por texto;
 - importacao de PDF cria conhecimento na Obsidian;
-- Supabase sync fica online se `.env` estiver correto e projeto ativo;
+- backup local baixa um arquivo JSON em `Config > Backup`;
 - app desktop abre sem precisar iniciar backend pela IDE.

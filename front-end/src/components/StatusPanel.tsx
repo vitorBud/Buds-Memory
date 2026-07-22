@@ -1,7 +1,7 @@
-import { Activity, AlertCircle, BrainCircuit, CheckCircle2, Circle, Cloud, CloudDownload, Code2, Cpu, FolderOpen, Gauge, HardDrive, LogOut, RefreshCw, SlidersHorizontal, UserRound, Volume2, X } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
-import { indexCodebase, setRemoteSessionToken } from '../services/api'
-import type { AiState, InterfaceSettings, SyncStatus, ThemeMode } from '../types'
+import { Activity, BrainCircuit, Circle, CloudDownload, Code2, Copy, Cpu, ExternalLink, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Smartphone, Upload, UserRound, Volume2, X } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
+import { indexCodebase } from '../services/api'
+import type { AiState, BackendConfig, InterfaceSettings, LocalBackupStatus, ThemeMode } from '../types'
 
 interface StatusPanelProps {
   aiState: AiState
@@ -11,14 +11,15 @@ interface StatusPanelProps {
   model: string
   models: string[]
   googleSearchAvailable: boolean
-  syncStatus: SyncStatus | null
-  isSyncing: boolean
+  backendConfig: BackendConfig | null
+  backupStatus: LocalBackupStatus | null
+  isBackupBusy: boolean
   authMode?: string
   authEmail?: string
   settings: InterfaceSettings
   onModelChange: (model: string) => void
-  onSyncNow: () => void
-  onPullCloudChats: () => void
+  onExportBackup: () => void
+  onImportBackup: (file: File) => void
   onSettingChange: <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => void
   onClose: () => void
   presentation?: 'drawer' | 'page'
@@ -61,6 +62,40 @@ function StatusLine({ label, value }: { label: string; value: string }) {
   )
 }
 
+function buildSmartphoneUrl(config: BackendConfig | null) {
+  const remoteUrl = config?.remote?.recommended_url || ''
+  const fallback = window.location.href
+
+  try {
+    const current = new URL(window.location.href)
+    const currentIsShareable = !['localhost', '127.0.0.1', '0.0.0.0'].includes(current.hostname)
+    const base = currentIsShareable ? current.origin : remoteUrl || current.origin
+    const url = new URL(base)
+    if (current.pathname && current.pathname !== '/') url.pathname = current.pathname
+    url.search = current.search
+    url.hash = current.hash
+    return url.toString()
+  } catch {
+    return remoteUrl || fallback
+  }
+}
+
+function copyText(value: string) {
+  if (!value) return Promise.resolve()
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(value)
+
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', 'true')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  textarea.remove()
+  return Promise.resolve()
+}
+
 const THEME_OPTIONS: Array<{ value: ThemeMode; label: string; hint: string }> = [
   { value: 'black', label: 'Black', hint: 'foco noturno' },
   { value: 'gold', label: 'Gold', hint: 'destaque quente' },
@@ -73,31 +108,28 @@ const MODEL_OPTIONS: Record<string, { label: string; hint: string }> = {
   'qwen2.5-coder:14b': { label: 'Mais potente', hint: 'melhor raciocínio, exige mais do Mac' },
 }
 
-type SettingsSection = 'account' | 'appearance' | 'ai' | 'sync' | 'codebase' | 'memory' | 'system'
+const VOICE_PROVIDER_OPTIONS: Array<{
+  value: InterfaceSettings['voiceProvider']
+  label: string
+  hint: string
+}> = [
+  { value: 'browser', label: 'Navegador', hint: 'usa as vozes instaladas no Mac, Safari ou Chrome' },
+  { value: 'piper', label: 'Piper local', hint: 'gera áudio offline no backend com a voz pt-BR instalada' },
+]
+
+type SettingsSection = 'account' | 'appearance' | 'ai' | 'backup' | 'codebase' | 'memory' | 'system'
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: string; icon: typeof UserRound }> = [
-  { id: 'account', label: 'Conta', hint: 'Login e sessão', icon: UserRound },
+  { id: 'account', label: 'Sessão', hint: 'Banco local', icon: UserRound },
   { id: 'appearance', label: 'Aparência', hint: 'Tema e interface', icon: SlidersHorizontal },
   { id: 'ai', label: 'IA', hint: 'Modelo, voz e Google', icon: BrainCircuit },
-  { id: 'sync', label: 'Sincronização', hint: 'Supabase e nuvem', icon: Cloud },
+  { id: 'backup', label: 'Backup', hint: 'Memória local', icon: HardDrive },
   { id: 'codebase', label: 'Codebase', hint: 'Projetos locais', icon: Code2 },
   { id: 'memory', label: 'Memória', hint: 'Contexto do chat', icon: Activity },
   { id: 'system', label: 'Sistema', hint: 'Pipeline e sessão', icon: Cpu },
 ]
 
 type AetherBridge = { pickFolder?: () => Promise<string | null>; isDesktop?: boolean }
-
-function formatSyncDate(value?: string | null) {
-  if (!value) return 'Nunca'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Nunca'
-  return date.toLocaleString('pt-BR', {
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
 
 // Gaveta de configurações da interface, voz, tema e status técnico da sessão.
 export function StatusPanel({
@@ -108,14 +140,15 @@ export function StatusPanel({
   model,
   models,
   googleSearchAvailable,
-  syncStatus,
-  isSyncing,
+  backendConfig,
+  backupStatus,
+  isBackupBusy,
   authMode,
   authEmail,
   settings,
   onModelChange,
-  onSyncNow,
-  onPullCloudChats,
+  onExportBackup,
+  onImportBackup,
   onSettingChange,
   onClose,
   presentation = 'drawer',
@@ -125,10 +158,17 @@ export function StatusPanel({
   const [codebaseStatus, setCodebaseStatus] = useState('')
   const [isIndexingCodebase, setIsIndexingCodebase] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>('account')
+  const [mobileCopyLabel, setMobileCopyLabel] = useState('')
+  const backupInputRef = useRef<HTMLInputElement>(null)
   const isPage = presentation === 'page'
-  const isSupabaseSession = authMode === 'supabase'
-  const syncConfigured = Boolean(syncStatus?.supabase_configured && syncStatus?.online_sync_enabled)
-  const syncUnavailable = isSyncing || !syncConfigured || !isSupabaseSession
+  const smartphoneUrl = buildSmartphoneUrl(backendConfig)
+  const mobileToken = backendConfig?.mobile_token || ''
+
+  const handleMobileCopy = async (value: string, label: string) => {
+    await copyText(value)
+    setMobileCopyLabel(label)
+    window.setTimeout(() => setMobileCopyLabel(''), 1600)
+  }
 
   const pickCodebaseFolder = async () => {
     const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
@@ -153,16 +193,6 @@ export function StatusPanel({
     } finally {
       setIsIndexingCodebase(false)
     }
-  }
-
-  const openSupabaseLogin = () => {
-    setRemoteSessionToken('')
-    window.location.reload()
-  }
-
-  const logout = () => {
-    setRemoteSessionToken('')
-    window.location.reload()
   }
 
   return (
@@ -244,7 +274,7 @@ export function StatusPanel({
           <UserRound size={15} />
         </div>
         <p className="settings-section-copy">
-          Controle a sessão atual. O modo Supabase libera sincronização entre dispositivos.
+          O Aether Memory usa banco local. Seus chats, PDFs, memórias e grafo ficam neste dispositivo até você exportar um backup.
         </p>
         <div className="sync-status-card">
           <div className="sync-orb" data-state={authMode ? 'online' : 'offline'}>
@@ -253,23 +283,60 @@ export function StatusPanel({
           <div>
             <strong>{authEmail || (authMode === 'local' ? 'Modo local' : 'Sessão Aether')}</strong>
             <span>
-              {authMode === 'supabase'
-                ? 'Conta Supabase conectada'
-                : authMode === 'local'
-                  ? 'Dados salvos apenas neste dispositivo'
-                  : 'Sessão ativa'}
+              {authMode === 'remote'
+                ? 'Acesso remoto protegido por token'
+                : 'Dados salvos no SQLite local'}
             </span>
           </div>
         </div>
-        <button
-          type="button"
-          className="account-logout-button"
-          onClick={logout}
-          title="Remove a sessão salva neste navegador ou app. Seus chats locais permanecem no banco local."
-        >
-          <LogOut size={14} />
-          <span>Sair da conta</span>
-        </button>
+        <div className="smartphone-access-card">
+          <div className="smartphone-access-head">
+            <span>
+              <Smartphone size={16} />
+              <strong>Abra no seu smartphone</strong>
+            </span>
+            <small>
+              {backendConfig?.remote?.remote_mode
+                ? 'Acesso remoto ativo'
+                : 'Use com backend em modo mobile/remoto'}
+            </small>
+          </div>
+
+          <div className="smartphone-access-field">
+            <span>Link atual</span>
+            <code>{smartphoneUrl}</code>
+            <div>
+              <button type="button" onClick={() => handleMobileCopy(smartphoneUrl, 'link')}>
+                <Copy size={13} />
+                Copiar
+              </button>
+              <a href={smartphoneUrl} target="_blank" rel="noreferrer">
+                <ExternalLink size={13} />
+                Abrir
+              </a>
+            </div>
+          </div>
+
+          <div className="smartphone-access-field">
+            <span>Token</span>
+            <code>{mobileToken || 'Token ainda não carregado'}</code>
+            <div>
+              <button
+                type="button"
+                disabled={!mobileToken}
+                onClick={() => handleMobileCopy(mobileToken, 'token')}
+              >
+                <Copy size={13} />
+                Copiar
+              </button>
+            </div>
+          </div>
+
+          <p>
+            No celular, abra o link e cole o token quando a tela pedir acesso remoto.
+            {mobileCopyLabel && <strong> {mobileCopyLabel === 'link' ? 'Link copiado.' : 'Token copiado.'}</strong>}
+          </p>
+        </div>
       </div>
 
       <div className="panel-block settings-model-block">
@@ -293,6 +360,22 @@ export function StatusPanel({
             checked={settings.webSearchEnabled}
             onChange={(checked) => onSettingChange('webSearchEnabled', checked)}
           />
+        </div>
+        <div className="settings-voice-provider" aria-label="Selecionar motor de voz">
+          {VOICE_PROVIDER_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              className={settings.voiceProvider === option.value ? 'is-active' : ''}
+              onClick={() => onSettingChange('voiceProvider', option.value)}
+            >
+              <Volume2 size={15} />
+              <span>
+                <strong>{option.label}</strong>
+                <small>{option.hint}</small>
+              </span>
+            </button>
+          ))}
         </div>
         <div className="settings-model-list" aria-label="Selecionar modelo da IA">
           {models.map(option => {
@@ -342,34 +425,22 @@ export function StatusPanel({
         </div>
       </div>
 
-      <div className="panel-block sync-panel-block settings-sync-block">
+      <div className="panel-block sync-panel-block settings-sync-block settings-backup-block">
         <div className="panel-heading">
-          <span>Supabase Sync</span>
-          <Cloud size={15} />
+          <span>Backup local</span>
+          <HardDrive size={15} />
         </div>
         <p className="settings-section-copy">
-          Envie e baixe chats da nuvem. Por segurança, a sincronização só fica ativa com login Supabase.
+          Baixe um arquivo com toda a memória do Aether ou insira esse backup em outro Mac/sistema para continuar com o mesmo histórico.
         </p>
 
         <div className="sync-status-card">
-          <div className="sync-orb" data-state={isSupabaseSession && syncStatus?.supabase_configured ? 'online' : 'offline'}>
-            {isSupabaseSession && syncStatus?.supabase_configured ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+          <div className="sync-orb" data-state="online">
+            <HardDrive size={16} />
           </div>
           <div>
-            <strong>
-              {!isSupabaseSession
-                ? 'Login Supabase necessário'
-                : syncStatus?.supabase_configured
-                  ? 'Pronto para nuvem'
-                  : 'Apenas local'}
-            </strong>
-            <span>
-              {!isSupabaseSession
-                ? 'Modo local não sincroniza. Entre com Supabase para liberar.'
-                : syncStatus?.online_sync_enabled
-                ? `Tabela ${syncStatus.remote_table}`
-                : 'Sync desativado ou sem credenciais'}
-            </span>
+            <strong>Memória portátil</strong>
+            <span>Exportação local em JSON. Nenhuma conta externa necessária.</span>
           </div>
         </div>
 
@@ -377,56 +448,51 @@ export function StatusPanel({
           <div>
             <HardDrive size={13} />
             <span>Registros locais</span>
-            <strong>{syncStatus?.local_records?.total ?? 0}</strong>
+            <strong>{backupStatus?.local_records?.total ?? 0}</strong>
           </div>
           <div>
-            <Cloud size={13} />
-            <span>Último sync</span>
-            <strong>{formatSyncDate(syncStatus?.last_sync_at)}</strong>
+            <BrainCircuit size={13} />
+            <span>Modo</span>
+            <strong>Local</strong>
           </div>
         </div>
 
-        {syncStatus?.last_sync_error && (
-          <p className="sync-error">{syncStatus.last_sync_error}</p>
-        )}
-        {!isSupabaseSession && (
-          <p className="sync-error">
-            Sessão atual: {authEmail || 'modo local'}. A sincronização fica bloqueada até entrar com Supabase.
-          </p>
-        )}
-        {!isSupabaseSession && (
-          <button
-            type="button"
-            className="sync-now-button sync-login-button"
-            onClick={openSupabaseLogin}
-            title="Volta para a tela de entrada para conectar uma conta Supabase."
-          >
-            <Cloud size={14} />
-            <span>Entrar com Supabase</span>
-          </button>
+        {backupStatus?.last_backup_error && (
+          <p className="sync-error">{backupStatus.last_backup_error}</p>
         )}
 
         <button
           type="button"
           className="sync-now-button"
-          onClick={onSyncNow}
-          disabled={syncUnavailable}
-          title="Envia dados locais e busca novos registros da sua conta Supabase."
+          onClick={onExportBackup}
+          disabled={isBackupBusy}
+          title="Baixa um backup completo da memória local do Aether."
         >
-          <RefreshCw size={14} className={isSyncing ? 'is-spinning' : ''} />
-          <span>{isSyncing ? 'Sincronizando' : 'Sincronizar agora'}</span>
+          <CloudDownload size={14} />
+          <span>{isBackupBusy ? 'Preparando backup' : 'Baixar memória'}</span>
         </button>
 
         <button
           type="button"
           className="sync-now-button sync-download-button"
-          onClick={onPullCloudChats}
-          disabled={syncUnavailable}
-          title="Baixa conversas salvas na nuvem para este dispositivo."
+          onClick={() => backupInputRef.current?.click()}
+          disabled={isBackupBusy}
+          title="Insere um backup exportado anteriormente, sem apagar os dados locais atuais."
         >
-          <CloudDownload size={14} />
-          <span>{isSyncing ? 'Baixando' : 'Baixar chats da nuvem'}</span>
+          <Upload size={14} />
+          <span>{isBackupBusy ? 'Importando' : 'Inserir backup'}</span>
         </button>
+        <input
+          ref={backupInputRef}
+          type="file"
+          accept=".json,application/json"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            event.target.value = ''
+            if (file) onImportBackup(file)
+          }}
+        />
       </div>
 
       <div className="panel-block settings-session-block">

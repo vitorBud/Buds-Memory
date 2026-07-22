@@ -26,7 +26,7 @@ organizado, interativo e fiel ao que a IA aprendeu.
 - Zoom, arraste, hover e clique devem funcionar em desktop e mobile.
 - Painel de detalhes nao deve cobrir o grafo inteiro sem necessidade.
 - Importar PDF/texto pela Obsidian deve atualizar memorias/grafo.
-- Sincronizar deve ficar acessivel, mas sem poluir a tela.
+- Backup local deve ficar acessivel, mas sem poluir a tela.
 - Preserve performance: muitos pontos, mas baixo travamento.
 
 ## Dados Usados

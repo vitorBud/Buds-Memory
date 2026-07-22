@@ -28,9 +28,16 @@ from cognitive import (
     memory,
     projects,
     rag,
+    finance,
     summarizer,
     timeline,
     user_profile,
+)
+from cognitive.utils import (
+    freshness_score   as _freshness_score,
+    is_vague_text     as _is_vague,
+    clip              as _clip,
+    jaccard_similarity as _jaccard,
 )
 
 
@@ -44,19 +51,35 @@ INTENTS = {
     "SMALL_TALK",
     "PLANNING",
     "TROUBLESHOOTING",
+    "FINANCIAL_BUDGET",
+    "CREDIT_CARD",
+    "INSTALLMENT_PLAN",
+    "REIMBURSEMENT",
+    "CASH_FLOW",
+    "SAVINGS",
+    "DEBT",
+    "EXPENSE_ORGANIZATION",
 }
 
 MAX_CONTEXT_CHARS = int(os.getenv("NEXUS_CONTEXT_MAX_CHARS", "8000"))
 INTENT_TIEBREAK_PRIORITY = {
     "TROUBLESHOOTING": 0,
-    "PLANNING": 1,
-    "SMALL_TALK": 2,
-    "CODE_QUERY": 3,
-    "DOCUMENT_QUERY": 4,
-    "MEMORY_QUERY": 5,
-    "PROJECT_QUERY": 6,
-    "TIMELINE_QUERY": 7,
-    "GENERAL_QUERY": 8,
+    "FINANCIAL_BUDGET": 1,
+    "CREDIT_CARD": 2,
+    "REIMBURSEMENT": 3,
+    "INSTALLMENT_PLAN": 4,
+    "CASH_FLOW": 5,
+    "PLANNING": 6,
+    "SMALL_TALK": 7,
+    "CODE_QUERY": 8,
+    "DOCUMENT_QUERY": 9,
+    "MEMORY_QUERY": 10,
+    "PROJECT_QUERY": 11,
+    "TIMELINE_QUERY": 12,
+    "EXPENSE_ORGANIZATION": 13,
+    "SAVINGS": 14,
+    "DEBT": 15,
+    "GENERAL_QUERY": 16,
 }
 
 
@@ -89,9 +112,6 @@ TYPO_MAP = {
     "allama": "Ollama",
     "olama": "Ollama",
     "ollama": "Ollama",
-    "suapbase": "Supabase",
-    "supabse": "Supabase",
-    "superbase": "Supabase",
     "pyhton": "Python",
     "javascritp": "JavaScript",
     "typscript": "TypeScript",
@@ -160,6 +180,16 @@ def build_conversation_context(
             ),
             "score": 0.9,
             "priority": 0.82,
+        })
+
+    financial_context = finance.build_financial_context(user_text, history)
+    if financial_context:
+        blocks.append({
+            "type": "financial_analysis",
+            "title": "Análise financeira estruturada",
+            "content": financial_context,
+            "score": 1.1,
+            "priority": 0.98,
         })
 
     retrieval_results = []
@@ -240,7 +270,7 @@ def detect_intent(text: str, interpretation: Optional[dict] = None) -> dict:
         ],
         "CODE_QUERY": [
             "código", "codigo", "função", "funcao", "classe", "rota", "endpoint",
-            "componente", "hook", "import", "supabase", "autenticação", "auth",
+            "componente", "hook", "import", "autenticação", "auth",
             "bug", "erro", "arquivo usa", "onde está", "onde esta",
         ],
         "PROJECT_QUERY": [
@@ -265,12 +295,42 @@ def detect_intent(text: str, interpretation: Optional[dict] = None) -> dict:
             "quebrado", "problema", "corrigir", "arrumar", "dando ruim", "traceback",
             "exception", "address already in use",
         ],
+        "FINANCIAL_BUDGET": [
+            "orçamento", "orcamento", "salário", "salario", "renda", "organizar",
+            "gastos", "despesas", "quanto sobra", "quanto sai",
+        ],
+        "CREDIT_CARD": [
+            "cartão", "cartao", "fatura", "limite", "crédito", "credito",
+        ],
+        "INSTALLMENT_PLAN": [
+            "parcela", "parcelas", "parcelando", "dividido", "divididos", "vezes",
+        ],
+        "REIMBURSEMENT": [
+            "pix", "reembolso", "reembolsado", "receberei", "me enviará",
+            "me enviara", "vão me mandar", "vao me mandar", "para eu pagar",
+        ],
+        "CASH_FLOW": [
+            "fluxo de caixa", "impacto líquido", "impacto liquido", "sai do meu salário",
+            "sai do meu salario", "dinheiro de passagem",
+        ],
+        "SAVINGS": [
+            "guardar", "economizar", "reserva", "poupar",
+        ],
+        "DEBT": [
+            "dívida", "divida", "juros", "atraso", "devendo",
+        ],
+        "EXPENSE_ORGANIZATION": [
+            "organizar", "separar", "planejar fatura", "controle financeiro",
+        ],
     }
 
     for intent, keywords in keyword_groups.items():
         for keyword in keywords:
             if keyword in lower:
                 scores[intent] += 1.0
+
+    for label in finance.detect_financial_intents(lower):
+        scores[label] = scores.get(label, 0.0) + 2.0
 
     if "?" in text:
         scores["GENERAL_QUERY"] += 0.15
@@ -411,11 +471,15 @@ def plan_response(user_text: str, intent: dict, interpretation: dict) -> dict:
     primary = intent.get("primary", "GENERAL_QUERY")
     wants_detail = bool(re.search(r"\b(detalhe|detalhado|explique|tutorial|passo a passo|completo|profundo)\b", lower))
     wants_code = primary == "CODE_QUERY" or bool(re.search(r"\b(código|codigo|exemplo|função|funcao|classe|script)\b", lower))
-    needs_steps = primary in {"PLANNING", "TROUBLESHOOTING", "CODE_QUERY"} or "passo" in lower
+    financial_primary = primary in {
+        "FINANCIAL_BUDGET", "CREDIT_CARD", "INSTALLMENT_PLAN", "REIMBURSEMENT",
+        "CASH_FLOW", "SAVINGS", "DEBT", "EXPENSE_ORGANIZATION",
+    }
+    needs_steps = primary in {"PLANNING", "TROUBLESHOOTING", "CODE_QUERY"} or financial_primary or "passo" in lower
     detail_level = "curto"
     if wants_detail:
         detail_level = "detalhado"
-    elif primary in {"TROUBLESHOOTING", "PLANNING", "DOCUMENT_QUERY", "CODE_QUERY"}:
+    elif primary in {"TROUBLESHOOTING", "PLANNING", "DOCUMENT_QUERY", "CODE_QUERY"} or financial_primary:
         detail_level = "medio"
 
     tone = "casual"
@@ -423,6 +487,8 @@ def plan_response(user_text: str, intent: dict, interpretation: dict) -> dict:
         tone = "tecnico direto"
     elif primary == "PLANNING":
         tone = "organizado e pratico"
+    elif financial_primary:
+        tone = "financeiro claro e prudente"
     elif primary == "SMALL_TALK":
         tone = "natural e breve"
 
@@ -435,6 +501,14 @@ def plan_response(user_text: str, intent: dict, interpretation: dict) -> dict:
         "SMALL_TALK": "responder como conversa natural, sem acionar aula ou fontes",
         "PLANNING": "organizar próximos passos claros",
         "TROUBLESHOOTING": "identificar causa provável e propor correção objetiva",
+        "FINANCIAL_BUDGET": "organizar orçamento separando fatura bruta, gasto pessoal e reembolsos",
+        "CREDIT_CARD": "explicar impacto na fatura do cartão sem misturar limite, parcela e gasto mensal",
+        "INSTALLMENT_PLAN": "calcular parcelas somente com meses e valores informados",
+        "REIMBURSEMENT": "separar dinheiro de passagem/reembolso de renda disponível",
+        "CASH_FLOW": "mostrar impacto líquido no salário e fluxo de caixa",
+        "SAVINGS": "orientar reserva e economia sem inventar metas",
+        "DEBT": "organizar dívida e riscos sem inventar juros",
+        "EXPENSE_ORGANIZATION": "entregar uma organização prática dos gastos",
         "GENERAL_QUERY": "responder diretamente e pedir contexto só se necessário",
     }
     return {
@@ -839,14 +913,8 @@ def _result(
     }
 
 
-def _is_vague(text: str) -> bool:
-    lower = (text or "").lower().strip()
-    words = re.findall(r"[a-zA-ZÀ-ÿ0-9_+-]+", lower)
-    vague_words = {
-        "isso", "isto", "esse", "essa", "aquilo", "ele", "ela", "disso",
-        "desse", "dessa", "aqui", "lá", "la", "também", "tambem",
-    }
-    return len(words) <= 4 or any(word in vague_words for word in words)
+
+# _is_vague importada de cognitive.utils (eliminada duplicata local)
 
 
 def _contextual_reference_terms(text: str) -> list[str]:
@@ -897,7 +965,7 @@ def _format_source_reference(source: dict, short: bool = False) -> str:
 
 def _looks_like_code_query(query: str) -> bool:
     return bool(re.search(
-        r"\b(código|codigo|função|funcao|classe|rota|endpoint|hook|componente|import|bug|erro|auth|supabase)\b",
+        r"\b(código|codigo|função|funcao|classe|rota|endpoint|hook|componente|import|bug|erro|auth)\b",
         query.lower(),
     ))
 
@@ -911,34 +979,5 @@ def _tokens(text: str) -> list[str]:
     return [word for word in clean.split() if len(word) > 2 and word not in stop]
 
 
-def _freshness_score(created_at) -> float:
-    if not created_at:
-        return 0.5
-    try:
-        ts = datetime.datetime.fromisoformat(str(created_at).replace("Z", "+00:00")).replace(tzinfo=None)
-        age_days = (datetime.datetime.now() - ts).days
-    except Exception:
-        return 0.5
-    if age_days <= 1:
-        return 1.0
-    if age_days <= 7:
-        return 0.9
-    if age_days <= 30:
-        return 0.7
-    if age_days <= 180:
-        return 0.45
-    return 0.25
 
-
-def _jaccard(a: set, b: set) -> float:
-    if not a and not b:
-        return 1.0
-    union = len(a | b)
-    return len(a & b) / union if union else 0.0
-
-
-def _clip(text: str, limit: int) -> str:
-    clean = re.sub(r"\s+", " ", text or "").strip()
-    if len(clean) <= limit:
-        return clean
-    return clean[: limit - 3].rstrip() + "..."
+# _freshness_score, _jaccard, _clip importados de cognitive.utils (eliminadas duplicatas locais)

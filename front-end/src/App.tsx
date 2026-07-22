@@ -24,8 +24,8 @@ import type { VoiceSilenceMode } from './components/VoiceMode'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { useHealthPolling } from './hooks/useHealthPolling'
-import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getSyncStatus, runSync, pullCloudChats, getCognitiveMemories, getKnowledgeGraph } from './services/api'
-import type { AiState, Session, ActivityItem, InterfaceSettings, SyncStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
+import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, exportLocalMemoryBackup, importLocalMemoryBackup, getCognitiveMemories, getKnowledgeGraph } from './services/api'
+import type { AiState, BackendConfig, Session, ActivityItem, InterfaceSettings, LocalBackupStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
 
 const HomeBrain = lazy(() => import('./components/HomeBrain').then(module => ({ default: module.HomeBrain })))
@@ -101,6 +101,7 @@ const DEFAULT_SETTINGS: InterfaceSettings = {
   showBrainMap: true,
   showQuickPrompts: true,
   autoPlayAudio: true,
+  voiceProvider: 'browser',
   webSearchEnabled: false,
   accentColor: 'silver',
 }
@@ -142,6 +143,9 @@ function getInitialSettings(): InterfaceSettings {
     if (parsed.accentColor === 'white') parsed.accentColor = 'silver'
     if (!OFFICIAL_THEMES.includes(parsed.theme)) parsed.theme = DEFAULT_SETTINGS.theme
     if (!OFFICIAL_THEMES.includes(parsed.accentColor)) parsed.accentColor = parsed.theme
+    if (parsed.voiceProvider !== 'browser' && parsed.voiceProvider !== 'piper') {
+      parsed.voiceProvider = DEFAULT_SETTINGS.voiceProvider
+    }
     return parsed
   } catch {
     return DEFAULT_SETTINGS
@@ -171,6 +175,7 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState(FALLBACK_MODEL)
   const [availableModels, setAvailableModels] = useState(DEFAULT_MODELS)
   const [googleSearchAvailable, setGoogleSearchAvailable] = useState(false)
+  const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settings, setSettings] = useState<InterfaceSettings>(getInitialSettings)
   const [uptimeSeconds, setUptimeSeconds] = useState(0)
@@ -184,8 +189,8 @@ export default function App() {
   const [knowledgeInput, setKnowledgeInput] = useState('')
   const [isImportingKnowledge, setIsImportingKnowledge] = useState(false)
   const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false)
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
-  const [isSyncing, setIsSyncing] = useState(false)
+  const [backupStatus, setLocalBackupStatus] = useState<LocalBackupStatus | null>(null)
+  const [isBackupBusy, setIsBackupBusy] = useState(false)
   const [cognitiveMemories, setCognitiveMemories] = useState<CognitiveMemory[]>([])
   const [knowledgeGraph, setKnowledgeGraph] = useState<KnowledgeGraph | null>(null)
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
@@ -246,10 +251,10 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [toast])
 
-  const refreshSyncStatus = useCallback(async () => {
+  const refreshLocalBackupStatus = useCallback(async () => {
     try {
-      const status = await getSyncStatus()
-      setSyncStatus(status)
+      const status = await getLocalBackupStatus()
+      setLocalBackupStatus(status)
     } catch (err) {
       console.error(err)
     }
@@ -318,6 +323,7 @@ export default function App() {
     selectedModel,
     webSearchEnabled: settings.webSearchEnabled,
     selectedVoiceURI,
+    voiceProvider: settings.voiceProvider,
     onNeedSession: ensureSession,
     onStateChange: setAiState,
     onLatency: (ms) => setLatency(ms + 'ms'),
@@ -386,7 +392,7 @@ export default function App() {
       .catch(console.error)
 
     window.queueMicrotask(() => {
-      void refreshSyncStatus()
+      void refreshLocalBackupStatus()
       void refreshCognitiveBrain()
     })
     getBackendConfig()
@@ -403,6 +409,7 @@ export default function App() {
         }
 
         setGoogleSearchAvailable(Boolean(config.google_search_available))
+        setBackendConfig(config)
       })
       .catch(console.error)
 
@@ -414,9 +421,9 @@ export default function App() {
 
   useEffect(() => {
     if (settingsOpen) {
-      window.queueMicrotask(() => void refreshSyncStatus())
+      window.queueMicrotask(() => void refreshLocalBackupStatus())
     }
-  }, [settingsOpen, refreshSyncStatus])
+  }, [settingsOpen, refreshLocalBackupStatus])
 
   // Polling inteligente: backoff exponencial em falhas + pausa quando aba oculta
   useHealthPolling({
@@ -582,39 +589,35 @@ export default function App() {
     }
   }
 
-  const handleSyncNow = useCallback(async () => {
-    setIsSyncing(true)
+  const handleExportMemoryBackup = useCallback(async () => {
+    setIsBackupBusy(true)
     try {
-      const result = await runSync()
-      setSyncStatus(result.status)
-      const loadedSessions = await getSessions()
-      setSessions(loadedSessions)
-      pushActivity(`Sync Supabase: ${result.uploaded} enviados, ${result.pulled ?? 0} puxados`, 'emerald')
+      await exportLocalMemoryBackup()
+      pushActivity('Backup local baixado', 'emerald')
     } catch (err) {
-      pushActivity('Falha no sync Supabase', 'rose')
-      alert(err instanceof Error ? err.message : 'Falha ao sincronizar Supabase.')
-      void refreshSyncStatus()
+      pushActivity('Falha ao baixar backup', 'rose')
+      alert(err instanceof Error ? err.message : 'Falha ao baixar backup local.')
     } finally {
-      setIsSyncing(false)
+      setIsBackupBusy(false)
     }
-  }, [pushActivity, refreshSyncStatus])
+  }, [pushActivity])
 
-  const handlePullCloudChats = useCallback(async () => {
-    setIsSyncing(true)
+  const handleImportMemoryBackup = useCallback(async (file: File) => {
+    setIsBackupBusy(true)
     try {
-      const result = await pullCloudChats()
-      setSyncStatus(result.status)
+      const result = await importLocalMemoryBackup(file)
+      await refreshLocalBackupStatus()
+      await refreshCognitiveBrain()
       const loadedSessions = await getSessions()
       setSessions(loadedSessions)
-      pushActivity(`Chats baixados da nuvem: ${result.pulled ?? 0}`, 'emerald')
+      pushActivity(`Backup importado: ${result.total_imported} registros`, 'emerald')
     } catch (err) {
-      pushActivity('Falha ao baixar chats da nuvem', 'rose')
-      alert(err instanceof Error ? err.message : 'Falha ao baixar chats da nuvem.')
-      void refreshSyncStatus()
+      pushActivity('Falha ao importar backup', 'rose')
+      alert(err instanceof Error ? err.message : 'Falha ao importar backup local.')
     } finally {
-      setIsSyncing(false)
+      setIsBackupBusy(false)
     }
-  }, [pushActivity, refreshSyncStatus])
+  }, [pushActivity, refreshCognitiveBrain, refreshLocalBackupStatus])
 
   const handleOpenHome = () => {
     setActiveView('home')
@@ -764,7 +767,7 @@ export default function App() {
                     <p>
                       O Aether Memory usa o Ollama como motor de inteligência, mas adiciona uma camada
                       pessoal em volta dele: histórico, memórias, PDFs, busca, codebase, Obsidian visual
-                      e sincronização local-first. O modelo responde; o Aether lembra, organiza e conecta.
+                      e backup portátil. O modelo responde; o Aether lembra, organiza e conecta.
                     </p>
                   </div>
                   <div className="home-project-points">
@@ -776,7 +779,7 @@ export default function App() {
                     <div>
                       <Database size={18} />
                       <strong>Local-first</strong>
-                      <small>Funciona no seu Mac, salva em SQLite e sincroniza quando você quiser.</small>
+                      <small>Funciona no seu Mac, salva em SQLite e exporta a memória quando você quiser.</small>
                     </div>
                     <div>
                       <Check size={18} />
@@ -837,6 +840,7 @@ export default function App() {
                     systemUptime={formatUptime()}
                     aiState={aiState}
                     systemHealth={systemHealth}
+                    selectedModel={selectedModel}
                   />
                 </>
               )}
@@ -982,7 +986,7 @@ export default function App() {
           >
             <div className="obsidian-sticky-stage">
               <div className="obsidian-stage-graph">
-                <div className="obsidian-learn-toolbar" aria-label="Ensinar e sincronizar Obsidian">
+                <div className="obsidian-learn-toolbar" aria-label="Ensinar e fazer backup da Obsidian">
                   <button
                     type="button"
                     className="obsidian-learn-file"
@@ -1023,12 +1027,12 @@ export default function App() {
                   <button
                     type="button"
                     className="obsidian-sync-button"
-                    onClick={() => void handleSyncNow()}
-                    disabled={isSyncing}
-                    title="Enviar memórias e chats para o Supabase"
+                    onClick={() => void handleExportMemoryBackup()}
+                    disabled={isBackupBusy}
+                    title="Baixar um backup completo da memória local"
                   >
                     <Database size={15} />
-                    <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+                    <span>{isBackupBusy ? 'Preparando...' : 'Backup'}</span>
                   </button>
                 </div>
                 <Suspense fallback={<DeferredSurface label="Carregando Obsidian..." />}>
@@ -1064,14 +1068,15 @@ export default function App() {
               model={selectedModel}
               models={availableModels}
               googleSearchAvailable={googleSearchAvailable}
-              syncStatus={syncStatus}
-              isSyncing={isSyncing}
+              backendConfig={backendConfig}
+              backupStatus={backupStatus}
+              isBackupBusy={isBackupBusy}
               authMode={systemHealth?.authMode}
               authEmail={systemHealth?.userEmail}
               settings={settings}
               onModelChange={handleModelChange}
-              onSyncNow={handleSyncNow}
-              onPullCloudChats={handlePullCloudChats}
+              onExportBackup={handleExportMemoryBackup}
+              onImportBackup={handleImportMemoryBackup}
               onSettingChange={updateSetting}
               onClose={() => setSettingsOpen(false)}
               presentation="page"
