@@ -467,11 +467,6 @@ def _tokenize(text: str) -> list[str]:
     return [w for w in clean.split() if len(w) > 3]
 
 
-def _text_score(text: str, tokens: list[str]) -> float:
-    lower = text.lower()
-    return sum(lower.count(t) for t in tokens)
-
-
 def _bump_access(ids: list[int]):
     if not ids:
         return

@@ -1,5 +1,5 @@
 import { Activity, BrainCircuit, Circle, CloudDownload, Code2, Copy, Cpu, ExternalLink, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Smartphone, Upload, UserRound, Volume2, X } from 'lucide-react'
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { indexCodebase } from '../services/api'
 import type { AiState, BackendConfig, InterfaceSettings, LocalBackupStatus, ThemeMode } from '../types'
 
@@ -129,7 +129,11 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: strin
   { id: 'system', label: 'Sistema', hint: 'Pipeline e sessão', icon: Cpu },
 ]
 
-type AetherBridge = { pickFolder?: () => Promise<string | null>; isDesktop?: boolean }
+type AetherBridge = {
+  pickFolder?: () => Promise<string | null>
+  getRemoteToken?: () => Promise<string>
+  isDesktop?: boolean
+}
 
 // Gaveta de configurações da interface, voz, tema e status técnico da sessão.
 export function StatusPanel({
@@ -159,10 +163,26 @@ export function StatusPanel({
   const [isIndexingCodebase, setIsIndexingCodebase] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>('account')
   const [mobileCopyLabel, setMobileCopyLabel] = useState('')
+  const [desktopRemoteToken, setDesktopRemoteToken] = useState('')
   const backupInputRef = useRef<HTMLInputElement>(null)
   const isPage = presentation === 'page'
   const smartphoneUrl = buildSmartphoneUrl(backendConfig)
-  const mobileToken = backendConfig?.mobile_token || ''
+
+  useEffect(() => {
+    const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
+    if (!backendConfig?.remote?.remote_mode || !bridge?.getRemoteToken) {
+      return
+    }
+    let cancelled = false
+    void bridge.getRemoteToken().then(token => {
+      if (!cancelled) setDesktopRemoteToken(token)
+    }).catch(() => {
+      if (!cancelled) setDesktopRemoteToken('')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [backendConfig?.remote?.remote_mode])
 
   const handleMobileCopy = async (value: string, label: string) => {
     await copyText(value)
@@ -317,24 +337,27 @@ export function StatusPanel({
             </div>
           </div>
 
-          <div className="smartphone-access-field">
-            <span>Token</span>
-            <code>{mobileToken || 'Token ainda não carregado'}</code>
-            <div>
-              <button
-                type="button"
-                disabled={!mobileToken}
-                onClick={() => handleMobileCopy(mobileToken, 'token')}
-              >
-                <Copy size={13} />
-                Copiar
-              </button>
+          {backendConfig?.remote?.remote_mode && desktopRemoteToken && (
+            <div className="smartphone-access-field">
+              <span>Token local do app</span>
+              <code>{desktopRemoteToken}</code>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => handleMobileCopy(desktopRemoteToken, 'token')}
+                >
+                  <Copy size={13} />
+                  Copiar
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           <p>
-            No celular, abra o link e cole o token quando a tela pedir acesso remoto.
-            {mobileCopyLabel && <strong> {mobileCopyLabel === 'link' ? 'Link copiado.' : 'Token copiado.'}</strong>}
+            No celular, abra o link e cole o token configurado no backend quando a tela pedir acesso remoto.
+            {mobileCopyLabel && (
+              <strong> {mobileCopyLabel === 'token' ? 'Token copiado.' : 'Link copiado.'}</strong>
+            )}
           </p>
         </div>
       </div>

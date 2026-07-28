@@ -23,8 +23,18 @@ function highlightCode(code: string, lang: string): string {
   const language = lang.toLowerCase()
   const placeholders: string[] = []
 
+  function placeholderId(index: number): string {
+    let value = index
+    let suffix = ''
+    do {
+      suffix = String.fromCharCode(65 + (value % 26)) + suffix
+      value = Math.floor(value / 26) - 1
+    } while (value >= 0)
+    return `___AETHER_PLACEHOLDER_${suffix}___`
+  }
+
   function pushPlaceholder(text: string, className: string): string {
-    const id = `___TOKEN_PLACEHOLDER_${placeholders.length}___`
+    const id = placeholderId(placeholders.length)
     placeholders.push(`<span class="${className}">${text}</span>`)
     return id
   }
@@ -75,7 +85,7 @@ function highlightCode(code: string, lang: string): string {
 
   // Restore placeholders in reverse order
   for (let i = placeholders.length - 1; i >= 0; i--) {
-    html = html.replace(`___TOKEN_PLACEHOLDER_${i}___`, placeholders[i])
+    html = html.replace(placeholderId(i), placeholders[i])
   }
 
   return html
@@ -94,7 +104,7 @@ function parseMessageText(text: string): MessagePart[] {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
-    const match = line.match(/^\s*```(\w*)/)
+    const match = line.match(/^\s*```([^\s`]*)/)
     if (match) {
       if (currentBlock.lines.length > 0) {
         parts.push({

@@ -26,7 +26,7 @@ import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { useHealthPolling } from './hooks/useHealthPolling'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, exportLocalMemoryBackup, importLocalMemoryBackup, getCognitiveMemories, getKnowledgeGraph } from './services/api'
-import type { AiState, BackendConfig, Session, ActivityItem, InterfaceSettings, LocalBackupStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
+import type { AiState, BackendConfig, Session, InterfaceSettings, LocalBackupStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
 import { isWindowsRuntime } from './utils/runtime'
 
@@ -169,6 +169,7 @@ export default function App() {
   const obsidianSceneRef = useRef<HTMLElement>(null)
   const obsidianFileInputRef = useRef<HTMLInputElement>(null)
   const didAutoLoadSessionRef = useRef(false)
+  const sessionLoadRequestRef = useRef(0)
   const [aiState, setAiState] = useState<AiState>('idle')
   const [sessions, setSessions] = useState<Session[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
@@ -176,7 +177,6 @@ export default function App() {
   const [currentSessionCreatedAt, setCurrentSessionCreatedAt] = useState<string | null>(null)
   const [latency, setLatency] = useState('')
   const [msgCount, setMsgCount] = useState(0)
-  const [, setActivityItems] = useState<ActivityItem[]>([])
   const [selectedModel, setSelectedModel] = useState(FALLBACK_MODEL)
   const [availableModels, setAvailableModels] = useState(DEFAULT_MODELS)
   const [googleSearchAvailable, setGoogleSearchAvailable] = useState(false)
@@ -253,11 +253,6 @@ export default function App() {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
 
-  const pushActivity = useCallback((label: string, color: ActivityItem['color'] = 'cyan') => {
-    const item: ActivityItem = { id: Date.now().toString(), label, time: 'agora', color }
-    setActivityItems(prev => [item, ...prev].slice(0, 8))
-  }, [])
-
   const [toast, setToast] = useState<{ message: string; type: 'info' | 'success' } | null>(null)
 
   const showToast = useCallback((message: string, type: 'info' | 'success' = 'info') => {
@@ -311,9 +306,8 @@ export default function App() {
     setDraftTitle(session.title)
     setIsEditingTitle(false)
     setSessions(prev => [session, ...prev])
-    pushActivity('Nova sessão criada', 'emerald')
     return session.id
-  }, [currentSessionId, pushActivity])
+  }, [currentSessionId])
 
   const handleSessionUpdate = useCallback((session: Session) => {
     setCurrentSessionTitle(session.title)
@@ -322,14 +316,11 @@ export default function App() {
     setSessions(prev => prev.map(item => (
       item.id === session.id ? { ...item, ...session } : item
     )))
-    pushActivity('Título criado pela primeira pergunta', 'emerald')
-  }, [pushActivity])
+  }, [])
 
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model)
     localStorage.setItem('aether_selected_model', model)
-    pushActivity(`IA alterada para: ${model}`, 'violet')
-
     const friendlyNames: Record<string, string> = {
       'qwen2.5-coder:3b': 'IA Modo Rápido (3B)',
       'qwen2.5-coder:7b': 'IA Modo Padrão (7B)',
@@ -337,7 +328,7 @@ export default function App() {
     }
     const label = friendlyNames[model] || model
     showToast(`Modelo alterado para ${label}`, 'success')
-  }, [pushActivity, showToast])
+  }, [showToast])
 
   const { messages, isProcessing, availableVoices, sendText, sendAudio, stopOutput, clearMessages, loadMessages } = useChat({
     sessionId: currentSessionId,
@@ -357,9 +348,7 @@ export default function App() {
 
   const { isRecording, seconds, volume: micVolume, toggle: toggleMic, cancel: cancelRecording } = useRecorder({
     onStop: async (blob) => {
-      pushActivity('Audio gravado e enviado para STT', 'amber')
       await sendAudio(blob)
-      pushActivity('Resposta gerada pelo LLM', 'violet')
     },
     onStateChange: setAiState,
     autoStopOnSilence: activeView === 'voice',
@@ -380,7 +369,8 @@ export default function App() {
     localStorage.setItem(VOICE_SILENCE_MODE_KEY, mode)
   }, [])
 
-  const loadSessionData = useCallback(async (session: Session, announce = true) => {
+  const loadSessionData = useCallback(async (session: Session) => {
+    const requestId = ++sessionLoadRequestRef.current
     stopOutput() // aborta fluxo anterior antes de mudar
     setCurrentSessionId(session.id)
     setCurrentSessionTitle(session.title)
@@ -389,12 +379,16 @@ export default function App() {
     setIsEditingTitle(false)
     clearMessages()
 
-    const msgs = await getSessionMessages(session.id)
-    const sources = await getSessionKnowledge(session.id)
+    const [msgs, sources] = await Promise.all([
+      getSessionMessages(session.id),
+      getSessionKnowledge(session.id),
+    ])
+    if (sessionLoadRequestRef.current !== requestId) return false
+
     loadMessages(msgs)
     setKnowledgeSources(sources)
-    if (announce) pushActivity(`Conversa carregada: ${session.title}`, 'violet')
-  }, [clearMessages, loadMessages, pushActivity, stopOutput])
+    return true
+  }, [clearMessages, loadMessages, stopOutput])
 
   useEffect(() => {
     if (!bootDone) return
@@ -407,7 +401,7 @@ export default function App() {
         const latestSession = loadedSessions[0]
         if (latestSession && !didAutoLoadSessionRef.current) {
           didAutoLoadSessionRef.current = true
-          await loadSessionData(latestSession, false)
+          await loadSessionData(latestSession)
         }
       })
       .catch(console.error)
@@ -499,7 +493,10 @@ export default function App() {
   }, [activeView])
 
   const handleNewChat = async () => {
+    const requestId = ++sessionLoadRequestRef.current
     const session = await createSession()
+    if (sessionLoadRequestRef.current !== requestId) return
+
     setCurrentSessionId(session.id)
     setCurrentSessionTitle(session.title)
     setCurrentSessionCreatedAt(session.created_at)
@@ -512,13 +509,12 @@ export default function App() {
     setLatency('')
     setSessions(prev => [session, ...prev])
     if (isMobileViewport()) setFocusMode(true)
-    pushActivity('Nova conversa iniciada', 'cyan')
   }
 
   const handleSelectSession = async (session: Session) => {
     try {
-      await loadSessionData(session)
-      if (isMobileViewport()) setFocusMode(true)
+      const loaded = await loadSessionData(session)
+      if (loaded && isMobileViewport()) setFocusMode(true)
     } catch (err) {
       console.error(err)
     }
@@ -529,6 +525,7 @@ export default function App() {
     await deleteSession(id)
     setSessions(prev => prev.filter(s => s.id !== id))
     if (currentSessionId === id) {
+      sessionLoadRequestRef.current += 1
       setCurrentSessionId(null)
       setCurrentSessionTitle(null)
       setCurrentSessionCreatedAt(null)
@@ -538,13 +535,10 @@ export default function App() {
       setKnowledgeInput('')
       clearMessages()
     }
-    pushActivity('Conversa deletada', 'rose')
   }
 
   const handleSendText = async (text: string) => {
-    pushActivity(`Mensagem enviada: "${text.slice(0, 30)}..."`, 'cyan')
     await sendText(text)
-    pushActivity('Resposta da IA recebida', 'violet')
     window.setTimeout(() => {
       void refreshCognitiveBrain()
     }, 1800)
@@ -568,7 +562,6 @@ export default function App() {
       session.id === currentSessionId ? { ...session, ...updated } : session
     )))
     setIsEditingTitle(false)
-    pushActivity('Título da conversa atualizado', 'emerald')
   }
 
   const handleImportKnowledgeFile = async (file: File) => {
@@ -578,7 +571,6 @@ export default function App() {
       const source = await importKnowledge(sessionId, { file })
       setKnowledgeSources(prev => [source, ...prev])
       void refreshCognitiveBrain()
-      pushActivity(`Conhecimento importado: ${source.title}`, 'emerald')
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao importar conhecimento.')
     } finally {
@@ -602,7 +594,6 @@ export default function App() {
       setKnowledgeSources(prev => [source, ...prev])
       setKnowledgeInput('')
       void refreshCognitiveBrain()
-      pushActivity(`IA aprendeu: ${source.title}`, 'emerald')
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao importar conhecimento.')
     } finally {
@@ -614,31 +605,27 @@ export default function App() {
     setIsBackupBusy(true)
     try {
       await exportLocalMemoryBackup()
-      pushActivity('Backup local baixado', 'emerald')
     } catch (err) {
-      pushActivity('Falha ao baixar backup', 'rose')
       alert(err instanceof Error ? err.message : 'Falha ao baixar backup local.')
     } finally {
       setIsBackupBusy(false)
     }
-  }, [pushActivity])
+  }, [])
 
   const handleImportMemoryBackup = useCallback(async (file: File) => {
     setIsBackupBusy(true)
     try {
-      const result = await importLocalMemoryBackup(file)
+      await importLocalMemoryBackup(file)
       await refreshLocalBackupStatus()
       await refreshCognitiveBrain()
       const loadedSessions = await getSessions()
       setSessions(loadedSessions)
-      pushActivity(`Backup importado: ${result.total_imported} registros`, 'emerald')
     } catch (err) {
-      pushActivity('Falha ao importar backup', 'rose')
       alert(err instanceof Error ? err.message : 'Falha ao importar backup local.')
     } finally {
       setIsBackupBusy(false)
     }
-  }, [pushActivity, refreshCognitiveBrain, refreshLocalBackupStatus])
+  }, [refreshCognitiveBrain, refreshLocalBackupStatus])
 
   const handleOpenHome = () => {
     setActiveView('home')

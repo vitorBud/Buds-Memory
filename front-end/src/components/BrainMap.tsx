@@ -1,22 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import * as THREE from 'three'
 import {
-  Activity,
   BarChart3,
   Database,
   FileText,
   LockKeyhole,
+  Minus,
   Network,
   Pin,
+  Plus,
+  RotateCcw,
   ScanSearch,
   Sparkles,
   Trash2,
   X,
 } from 'lucide-react'
 import { deleteCognitiveMemory, setCoreMemory, updateCognitiveMemory } from '../services/api'
-import type { CognitiveMemory, KnowledgeGraph, KnowledgeSource, Message } from '../types'
-import { getWindowsVisualProfile, isWindowsRuntime } from '../utils/runtime'
+import type {
+  CognitiveMemory,
+  KnowledgeGraph,
+  KnowledgeSource,
+  Message,
+} from '../types'
+import { isWindowsRuntime } from '../utils/runtime'
 
 interface BrainMapProps {
   messages: Message[]
@@ -26,7 +32,7 @@ interface BrainMapProps {
   onRefresh?: () => Promise<void> | void
 }
 
-type MemoryKind = 'fonte' | 'memoria' | 'entidade' | 'topico' | 'sistema'
+type MemoryKind = 'fonte' | 'memoria' | 'entidade' | 'topico'
 type MemoryPeriod = 'today' | 'yesterday' | 'week' | 'month' | 'all'
 
 interface MemoryNode {
@@ -35,60 +41,22 @@ interface MemoryNode {
   summary: string
   kind: MemoryKind
   weight: number
-  angle: number
-  radius: number
   x: number
   y: number
-  z: number
   createdAt: Date
   source: string
   tags: string[]
   memoryId?: number
   isCore?: boolean
   locked?: boolean
-  originType?: string | null
 }
 
-type SelectableNodeMesh = THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> & {
-  userData: { nodeId: string }
-}
-
-type MemoryLabelSprite = THREE.Sprite & {
-  material: THREE.SpriteMaterial
-  userData: { nodeId: string; baseOpacity: number; baseScaleX: number; baseScaleY: number }
-}
-
-const STOP_WORDS = new Set([
-  'para', 'como', 'uma', 'com', 'que', 'por', 'mais', 'menos', 'isso', 'esse',
-  'essa', 'esta', 'está', 'ser', 'ter', 'das', 'dos', 'nas', 'nos', 'não',
-  'nao', 'meu', 'minha', 'seu', 'sua', 'sobre', 'apenas', 'agora', 'quando',
-  'onde', 'porque', 'qual', 'quais', 'cada', 'toda', 'todo', 'voce', 'você',
-  'texto', 'documento', 'arquivo', 'pagina', 'página', 'conteudo', 'conteúdo',
-  'trechos', 'material', 'fornecido', 'informacoes', 'informações', 'especificas',
-  'específicas', 'parte', 'partir', 'fonte', 'fontes', 'resumo', 'contexto',
-])
-
-const TOPIC_ALIASES: Record<string, string> = {
-  api: 'APIs',
-  apis: 'APIs',
-  backend: 'backend',
-  banco: 'banco de dados',
-  classe: 'classes',
-  classes: 'classes',
-  codigo: 'código',
-  dados: 'dados',
-  database: 'banco de dados',
-  desenvolvimento: 'desenvolvimento',
-  frontend: 'frontend',
-  funcao: 'funções',
-  funcoes: 'funções',
-  flask: 'Flask',
-  javascript: 'JavaScript',
-  modelo: 'modelo de IA',
-  modelos: 'modelos de IA',
-  programacao: 'programação',
-  python: 'Python',
-  react: 'React',
+interface MemoryLink {
+  id: string
+  sourceId: string
+  targetId: string
+  relationType: string
+  strength: number
 }
 
 const PERIODS: Array<{ id: MemoryPeriod; label: string }> = [
@@ -103,8 +71,7 @@ const KIND_LABEL: Record<MemoryKind, string> = {
   fonte: 'Documento',
   memoria: 'Memória salva',
   entidade: 'Conceito salvo',
-  topico: 'Conceito',
-  sistema: 'Sistema',
+  topico: 'Tópico indexado',
 }
 
 const KIND_COLOR: Record<MemoryKind, string> = {
@@ -112,23 +79,50 @@ const KIND_COLOR: Record<MemoryKind, string> = {
   memoria: '#d7f7ff',
   entidade: '#c7b8ff',
   topico: '#7da7ff',
-  sistema: '#cfd7e6',
 }
 
-const MAX_OBSIDIAN_GRAPH_NODES = 260
-const MAX_OBSIDIAN_GRAPH_NODES_WINDOWS = 190
-const COMPACT_GRAPH_THRESHOLD = 180
-const MAX_OBSIDIAN_LINKS = 720
-const MAX_OBSIDIAN_LINKS_COMPACT = 520
-const MAX_OBSIDIAN_LINKS_WINDOWS = 440
-
-const KIND_RENDER_PRIORITY: Record<MemoryKind, number> = {
-  sistema: 80,
+const KIND_PRIORITY: Record<MemoryKind, number> = {
   memoria: 58,
   fonte: 54,
   entidade: 38,
   topico: 26,
 }
+
+const ENTITY_TYPE_LABEL: Record<string, string> = {
+  technology: 'Tecnologias',
+  project: 'Projetos',
+  concept: 'Conceitos',
+  person: 'Pessoas',
+  event: 'Eventos',
+  tool: 'Ferramentas',
+  library: 'Bibliotecas',
+}
+
+const MEMORY_TYPE_LABEL: Record<string, string> = {
+  short: 'Memórias recentes',
+  medium: 'Memórias de contexto',
+  long: 'Memórias permanentes',
+  archive: 'Memórias arquivadas',
+}
+
+const MAX_GRAPH_NODES = 260
+const MAX_GRAPH_NODES_WINDOWS = 190
+const MIN_ZOOM = 0.65
+const MAX_ZOOM = 3.2
+const GRAPH_WIDTH = 1000
+const GRAPH_HEIGHT = 860
+const GRAPH_CENTER_X = GRAPH_WIDTH / 2
+const GRAPH_CENTER_Y = GRAPH_HEIGHT / 2
+
+const SEMANTIC_STOP_WORDS = new Set([
+  'ainda', 'algo', 'apenas', 'aquela', 'aquele', 'aqui', 'cada', 'como',
+  'com', 'conteudo', 'conversa', 'das', 'de', 'dela', 'dele', 'desde',
+  'documento', 'dos', 'essa', 'esse', 'esta', 'este', 'isso', 'mais',
+  'memoria', 'mesmo', 'minha', 'muito', 'nao', 'nas', 'nos', 'para',
+  'pela', 'pelo', 'por', 'porque', 'qual', 'quando', 'que', 'seu', 'sua',
+  'sobre', 'tambem', 'tem', 'uma', 'voce',
+  'short', 'medium', 'long', 'archive', 'core',
+])
 
 function normalize(text: string) {
   return text
@@ -136,6 +130,8 @@ function normalize(text: string) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function compactLabel(text: string, fallback: string, limit = 72) {
@@ -144,228 +140,430 @@ function compactLabel(text: string, fallback: string, limit = 72) {
   return clean.length > limit ? `${clean.slice(0, limit - 3).trim()}...` : clean
 }
 
-function getTopics(text: string, limit = 5) {
-  const counts = new Map<string, number>()
-  normalize(text)
-    .split(/\s+/)
-    .filter(word => word.length > 3 && !STOP_WORDS.has(word) && !word.includes('-'))
-    .forEach(word => counts.set(word, (counts.get(word) ?? 0) + 1))
-
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, limit)
-    .map(([word]) => word)
-}
-
 function prettifyTopic(topic: string) {
-  const clean = normalize(topic).replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim()
-  if (!clean || clean.length < 3 || STOP_WORDS.has(clean)) return ''
-  return TOPIC_ALIASES[clean] ?? clean.replace(/\b\w/g, char => char.toUpperCase())
+  const clean = topic.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!clean) return ''
+  return clean.replace(/\b\w/g, char => char.toUpperCase())
 }
 
 function getLearningTitle(source: KnowledgeSource) {
-  const candidates = [
-    ...(source.topics ?? []),
-    ...getTopics(`${source.summary} ${source.title}`, 6),
-  ]
-  const topics = [...new Set(candidates.map(prettifyTopic).filter(Boolean))].slice(0, 3)
-
+  const topics = [...new Set((source.topics ?? []).map(prettifyTopic).filter(Boolean))].slice(0, 3)
   if (topics.length === 1) return `Aprendizado sobre ${topics[0]}`
   if (topics.length > 1) {
     return `Aprendizado: ${topics.slice(0, -1).join(', ')} e ${topics[topics.length - 1]}`
   }
-
   return compactLabel(source.title || source.summary, 'Conhecimento importado', 58)
 }
 
-function parseDate(value?: string | null, fallbackOffset = 0) {
+function parseDate(value?: string | null) {
   const parsed = value ? new Date(value) : null
-  if (parsed && !Number.isNaN(parsed.getTime())) return parsed
-  return new Date(Date.now() - fallbackOffset)
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : new Date(0)
 }
 
-function buildBaseMemoryNodes(): Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[] {
-  return [
-    {
-      id: 'sistema-contexto',
-      label: 'Contexto da conversa',
-      summary: 'Memória inicial aguardando mensagens e arquivos.',
-      kind: 'sistema',
-      weight: 8,
-      createdAt: new Date(),
-      source: 'Aether Core',
-      tags: ['contexto', 'sessão'],
-    },
-    {
-      id: 'sistema-pdfs',
-      label: 'PDFs importados',
-      summary: 'Quando você importar PDFs, cada um vira um ponto vivo no grafo.',
-      kind: 'sistema',
-      weight: 7,
-      createdAt: new Date(),
-      source: 'Vault',
-      tags: ['pdf', 'documentos'],
-    },
-    {
-      id: 'sistema-pesquisas',
-      label: 'Pesquisas salvas',
-      summary: 'Pesquisas e páginas entram como conhecimento navegável.',
-      kind: 'sistema',
-      weight: 7,
-      createdAt: new Date(),
-      source: 'Web',
-      tags: ['google', 'web'],
-    },
-    {
-      id: 'sistema-topicos',
-      label: 'Tópicos aprendidos',
-      summary: 'Os principais tópicos aparecem como ramificações do núcleo.',
-      kind: 'sistema',
-      weight: 7,
-      createdAt: new Date(),
-      source: 'Aether Core',
-      tags: ['aprendizado', 'conceitos'],
-    },
-  ]
+function semanticTokens(...values: Array<string | null | undefined>) {
+  return new Set(
+    normalize(values.filter(Boolean).join(' '))
+      .split(/\s+/)
+      .filter(token => token.length >= 3 && !SEMANTIC_STOP_WORDS.has(token)),
+  )
 }
 
-function positionNodes(nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[]): MemoryNode[] {
-  const total = Math.max(nodes.length, 1)
-
-  return nodes.map((node, index) => {
-    const ring = index % 5
-    const angle = index * 2.399963 + ring * 0.2
-    const radius = 1.35 + ring * 0.42 + Math.floor(index / 5) * 0.045 + Math.min(node.weight, 12) * 0.04
-    const vertical = Math.sin(index * 1.71) * (0.45 + ring * 0.06)
-
-    return {
-      ...node,
-      angle,
-      radius,
-      x: Math.cos(angle) * radius,
-      y: vertical,
-      z: Math.sin(angle) * radius * 0.78,
-      weight: node.weight + Math.round((index / total) * 2),
-    }
+function sharedSemanticScore(left: Set<string>, right: Set<string>) {
+  if (!left.size || !right.size) return { shared: 0, score: 0 }
+  let shared = 0
+  left.forEach(token => {
+    if (right.has(token)) shared += 1
   })
+  return {
+    shared,
+    score: shared / Math.max(2, Math.min(left.size, right.size)),
+  }
 }
 
-function selectGraphNodes<T extends { kind: MemoryKind; weight: number; createdAt: Date; isCore?: boolean }>(
-  nodes: T[],
-  limit = isWindowsRuntime() ? MAX_OBSIDIAN_GRAPH_NODES_WINDOWS : MAX_OBSIDIAN_GRAPH_NODES,
-): T[] {
+function selectGraphNodes(
+  nodes: Omit<MemoryNode, 'x' | 'y'>[],
+  limit = isWindowsRuntime() ? MAX_GRAPH_NODES_WINDOWS : MAX_GRAPH_NODES,
+) {
   if (nodes.length <= limit) return nodes
-  const now = Date.now()
-  const ranked = nodes
-    .map((node, index) => {
-      const ageDays = Math.max(0, (now - node.createdAt.getTime()) / 86_400_000)
-      const freshness = Math.max(0, 22 - Math.min(ageDays, 22))
-      const score = KIND_RENDER_PRIORITY[node.kind] + node.weight * 2 + freshness + (node.isCore ? 120 : 0)
-      return { node, index, score }
-    })
+  return nodes
+    .map((node, index) => ({
+      node,
+      index,
+      score: KIND_PRIORITY[node.kind] + node.weight * 2 + (node.isCore ? 120 : 0),
+    }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .sort((a, b) => a.index - b.index)
-
-  return ranked.map(item => item.node)
+    .map(item => item.node)
 }
 
-function buildMemoryNodes(
-  sources: KnowledgeSource[],
-  cognitiveMemories: CognitiveMemory[] = [],
-  graph?: KnowledgeGraph | null,
+function positionNodes(
+  nodes: Omit<MemoryNode, 'x' | 'y'>[],
+  links: MemoryLink[],
 ): MemoryNode[] {
-  const nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 'z'>[] = buildBaseMemoryNodes()
+  if (nodes.length === 0) return []
+  if (nodes.length === 1) {
+    return [{ ...nodes[0], x: GRAPH_CENTER_X, y: GRAPH_CENTER_Y }]
+  }
 
-  sources.forEach((source, sourceIndex) => {
-    const createdAt = parseDate(source.created_at, sourceIndex * 86_400_000)
-    const sourceText = `${source.title} ${source.summary} ${(source.topics ?? []).join(' ')}`
-    const learnedTitle = getLearningTitle(source)
-    const topicTags = [...new Set([...(source.topics ?? []), ...getTopics(sourceText, 4)])]
-      .map(prettifyTopic)
-      .filter(Boolean)
-      .slice(0, 7)
-    const tags = [...new Set([source.source_type, ...topicTags])].slice(0, 8)
+  const indexById = new Map(nodes.map((node, index) => [node.id, index]))
+  const degree = new Array(nodes.length).fill(0)
+  links.forEach(link => {
+    const source = indexById.get(link.sourceId)
+    const target = indexById.get(link.targetId)
+    if (source == null || target == null) return
+    degree[source] += 1
+    degree[target] += 1
+  })
 
-    nodes.push({
-      id: `fonte-${source.id}`,
-      label: learnedTitle,
-      summary: source.summary || `A IA aprendeu conteúdos relacionados a ${learnedTitle}.`,
-      kind: 'fonte',
-      weight: 12 + Math.min(source.topics?.length ?? 0, 10),
-      createdAt,
-      source: source.source_name || source.source_type,
-      tags,
+  const order = nodes
+    .map((_, index) => index)
+    .sort((a, b) => degree[b] - degree[a] || nodes[b].weight - nodes[a].weight)
+  const rankByIndex = new Map(order.map((nodeIndex, rank) => [nodeIndex, rank]))
+  const positions = nodes.map((_, index) => {
+    const rank = rankByIndex.get(index) ?? index
+    if (rank === 0) return { x: GRAPH_CENTER_X, y: GRAPH_CENTER_Y, vx: 0, vy: 0 }
+    const angle = rank * 2.399963229728653
+    const radius = Math.min(315, 54 + Math.sqrt(rank) * 30)
+    return {
+      x: GRAPH_CENTER_X + Math.cos(angle) * radius,
+      y: GRAPH_CENTER_Y + Math.sin(angle) * radius * 0.78,
+      vx: 0,
+      vy: 0,
+    }
+  })
+
+  const iterations = nodes.length > 180 ? 90 : 135
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const cooling = 1 - iteration / iterations
+
+    for (let left = 0; left < positions.length; left += 1) {
+      for (let right = left + 1; right < positions.length; right += 1) {
+        const dx = positions[right].x - positions[left].x || 0.01
+        const dy = positions[right].y - positions[left].y || 0.01
+        const distanceSquared = Math.max(100, dx * dx + dy * dy)
+        const distance = Math.sqrt(distanceSquared)
+        const repulsion = (1450 + (nodes[left].weight + nodes[right].weight) * 26) / distanceSquared
+        const fx = (dx / distance) * repulsion
+        const fy = (dy / distance) * repulsion
+        positions[left].vx -= fx
+        positions[left].vy -= fy
+        positions[right].vx += fx
+        positions[right].vy += fy
+      }
+    }
+
+    links.forEach(link => {
+      const sourceIndex = indexById.get(link.sourceId)
+      const targetIndex = indexById.get(link.targetId)
+      if (sourceIndex == null || targetIndex == null) return
+      const source = positions[sourceIndex]
+      const target = positions[targetIndex]
+      const dx = target.x - source.x
+      const dy = target.y - source.y
+      const distance = Math.max(1, Math.hypot(dx, dy))
+      const desiredDistance = 72 + (1 - Math.min(1, link.strength)) * 68
+      const attraction = (distance - desiredDistance) * (0.012 + link.strength * 0.012)
+      const fx = (dx / distance) * attraction
+      const fy = (dy / distance) * attraction
+      source.vx += fx
+      source.vy += fy
+      target.vx -= fx
+      target.vy -= fy
     })
 
-    topicTags.slice(0, 7).forEach((topic, topicIndex) => {
-      nodes.push({
-        id: `topico-${source.id}-${topic}`,
-        label: compactLabel(topic, 'Tópico aprendido', 48),
-        summary: `Tópico aprendido em ${learnedTitle}.`,
+    positions.forEach((position, index) => {
+      const hubPull = index === order[0] ? 0.045 : 0.0035 + Math.min(degree[index], 8) * 0.0005
+      position.vx += (GRAPH_CENTER_X - position.x) * hubPull
+      position.vy += (GRAPH_CENTER_Y - position.y) * hubPull
+      position.vx *= 0.78
+      position.vy *= 0.78
+      position.x += position.vx * Math.max(0.22, cooling)
+      position.y += position.vy * Math.max(0.22, cooling)
+    })
+  }
+
+  const minX = Math.min(...positions.map(position => position.x))
+  const maxX = Math.max(...positions.map(position => position.x))
+  const minY = Math.min(...positions.map(position => position.y))
+  const maxY = Math.max(...positions.map(position => position.y))
+  const contentWidth = Math.max(1, maxX - minX)
+  const contentHeight = Math.max(1, maxY - minY)
+  const fitScale = Math.min(1, 800 / contentWidth, 660 / contentHeight)
+  const contentCenterX = (minX + maxX) / 2
+  const contentCenterY = (minY + maxY) / 2
+
+  return nodes.map((node, index) => ({
+    ...node,
+    x: GRAPH_CENTER_X + (positions[index].x - contentCenterX) * fitScale,
+    y: GRAPH_CENTER_Y + (positions[index].y - contentCenterY) * fitScale,
+  }))
+}
+
+function buildMemoryGraph(
+  sources: KnowledgeSource[],
+  cognitiveMemories: CognitiveMemory[],
+  graph?: KnowledgeGraph | null,
+): { nodes: MemoryNode[]; links: MemoryLink[] } {
+  const rawNodes: Omit<MemoryNode, 'x' | 'y'>[] = []
+  const rawLinks: MemoryLink[] = []
+  const nodeIds = new Set<string>()
+  const linkKeys = new Set<string>()
+  const sourceSemanticTokens = new Map<string, Set<string>>()
+  const memorySemanticTokens = new Map<string, Set<string>>()
+  const entitySemanticTokens = new Map<string, Set<string>>()
+
+  const addNode = (node: Omit<MemoryNode, 'x' | 'y'>) => {
+    if (nodeIds.has(node.id)) return
+    nodeIds.add(node.id)
+    rawNodes.push(node)
+  }
+
+  const addLink = (link: MemoryLink) => {
+    if (link.sourceId === link.targetId) return
+    const pairKey = [link.sourceId, link.targetId].sort().join('::')
+    if (linkKeys.has(pairKey)) return
+    linkKeys.add(pairKey)
+    rawLinks.push(link)
+  }
+
+  sources.forEach(source => {
+    const sourceId = `fonte-${source.id}`
+    const sourceTitle = getLearningTitle(source)
+    const topics = [
+      ...new Map(
+        (source.topics ?? [])
+          .map(prettifyTopic)
+          .filter(Boolean)
+          .map(topic => [normalize(topic), topic]),
+      ).values(),
+    ]
+
+    addNode({
+      id: sourceId,
+      label: sourceTitle,
+      summary: source.summary || source.title,
+      kind: 'fonte',
+      weight: 12 + Math.min(topics.length, 10),
+      createdAt: parseDate(source.created_at),
+      source: source.source_name || source.source_type,
+      tags: [source.source_type, ...topics].slice(0, 8),
+    })
+    sourceSemanticTokens.set(
+      sourceId,
+      semanticTokens(source.title, source.summary, ...topics),
+    )
+
+    topics.slice(0, 7).forEach((topic, topicIndex) => {
+      const topicKey = normalize(topic)
+      if (!topicKey) return
+      const topicId = `topico-${topicKey.replace(/\s+/g, '-')}`
+      addNode({
+        id: topicId,
+        label: compactLabel(topic, 'Tópico indexado', 48),
+        summary: `Tópico indexado a partir dos documentos e memórias do Aether.`,
         kind: 'topico',
         weight: 6 + (topicIndex % 3),
-        createdAt,
-        source: learnedTitle,
+        createdAt: parseDate(source.created_at),
+        source: 'Conhecimento indexado',
         tags: [source.source_type, topic],
+      })
+      addLink({
+        id: `${sourceId}-${topicId}`,
+        sourceId,
+        targetId: topicId,
+        relationType: 'contém tópico',
+        strength: 0.72,
       })
     })
   })
 
-  // Memórias cognitivas — todas aparecem no Obsidian; importância só muda destaque/tamanho.
-  cognitiveMemories
-    .forEach((memory, memoryIndex) => {
-    const createdAt = parseDate(memory.created_at || memory.last_accessed, memoryIndex * 3_600_000)
-    const tags = [...new Set([memory.memory_type, ...(memory.tags ?? []), ...getTopics(memory.content, 4)])]
-      .map(prettifyTopic)
-      .filter(Boolean)
-      .slice(0, 8)
+  cognitiveMemories.forEach(memory => {
     const importance = Number.isFinite(memory.importance) ? memory.importance : 0.5
-
-    nodes.push({
-      id: `memoria-${memory.id}`,
+    const memoryId = `memoria-${memory.id}`
+    addNode({
+      id: memoryId,
       label: compactLabel(memory.content, memory.is_core ? 'Core Memory' : `Memória ${memory.memory_type}`, 68),
       summary: memory.content,
       kind: 'memoria',
       weight: (memory.is_core ? 18 : 8) + Math.round(importance * 7) + Math.min(memory.access_count ?? 0, 4),
-      createdAt,
+      createdAt: parseDate(memory.created_at || memory.last_accessed),
       source: memory.origin_type ? `Origem: ${memory.origin_type}` : `Memória ${memory.memory_type}`,
-      tags,
+      tags: [...new Set([memory.memory_type, ...(memory.tags ?? [])])].slice(0, 8),
       memoryId: memory.id,
       isCore: Boolean(memory.is_core),
       locked: Boolean(memory.locked),
-      originType: memory.origin_type,
     })
+    memorySemanticTokens.set(
+      memoryId,
+      semanticTokens(memory.content, ...(memory.tags ?? [])),
+    )
+
+    const hasDocumentSource = memory.source_table === 'knowledge_sources' && memory.source_id != null
+    if (hasDocumentSource) {
+      addLink({
+        id: `${memoryId}-fonte-${memory.source_id}`,
+        sourceId: memoryId,
+        targetId: `fonte-${memory.source_id}`,
+        relationType: 'originada de',
+        strength: 0.9,
+      })
+    }
+
+    const meaningfulTags = (memory.tags ?? []).filter(tag => {
+      const tagKey = normalize(tag)
+      return Boolean(tagKey && !SEMANTIC_STOP_WORDS.has(tagKey))
+    })
+    meaningfulTags.forEach(tag => {
+      const topicKey = normalize(tag)
+      const topicId = `topico-${topicKey.replace(/\s+/g, '-')}`
+      addNode({
+        id: topicId,
+        label: prettifyTopic(tag),
+        summary: `Tópico associado diretamente a memórias salvas.`,
+        kind: 'topico',
+        weight: 6,
+        createdAt: parseDate(memory.created_at || memory.last_accessed),
+        source: 'Tags de memória',
+        tags: [tag],
+      })
+      addLink({
+        id: `${memoryId}-${topicId}`,
+        sourceId: memoryId,
+        targetId: topicId,
+        relationType: 'marcada com',
+        strength: 0.84,
+      })
+    })
+
+    if (!hasDocumentSource && meaningfulTags.length === 0) {
+      const memoryType = normalize(memory.memory_type) || 'memory'
+      const categoryId = `categoria-memoria-${memoryType}`
+      addNode({
+        id: categoryId,
+        label: MEMORY_TYPE_LABEL[memoryType] || `Memórias ${memory.memory_type}`,
+        summary: `Agrupamento pelo tipo real de retenção da memória.`,
+        kind: 'topico',
+        weight: 7,
+        createdAt: parseDate(memory.created_at || memory.last_accessed),
+        source: 'Classificação da memória',
+        tags: [memory.memory_type],
+      })
+      addLink({
+        id: `${memoryId}-${categoryId}`,
+        sourceId: memoryId,
+        targetId: categoryId,
+        relationType: 'tipo de memória',
+        strength: 0.72,
+      })
+    }
   })
 
-  // Entidades do grafo cognitivo — somente confirmadas (importance >= 0.5, access >= 1)
-  ;(graph?.entities ?? [])
-    .filter(entity => (entity.importance ?? 0) >= 0.5 && (entity.access_count ?? 0) >= 1)
-    .slice(0, 50)
-    .forEach((entity, entityIndex) => {
-    const createdAt = parseDate(entity.last_seen || entity.first_seen, entityIndex * 5_400_000)
-    const entityTags = [entity.entity_type, ...getTopics(`${entity.name} ${entity.description ?? ''}`, 4)]
-      .map(prettifyTopic)
-      .filter(Boolean)
-      .slice(0, 6)
+  const entityIdByName = new Map<string, string>()
+  ;(graph?.entities ?? []).forEach(entity => {
+    const entityId = `entidade-${entity.id}`
+    entityIdByName.set(normalize(entity.name), entityId)
     const importance = Number.isFinite(entity.importance) ? entity.importance : 0.5
-
-    nodes.push({
-      id: `entidade-${entity.id}`,
-      label: compactLabel(prettifyTopic(entity.name) || entity.name, 'Conceito salvo', 54),
-      summary: entity.description || `Conceito detectado e salvo no grafo cognitivo: ${entity.name}.`,
+    addNode({
+      id: entityId,
+      label: compactLabel(entity.name, 'Conceito salvo', 54),
+      summary: entity.description || `Conceito salvo no grafo cognitivo: ${entity.name}.`,
       kind: 'entidade',
       weight: 7 + Math.round(importance * 8) + Math.min(entity.access_count ?? 0, 4),
-      createdAt,
+      createdAt: parseDate(entity.last_seen || entity.first_seen),
       source: 'Grafo cognitivo',
-      tags: entityTags,
+      tags: [entity.entity_type],
+    })
+    entitySemanticTokens.set(
+      entityId,
+      semanticTokens(entity.name, entity.description, entity.entity_type),
+    )
+
+    const entityType = normalize(entity.entity_type) || 'concept'
+    const categoryId = `categoria-entidade-${entityType}`
+    addNode({
+      id: categoryId,
+      label: ENTITY_TYPE_LABEL[entityType] || prettifyTopic(entity.entity_type),
+      summary: `Agrupamento pela classificação registrada no grafo de conhecimento.`,
+      kind: 'topico',
+      weight: 8,
+      createdAt: parseDate(entity.last_seen || entity.first_seen),
+      source: 'Classificação do grafo',
+      tags: [entity.entity_type],
+    })
+    addLink({
+      id: `${entityId}-${categoryId}`,
+      sourceId: entityId,
+      targetId: categoryId,
+      relationType: 'classificada como',
+      strength: 0.76,
     })
   })
 
-  // Mensagens brutas NÃO entram no Obsidian.
-  // O grafo representa conhecimento adquirido, não histórico de chat.
+  ;(graph?.edges ?? []).forEach((edge, index) => {
+    const sourceId = entityIdByName.get(normalize(edge.source))
+    const targetId = entityIdByName.get(normalize(edge.target))
+    if (!sourceId || !targetId) return
+    addLink({
+      id: `kg-${sourceId}-${targetId}-${edge.relation_type}-${index}`,
+      sourceId,
+      targetId,
+      relationType: edge.relation_type,
+      strength: Number.isFinite(edge.strength) ? edge.strength : 0.5,
+    })
+  })
 
-  return positionNodes(selectGraphNodes(nodes))
+  const connectByMeaning = (
+    sourceId: string,
+    sourceTokens: Set<string>,
+    candidates: Array<[string, Set<string>]>,
+    relationType: string,
+    limit: number,
+  ) => {
+    candidates
+      .map(([targetId, targetTokens]) => ({
+        targetId,
+        ...sharedSemanticScore(sourceTokens, targetTokens),
+      }))
+      .filter(match => match.shared >= 2 || (match.shared === 1 && match.score >= 0.34))
+      .sort((a, b) => b.score - a.score || b.shared - a.shared)
+      .slice(0, limit)
+      .forEach(match => {
+        addLink({
+          id: `semantic-${sourceId}-${match.targetId}`,
+          sourceId,
+          targetId: match.targetId,
+          relationType,
+          strength: Math.min(0.82, 0.48 + match.score * 0.38),
+        })
+      })
+  }
+
+  const topicSemanticTokens = rawNodes
+    .filter(node => node.kind === 'topico')
+    .map(node => [node.id, semanticTokens(node.label, ...node.tags)] as [string, Set<string>])
+  const entityCandidates = [...entitySemanticTokens.entries()]
+  const sourceCandidates = [...sourceSemanticTokens.entries()]
+
+  memorySemanticTokens.forEach((tokens, memoryId) => {
+    connectByMeaning(memoryId, tokens, entityCandidates, 'menciona conceito', 3)
+    connectByMeaning(memoryId, tokens, topicSemanticTokens, 'relacionada ao tópico', 3)
+    connectByMeaning(memoryId, tokens, sourceCandidates, 'contexto compartilhado', 2)
+  })
+
+  sourceSemanticTokens.forEach((tokens, sourceId) => {
+    connectByMeaning(sourceId, tokens, entityCandidates, 'menciona conceito', 4)
+  })
+
+  const selectedNodes = selectGraphNodes(rawNodes)
+  const visibleIds = new Set(selectedNodes.map(node => node.id))
+  const selectedLinks = rawLinks.filter(
+    link => visibleIds.has(link.sourceId) && visibleIds.has(link.targetId),
+  )
+  return {
+    nodes: positionNodes(selectedNodes, selectedLinks),
+    links: selectedLinks,
+  }
 }
 
 function filterNodesByPeriod(nodes: MemoryNode[], period: MemoryPeriod) {
@@ -385,580 +583,225 @@ function filterNodesByPeriod(nodes: MemoryNode[], period: MemoryPeriod) {
 }
 
 function formatShortDate(date: Date) {
+  if (date.getTime() === 0) return '--'
   return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-}
-
-function makeLabelLines(text: string) {
-  const clean = compactLabel(text, 'Memória', 44)
-  const words = clean.split(/\s+/)
-  const lines: string[] = []
-  let current = ''
-
-  words.forEach(word => {
-    const next = current ? `${current} ${word}` : word
-    if (next.length > 21 && current) {
-      lines.push(current)
-      current = word
-    } else {
-      current = next
-    }
-  })
-
-  if (current) lines.push(current)
-  return lines.slice(0, 2)
-}
-
-function createTextLabelSprite(node: MemoryNode, color: THREE.Color, textColor: THREE.Color): MemoryLabelSprite {
-  const lines = makeLabelLines(node.label)
-  const canvas = document.createElement('canvas')
-  const context = canvas.getContext('2d')
-  const pixelRatio = Math.min(window.devicePixelRatio || 1, 2)
-  const fontSize = 25
-  const paddingX = 18
-  const paddingY = 10
-  const lineHeight = 29
-
-  if (!context) {
-    const fallbackTexture = new THREE.CanvasTexture(canvas)
-    const fallbackMaterial = new THREE.SpriteMaterial({ map: fallbackTexture, transparent: true, opacity: 0.55 })
-    const fallback = new THREE.Sprite(fallbackMaterial) as MemoryLabelSprite
-    fallback.userData = { nodeId: node.id, baseOpacity: 0.55, baseScaleX: 0.5, baseScaleY: 0.18 }
-    return fallback
-  }
-
-  context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, sans-serif`
-  const textWidth = Math.max(...lines.map(line => context.measureText(line).width), 72)
-  const width = Math.ceil((textWidth + paddingX * 2) * pixelRatio)
-  const height = Math.ceil((paddingY * 2 + lineHeight * lines.length) * pixelRatio)
-  canvas.width = width
-  canvas.height = height
-
-  context.scale(pixelRatio, pixelRatio)
-  context.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "SF Pro Display", Inter, sans-serif`
-  context.textAlign = 'center'
-  context.textBaseline = 'middle'
-
-  const cssWidth = width / pixelRatio
-  const cssHeight = height / pixelRatio
-  const radius = 14
-  context.beginPath()
-  context.roundRect(0.5, 0.5, cssWidth - 1, cssHeight - 1, radius)
-  context.fillStyle = `rgba(${Math.round(textColor.r * 255)}, ${Math.round(textColor.g * 255)}, ${Math.round(textColor.b * 255)}, 0.12)`
-  context.fill()
-  context.strokeStyle = `rgba(${Math.round(color.r * 255)}, ${Math.round(color.g * 255)}, ${Math.round(color.b * 255)}, 0.38)`
-  context.lineWidth = 1
-  context.stroke()
-
-  lines.forEach((line, index) => {
-    const y = paddingY + lineHeight * index + lineHeight / 2
-    context.lineWidth = 5
-    context.strokeStyle = 'rgba(0, 0, 0, 0.5)'
-    context.strokeText(line, cssWidth / 2, y)
-    context.fillStyle = `rgba(${Math.round(textColor.r * 255)}, ${Math.round(textColor.g * 255)}, ${Math.round(textColor.b * 255)}, 0.92)`
-    context.fillText(line, cssWidth / 2, y)
-  })
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  texture.needsUpdate = true
-
-  const material = new THREE.SpriteMaterial({
-    map: texture,
-    transparent: true,
-    opacity: 0.46,
-    depthWrite: false,
-    depthTest: false,
-  })
-  const sprite = new THREE.Sprite(material) as MemoryLabelSprite
-  const worldWidth = Math.min(1.24, Math.max(0.52, cssWidth / 155))
-  const worldHeight = worldWidth * (cssHeight / cssWidth)
-  sprite.scale.set(worldWidth, worldHeight, 1)
-  sprite.userData = {
-    nodeId: node.id,
-    baseOpacity: node.kind === 'fonte' || node.kind === 'memoria' ? 0.62 : 0.42,
-    baseScaleX: worldWidth,
-    baseScaleY: worldHeight,
-  }
-  return sprite
-}
-
-export function ThreeMemoryGraph({
-  nodes,
-  selectedId,
-  thoughtMode,
-  onSelect,
-}: {
-  nodes: MemoryNode[]
-  selectedId: string
-  thoughtMode: boolean
-  onSelect: (id: string) => void
-}) {
-  const mountRef = useRef<HTMLDivElement>(null)
-  const selectedIdRef = useRef(selectedId)
-  const onSelectRef = useRef(onSelect)
-
-  useEffect(() => {
-    selectedIdRef.current = selectedId
-  }, [selectedId])
-
-  useEffect(() => {
-    onSelectRef.current = onSelect
-  }, [onSelect])
-
-  useEffect(() => {
-    const mount = mountRef.current
-    if (!mount) return
-    const scene = new THREE.Scene()
-    const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100)
-    camera.position.set(0, 0.65, 7.2)
-
-    const isWindows = isWindowsRuntime()
-    const windowsProfile = getWindowsVisualProfile()
-    const renderer = new THREE.WebGLRenderer({ antialias: isWindows ? windowsProfile.antialias : true, alpha: true, powerPreference: 'high-performance' })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isWindows ? windowsProfile.pixelRatio : 1.25))
-    renderer.setClearColor(0x000000, 0)
-    renderer.domElement.style.touchAction = 'none'
-    renderer.domElement.style.pointerEvents = 'auto'
-    mount.appendChild(renderer.domElement)
-
-    // Ocultar barras de rolagem nativas para evitar que o mouse cause scroll em vez de zoom
-    mount.style.overflow = 'hidden'
-
-    // O target real onde os eventos de mouse vão disparar é o próprio canvas
-    const eventTarget = renderer.domElement
-
-    const root = new THREE.Group()
-    const nodesGroup = new THREE.Group()
-    const labelsGroup = new THREE.Group()
-    const flowGroup = new THREE.Group()
-    const ambientParticles = new THREE.Group()
-    root.rotation.x = -0.18
-    root.position.y = 0.45
-    scene.add(root)
-    root.add(flowGroup, nodesGroup, labelsGroup, ambientParticles)
-
-    const style = getComputedStyle(document.documentElement)
-    const accentHot = new THREE.Color(style.getPropertyValue('--accent-hot').trim() || '#ffffff')
-    const accent = new THREE.Color(style.getPropertyValue('--accent').trim() || '#dbe4ef')
-    const textColor = new THREE.Color(style.getPropertyValue('--text').trim() || '#111827')
-
-    const disposables: Array<{ dispose: () => void }> = []
-    const selectableMeshes: SelectableNodeMesh[] = []
-    const labelSprites: MemoryLabelSprite[] = []
-
-    scene.add(new THREE.AmbientLight(0xffffff, 1.2))
-    const keyLight = new THREE.PointLight(accentHot, 5.6, 24)
-    keyLight.position.set(0, 2.8, 4.6)
-    scene.add(keyLight)
-    const sideLight = new THREE.PointLight(accent, 2.4, 18)
-    sideLight.position.set(-4, -1, 3)
-    scene.add(sideLight)
-
-    const coreGeometry = new THREE.SphereGeometry(0.42, 48, 48)
-    const coreMaterial = new THREE.MeshPhysicalMaterial({
-      color: accentHot,
-      emissive: accentHot,
-      emissiveIntensity: 0.28,
-      metalness: 0.08,
-      roughness: 0.12,
-      transmission: 0.58,
-      transparent: true,
-      opacity: 0.68,
-      clearcoat: 1,
-      clearcoatRoughness: 0.08,
-    })
-    disposables.push(coreGeometry, coreMaterial)
-    const core = new THREE.Mesh(coreGeometry, coreMaterial)
-    root.add(core)
-
-    const haloGeometry = new THREE.SphereGeometry(0.88, 40, 40)
-    const haloMaterial = new THREE.MeshBasicMaterial({
-      color: accentHot,
-      transparent: true,
-      opacity: 0.08,
-      wireframe: true,
-      blending: THREE.AdditiveBlending,
-    })
-    disposables.push(haloGeometry, haloMaterial)
-    root.add(new THREE.Mesh(haloGeometry, haloMaterial))
-
-    const ringMaterial = new THREE.LineBasicMaterial({
-      color: accentHot,
-      transparent: true,
-      opacity: 0.13,
-      blending: THREE.AdditiveBlending,
-    })
-    disposables.push(ringMaterial)
-    for (let index = 0; index < 7; index += 1) {
-      const geometry = new THREE.TorusGeometry(1.1 + index * 0.42, 0.003, 6, 112)
-      disposables.push(geometry)
-      const ring = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
-        color: index % 2 ? accent : accentHot,
-        transparent: true,
-        opacity: 0.11,
-        blending: THREE.AdditiveBlending,
-      }))
-      disposables.push(ring.material)
-      ring.rotation.x = Math.PI / 2 + index * 0.035
-      ring.rotation.y = index * 0.16
-      ring.userData = { speed: 0.001 + index * 0.0002 }
-      root.add(ring)
-    }
-
-    const pointCount = Math.max(360, nodes.length * 8)
-    const particlePositions = new Float32Array(pointCount * 3)
-    for (let index = 0; index < pointCount; index += 1) {
-      const angle = index * 2.399963
-      const radius = 1.2 + Math.random() * 4.4
-      particlePositions[index * 3] = Math.cos(angle) * radius
-      particlePositions[index * 3 + 1] = (Math.random() - 0.5) * 2.5
-      particlePositions[index * 3 + 2] = Math.sin(angle) * radius
-    }
-    const particleGeometry = new THREE.BufferGeometry()
-    particleGeometry.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3))
-    const particleMaterial = new THREE.PointsMaterial({
-      color: accentHot,
-      size: 0.012,
-      sizeAttenuation: true,
-      transparent: true,
-      opacity: 0.32,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    })
-    disposables.push(particleGeometry, particleMaterial)
-    ambientParticles.add(new THREE.Points(particleGeometry, particleMaterial))
-
-    const linePositions: number[] = []
-    const thoughtPositions: number[] = []
-    nodes.forEach((node, index) => {
-      const color = new THREE.Color(KIND_COLOR[node.kind])
-      const size = 0.055 + Math.min(node.weight, 16) * 0.008
-      const geometry = new THREE.SphereGeometry(size, 12, 12)
-      const material = new THREE.MeshStandardMaterial({
-        color,
-        emissive: color,
-        emissiveIntensity: node.id === selectedIdRef.current ? 0.72 : 0.22,
-        metalness: 0.02,
-        roughness: 0.34,
-        transparent: true,
-        opacity: node.id === selectedIdRef.current ? 0.96 : 0.72,
-      })
-      disposables.push(geometry, material)
-      const mesh = new THREE.Mesh(geometry, material) as unknown as SelectableNodeMesh
-      mesh.position.set(node.x, node.y, node.z)
-      mesh.userData = { nodeId: node.id }
-      nodesGroup.add(mesh)
-      selectableMeshes.push(mesh)
-
-      const label = createTextLabelSprite(node, color, textColor)
-      const labelLift = size + 0.16 + (index % 3) * 0.018
-      label.position.set(node.x, node.y + labelLift, node.z)
-      labelsGroup.add(label)
-      labelSprites.push(label)
-      if (label.material.map) disposables.push(label.material.map)
-      disposables.push(label.material)
-
-      linePositions.push(0, 0, 0, node.x, node.y, node.z)
-
-      if (thoughtMode && index < Math.min(8, nodes.length)) {
-        const previous = index === 0 ? { x: 0, y: 0, z: 0 } : nodes[index - 1]
-        thoughtPositions.push(previous.x, previous.y, previous.z, node.x, node.y, node.z)
-      }
-    })
-
-    const lineGeometry = new THREE.BufferGeometry()
-    lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3))
-    const lineMaterial = new THREE.LineBasicMaterial({
-      color: textColor,
-      transparent: true,
-      opacity: 0.2,
-      blending: THREE.AdditiveBlending,
-    })
-    disposables.push(lineGeometry, lineMaterial)
-    flowGroup.add(new THREE.LineSegments(lineGeometry, lineMaterial))
-
-    let thoughtLine: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial> | null = null
-    if (thoughtPositions.length) {
-      const geometry = new THREE.BufferGeometry()
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(thoughtPositions, 3))
-      const material = new THREE.LineBasicMaterial({
-        color: accentHot,
-        transparent: true,
-        opacity: 0.82,
-        blending: THREE.AdditiveBlending,
-      })
-      disposables.push(geometry, material)
-      thoughtLine = new THREE.LineSegments(geometry, material)
-      root.add(thoughtLine)
-    }
-
-    const resize = () => {
-      const width = Math.max(mount.clientWidth, 320)
-      const height = Math.max(mount.clientHeight, 320)
-      camera.aspect = width / height
-      camera.updateProjectionMatrix()
-      renderer.setSize(width, height)
-    }
-    resize()
-    const observer = new ResizeObserver(resize)
-    observer.observe(mount)
-
-    const raycaster = new THREE.Raycaster()
-    const pointer = new THREE.Vector2()
-    let dragging = false
-    let moved = false
-    let startX = 0
-    let startY = 0
-    let targetRotY = root.rotation.y
-    let targetRotX = root.rotation.x
-    let idleVelocity = 0.0019
-
-    const setPointer = (event: PointerEvent) => {
-      const rect = renderer.domElement.getBoundingClientRect()
-      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1)
-    }
-
-    const onPointerDown = (event: PointerEvent) => {
-      dragging = true
-      idleVelocity = 0.0004
-      moved = false
-      startX = event.clientX
-      startY = event.clientY
-      try {
-        eventTarget.setPointerCapture(event.pointerId)
-      } catch {
-        /* pointer capture can fail if the event began on a composed child */
-      }
-    }
-
-    const onPointerMove = (event: PointerEvent) => {
-      if (!dragging) return
-      const dx = event.clientX - startX
-      const dy = event.clientY - startY
-      if (Math.abs(dx) + Math.abs(dy) > 6) moved = true
-      startX = event.clientX
-      startY = event.clientY
-      targetRotY += dx * 0.006
-      targetRotX += dy * 0.003
-      targetRotX = Math.max(-0.92, Math.min(0.42, targetRotX))
-    }
-
-    const onPointerUp = (event: PointerEvent) => {
-      dragging = false
-      idleVelocity = 0.0019
-      if (eventTarget.hasPointerCapture(event.pointerId)) {
-        eventTarget.releasePointerCapture(event.pointerId)
-      }
-      if (moved) return
-      setPointer(event)
-      raycaster.setFromCamera(pointer, camera)
-      const hit = raycaster.intersectObjects(selectableMeshes, false)[0]
-      const nodeId = hit?.object.userData.nodeId
-      if (nodeId) onSelectRef.current(nodeId)
-    }
-
-    const onWheel = (event: WheelEvent) => {
-      event.preventDefault()
-      event.stopPropagation()
-      const delta = Math.sign(event.deltaY) * Math.min(Math.abs(event.deltaY), 120)
-      camera.position.z = Math.max(3.5, Math.min(11.5, camera.position.z + delta * 0.01))
-    }
-
-    eventTarget.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('pointermove', onPointerMove)
-    window.addEventListener('pointerup', onPointerUp)
-    window.addEventListener('pointercancel', onPointerUp)
-    eventTarget.addEventListener('wheel', onWheel, { passive: false })
-
-    let frame = 0
-    let animationId = 0
-    let lastFrameAt = 0
-    const targetFrameMs = isWindows ? windowsProfile.targetFrameMs : 16
-    const animate = () => {
-      animationId = window.requestAnimationFrame(animate)
-      const now = performance.now()
-      if (now - lastFrameAt < targetFrameMs) return
-      lastFrameAt = now
-      frame += 1
-      if (!dragging) {
-        targetRotY += idleVelocity
-        targetRotX += Math.sin(frame * 0.003) * 0.0002
-      }
-      root.rotation.y += (targetRotY - root.rotation.y) * 0.08
-      root.rotation.x += (targetRotX - root.rotation.x) * 0.08
-      root.rotation.z = Math.sin(frame * 0.006) * 0.025
-      core.scale.setScalar(1 + Math.sin(frame * 0.04) * 0.06)
-      ambientParticles.rotation.y += 0.0009
-      ambientParticles.rotation.x = Math.sin(frame * 0.004) * 0.08
-      flowGroup.rotation.y -= 0.0007
-      if (thoughtLine) thoughtLine.material.opacity = 0.48 + Math.sin(frame * 0.05) * 0.26
-
-      selectableMeshes.forEach(mesh => {
-        const material = mesh.material
-        const active = mesh.userData.nodeId === selectedIdRef.current
-        const targetOpacity = active ? 0.96 : 0.72
-        const targetIntensity = active ? 0.72 : 0.22
-        material.opacity += (targetOpacity - material.opacity) * 0.12
-        material.emissiveIntensity += (targetIntensity - material.emissiveIntensity) * 0.12
-        mesh.scale.setScalar(active ? 1.22 : 1)
-      })
-
-      labelSprites.forEach(sprite => {
-        const active = sprite.userData.nodeId === selectedIdRef.current
-        const targetOpacity = active ? 0.98 : sprite.userData.baseOpacity
-        const targetScale = active ? 1.16 : 1
-        sprite.material.opacity += (targetOpacity - sprite.material.opacity) * 0.12
-        sprite.scale.x += (sprite.userData.baseScaleX * targetScale - sprite.scale.x) * 0.12
-        sprite.scale.y += (sprite.userData.baseScaleY * targetScale - sprite.scale.y) * 0.12
-        sprite.visible = camera.position.distanceTo(sprite.position) < 12
-        sprite.renderOrder = active ? 4 : 2
-      })
-
-      root.children.forEach(child => {
-        if (child instanceof THREE.Mesh && child.geometry.type === 'TorusGeometry') {
-          child.rotation.z += (child.userData.speed ?? 0.001)
-        }
-      })
-
-      renderer.render(scene, camera)
-    }
-    animate()
-
-    return () => {
-      window.cancelAnimationFrame(animationId)
-      observer.disconnect()
-      eventTarget.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('pointermove', onPointerMove)
-      window.removeEventListener('pointerup', onPointerUp)
-      window.removeEventListener('pointercancel', onPointerUp)
-      eventTarget.removeEventListener('wheel', onWheel)
-      renderer.dispose()
-      disposables.forEach(item => item.dispose())
-      if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement)
-    }
-  }, [nodes, thoughtMode])
-
-  return <div ref={mountRef} className="memory-three-canvas" aria-label="Mapa neural 3D interativo" />
 }
 
 function ObsidianMemoryGraph({
   nodes,
+  links,
   selectedId,
   onSelect,
 }: {
   nodes: MemoryNode[]
+  links: MemoryLink[]
   selectedId: string
   onSelect: (id: string) => void
 }) {
-  const graph = useMemo(() => {
-    const center = { x: 500, y: 430 }
-    const compact = nodes.length > COMPACT_GRAPH_THRESHOLD
-    const linkBudget = isWindowsRuntime() ? MAX_OBSIDIAN_LINKS_WINDOWS : compact ? MAX_OBSIDIAN_LINKS_COMPACT : MAX_OBSIDIAN_LINKS
-    const neighborWindow = compact ? 5 : 9
-    const points = nodes.map((node, index) => {
-      const kindBias: Record<MemoryKind, { x: number; y: number; r: number }> = {
-        memoria: { x: -70, y: 35, r: 235 },
-        fonte: { x: 60, y: -20, r: 285 },
-        entidade: { x: 105, y: 70, r: 245 },
-        topico: { x: 0, y: 0, r: 368 },
-        sistema: { x: 0, y: 0, r: 38 },
-      }
-      const bias = kindBias[node.kind]
-      const ring = node.kind === 'topico' ? 1 : index % 4
-      const angle = node.angle + (node.kind === 'topico' ? index * 0.03 : 0)
-      const radius = node.kind === 'sistema'
-        ? bias.r + index * 8
-        : bias.r * (0.54 + (ring * 0.13)) + Math.min(node.weight, 20) * 2.8
-      const wave = Math.sin(index * 1.7) * 28
+  const svgRef = useRef<SVGSVGElement>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+    moved: boolean
+  } | null>(null)
+  const suppressClickUntilRef = useRef(0)
+  const [view, setView] = useState({ x: 0, y: 0, scale: 1 })
+  const nodeById = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes])
+  const visibleLinks = useMemo(
+    () => links
+      .map(link => ({
+        ...link,
+        source: nodeById.get(link.sourceId),
+        target: nodeById.get(link.targetId),
+      }))
+      .filter((link): link is typeof link & { source: MemoryNode; target: MemoryNode } => (
+        Boolean(link.source && link.target)
+      )),
+    [links, nodeById],
+  )
+
+  const zoomAtCenter = useCallback((factor: number) => {
+    setView(current => {
+      const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current.scale * factor))
       return {
-        ...node,
-        gx: center.x + bias.x + Math.cos(angle) * radius,
-        gy: center.y + bias.y + Math.sin(angle) * radius * 0.78 + wave,
-        size: Math.max(4.2, Math.min(11.5, 3.2 + node.weight * 0.38)),
+        scale,
+        x: GRAPH_CENTER_X - ((GRAPH_CENTER_X - current.x) / current.scale) * scale,
+        y: GRAPH_CENTER_Y - ((GRAPH_CENTER_Y - current.y) / current.scale) * scale,
       }
     })
+  }, [])
 
-    const pointById = new Map(points.map(point => [point.id, point]))
-    const links: Array<{ a: typeof points[number]; b: typeof points[number]; strong: boolean }> = []
-    const core = points.find(point => point.kind === 'sistema') ?? points[0]
+  const resetView = useCallback(() => setView({ x: 0, y: 0, scale: 1 }), [])
 
-    points.forEach((point, index) => {
-      if (core && point.id !== core.id && (index % 2 === 0 || point.kind !== 'topico')) {
-        links.push({ a: core, b: point, strong: point.kind === 'memoria' || point.kind === 'fonte' })
-      }
-
-      for (let nextIndex = index + 1; nextIndex < Math.min(points.length, index + neighborWindow); nextIndex += 1) {
-        const next = points[nextIndex]
-        const sharesTag = point.tags.some(tag => next.tags.includes(tag))
-        const sameSource = point.source === next.source
-        const near = Math.hypot(point.gx - next.gx, point.gy - next.gy) < 180
-        if (sharesTag || sameSource || near) links.push({ a: point, b: next, strong: sharesTag || sameSource })
+  const handleWheel = useCallback((event: React.WheelEvent<SVGSVGElement>) => {
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const cursorX = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * GRAPH_WIDTH
+    const cursorY = ((event.clientY - rect.top) / Math.max(rect.height, 1)) * GRAPH_HEIGHT
+    const factor = event.deltaY < 0 ? 1.12 : 0.89
+    setView(current => {
+      const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current.scale * factor))
+      const contentX = (cursorX - current.x) / current.scale
+      const contentY = (cursorY - current.y) / current.scale
+      return {
+        scale,
+        x: cursorX - contentX * scale,
+        y: cursorY - contentY * scale,
       }
     })
+  }, [])
 
-    return { points, links: links.slice(0, linkBudget), pointById }
-  }, [nodes])
+  const handlePointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return
+    if ((event.target as Element).closest('.obsidian-graph-node')) return
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: view.x,
+      originY: view.y,
+      moved: false,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }, [view.x, view.y])
 
-  const selectedPoint = graph.pointById.get(selectedId)
+  const handlePointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const dx = event.clientX - drag.startX
+    const dy = event.clientY - drag.startY
+    if (Math.abs(dx) + Math.abs(dy) > 5) drag.moved = true
+    setView(current => ({
+      ...current,
+      x: drag.originX + (dx / Math.max(rect.width, 1)) * GRAPH_WIDTH,
+      y: drag.originY + (dy / Math.max(rect.height, 1)) * GRAPH_HEIGHT,
+    }))
+  }, [])
+
+  const handlePointerEnd = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    if (drag.moved) suppressClickUntilRef.current = performance.now() + 180
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    dragRef.current = null
+  }, [])
+
+  const selectNode = useCallback((id: string) => {
+    if (performance.now() < suppressClickUntilRef.current) return
+    onSelect(id)
+  }, [onSelect])
+
+  if (!nodes.length) {
+    return (
+      <div className="obsidian-graph-empty" role="status">
+        <Network size={28} />
+        <strong>Nenhum conhecimento neste período</strong>
+        <p>Converse com o Aether ou importe um documento para criar memórias e relações reais.</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="obsidian-graph-viewport" aria-label="Visualização em gráfico das memórias do Aether Memory">
-      <svg viewBox="0 0 1000 860" role="img" aria-label="Grafo de memórias">
-        <defs>
-          <radialGradient id="obsidianNodeGlow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="currentColor" stopOpacity="0.95" />
-            <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
-          </radialGradient>
-        </defs>
-        <circle className="obsidian-graph-boundary" cx="500" cy="430" r="382" />
-        <g className="obsidian-graph-links">
-          {graph.links.map((link, index) => (
-            <line
-              key={`${link.a.id}-${link.b.id}-${index}`}
-              className={link.strong ? 'is-strong' : ''}
-              x1={link.a.gx}
-              y1={link.a.gy}
-              x2={link.b.gx}
-              y2={link.b.gy}
-            />
-          ))}
-        </g>
-        <g className="obsidian-graph-nodes">
-          {graph.points.map(point => {
-            const active = point.id === selectedId
-            const showGlow = active || point.isCore || point.kind === 'sistema' || point.weight >= 14
-            return (
-              <g
-                key={point.id}
-                className={`obsidian-graph-node node-${point.kind} ${active ? 'is-active' : ''}`}
-                style={{ color: KIND_COLOR[point.kind] }}
-                onClick={() => onSelect(point.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') onSelect(point.id)
-                }}
-                aria-label={point.label}
+    <div className="obsidian-graph-viewport" aria-label="Grafo interativo das memórias do Aether Memory">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`}
+        preserveAspectRatio="xMidYMid meet"
+        role="group"
+        aria-label="Arraste para mover o mapa e use a roda ou os controles para aplicar zoom"
+        onWheel={handleWheel}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+      >
+        <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
+          <circle
+            className="obsidian-graph-boundary"
+            cx={GRAPH_CENTER_X}
+            cy={GRAPH_CENTER_Y}
+            r="382"
+          />
+          <g className="obsidian-graph-links">
+            {visibleLinks.map(link => (
+              <line
+                key={link.id}
+                className={[
+                  link.strength >= 0.7 ? 'is-strong' : '',
+                  link.sourceId === selectedId || link.targetId === selectedId ? 'is-active' : '',
+                ].filter(Boolean).join(' ')}
+                x1={link.source.x}
+                y1={link.source.y}
+                x2={link.target.x}
+                y2={link.target.y}
               >
-                {showGlow && <circle className="node-glow" cx={point.gx} cy={point.gy} r={point.size * 3.1} />}
-                <circle className="node-dot" cx={point.gx} cy={point.gy} r={point.size} />
-                {active && <circle className="node-ring" cx={point.gx} cy={point.gy} r={point.size + 10} />}
-              </g>
-            )
-          })}
-        </g>
-        {selectedPoint && (
-          <g className="obsidian-selected-ray">
-            <line x1="500" y1="430" x2={selectedPoint.gx} y2={selectedPoint.gy} />
+                <title>{link.relationType}</title>
+              </line>
+            ))}
           </g>
-        )}
+          <g className="obsidian-graph-nodes">
+            {nodes.map(node => {
+              const active = node.id === selectedId
+              const size = Math.max(4.2, Math.min(11.5, 3.2 + node.weight * 0.38))
+              const showGlow = active || node.isCore || node.weight >= 14
+              return (
+                <g
+                  key={node.id}
+                  className={`obsidian-graph-node node-${node.kind} ${active ? 'is-active' : ''}`}
+                  style={{ color: KIND_COLOR[node.kind] }}
+                  onPointerDown={event => event.stopPropagation()}
+                  onClick={event => {
+                    event.stopPropagation()
+                    selectNode(node.id)
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      onSelect(node.id)
+                    }
+                  }}
+                  aria-label={node.label}
+                >
+                  <title>{node.label}</title>
+                  <circle
+                    className="node-hit-area"
+                    cx={node.x}
+                    cy={node.y}
+                    r={Math.max(16, size + 10)}
+                  />
+                  {showGlow && <circle className="node-glow" cx={node.x} cy={node.y} r={size * 3.1} />}
+                  <circle className="node-dot" cx={node.x} cy={node.y} r={size} />
+                  {active && <circle className="node-ring" cx={node.x} cy={node.y} r={size + 10} />}
+                </g>
+              )
+            })}
+          </g>
+        </g>
       </svg>
+
+      <div className="obsidian-graph-zoom-controls" aria-label="Controles de zoom">
+        <button type="button" onClick={() => zoomAtCenter(1.2)} aria-label="Aumentar zoom" title="Aumentar zoom">
+          <Plus size={14} />
+        </button>
+        <button type="button" onClick={() => zoomAtCenter(0.82)} aria-label="Diminuir zoom" title="Diminuir zoom">
+          <Minus size={14} />
+        </button>
+        <button type="button" onClick={resetView} aria-label="Centralizar mapa" title="Centralizar mapa">
+          <RotateCcw size={14} />
+        </button>
+      </div>
     </div>
   )
 }
 
-// Mapa Obsidian do cérebro da IA: memórias, fontes e raciocínio em uma cena 3D interativa.
 export function BrainMap({
   messages,
   knowledgeSources = [],
@@ -966,36 +809,52 @@ export function BrainMap({
   knowledgeGraph = null,
   onRefresh,
 }: BrainMapProps) {
-  const allNodes = useMemo(
-    () => buildMemoryNodes(knowledgeSources, cognitiveMemories, knowledgeGraph),
+  const graphData = useMemo(
+    () => buildMemoryGraph(knowledgeSources, cognitiveMemories, knowledgeGraph),
     [knowledgeSources, cognitiveMemories, knowledgeGraph],
   )
-  const [selectedId, setSelectedId] = useState(allNodes[0]?.id ?? 'sistema-contexto')
+  const [selectedId, setSelectedId] = useState('')
   const [isStatsOpen, setIsStatsOpen] = useState(false)
   const [period, setPeriod] = useState<MemoryPeriod>('all')
   const [memoryAction, setMemoryAction] = useState<string | null>(null)
   const [memoryError, setMemoryError] = useState('')
-  const nodes = useMemo(() => filterNodesByPeriod(allNodes, period), [allNodes, period])
-  const visibleNodes = nodes.length ? nodes : allNodes.slice(0, 8)
-  const selectedNode = visibleNodes.find(node => node.id === selectedId) ?? visibleNodes[0]
+  const visibleNodes = useMemo(
+    () => filterNodesByPeriod(graphData.nodes, period),
+    [graphData.nodes, period],
+  )
+  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map(node => node.id)), [visibleNodes])
+  const visibleLinks = useMemo(
+    () => graphData.links.filter(link => (
+      visibleNodeIds.has(link.sourceId) && visibleNodeIds.has(link.targetId)
+    )),
+    [graphData.links, visibleNodeIds],
+  )
+  const selectedNode = visibleNodes.find(node => node.id === selectedId)
   const selectedMemory = selectedNode?.memoryId
     ? cognitiveMemories.find(memory => memory.id === selectedNode.memoryId)
     : null
-  const handleSelectNode = useCallback((id: string) => setSelectedId(id), [])
+  const visibleNodeById = useMemo(
+    () => new Map(visibleNodes.map(node => [node.id, node])),
+    [visibleNodes],
+  )
+  const selectedRelations = useMemo(() => {
+    if (!selectedNode) return []
+    return visibleLinks
+      .filter(link => link.sourceId === selectedNode.id || link.targetId === selectedNode.id)
+      .map(link => {
+        const peerId = link.sourceId === selectedNode.id ? link.targetId : link.sourceId
+        return {
+          ...link,
+          peer: visibleNodeById.get(peerId),
+        }
+      })
+      .filter((relation): relation is typeof relation & { peer: MemoryNode } => Boolean(relation.peer))
+      .sort((a, b) => b.strength - a.strength)
+      .slice(0, 6)
+  }, [selectedNode, visibleLinks, visibleNodeById])
   const activeMessages = messages.filter(message => message.text !== '__thinking__')
-  const learnedCount = knowledgeSources.length
-  const savedMemoryCount = cognitiveMemories.length
   const graphEntityCount = knowledgeGraph?.entities.length ?? 0
   const graphEdgeCount = knowledgeGraph?.edges.length ?? 0
-  const memoryLoad = Math.min(100, Math.round((allNodes.length / 72) * 100))
-  const sourceTopics = knowledgeSources.flatMap(source => source.topics ?? []).slice(0, 12)
-  const totalConnections = Math.max(allNodes.length * 3, sourceTopics.length + activeMessages.length + graphEdgeCount)
-  const processedTokens = [
-    ...messages,
-    ...knowledgeSources.map(source => ({ text: source.summary })),
-    ...cognitiveMemories.map(memory => ({ text: memory.content })),
-  ]
-    .reduce((total, item) => total + Math.ceil((item.text || '').length / 4), 0)
 
   const recentLearning = useMemo(() => {
     const memoryEvents = cognitiveMemories.slice(0, 5).map(memory => ({
@@ -1007,7 +866,7 @@ export function BrainMap({
     const entityEvents = (knowledgeGraph?.entities ?? []).slice(0, 5).map(entity => ({
       id: `entity-${entity.id}`,
       label: 'Conceito aprendido',
-      text: compactLabel(prettifyTopic(entity.name) || entity.name, 'Conceito salvo', 96),
+      text: compactLabel(entity.name, 'Conceito salvo', 96),
       date: parseDate(entity.last_seen || entity.first_seen),
     }))
     const sourceEvents = knowledgeSources.slice(0, 4).map(source => ({
@@ -1016,24 +875,18 @@ export function BrainMap({
       text: getLearningTitle(source),
       date: parseDate(source.created_at),
     }))
-    const nodeEvents = allNodes.slice(0, 5).map(node => ({
-      id: `node-${node.id}`,
-      label: node.kind === 'topico' ? 'Relação criada' : node.kind === 'memoria' ? 'Memória criada' : 'Conhecimento consolidado',
-      text: node.label,
-      date: node.createdAt,
-    }))
-    return [...memoryEvents, ...entityEvents, ...sourceEvents, ...nodeEvents]
+    return [...memoryEvents, ...entityEvents, ...sourceEvents]
+      .filter(item => item.date.getTime() > 0)
       .sort((a, b) => b.date.getTime() - a.date.getTime())
       .slice(0, 6)
-  }, [allNodes, cognitiveMemories, knowledgeGraph, knowledgeSources])
+  }, [cognitiveMemories, knowledgeGraph, knowledgeSources])
 
   useEffect(() => {
     if (!visibleNodes.some(node => node.id === selectedId)) {
-      window.queueMicrotask(() => {
-        setSelectedId(visibleNodes[0]?.id ?? allNodes[0]?.id ?? 'sistema-contexto')
-      })
+      const nextId = visibleNodes[0]?.id ?? ''
+      window.queueMicrotask(() => setSelectedId(nextId))
     }
-  }, [allNodes, selectedId, visibleNodes])
+  }, [selectedId, visibleNodes])
 
   const runMemoryAction = useCallback(async (label: string, action: () => Promise<void>) => {
     setMemoryAction(label)
@@ -1057,9 +910,14 @@ export function BrainMap({
 
   const handleDeleteMemory = useCallback(() => {
     if (!selectedMemory) return
+    if (selectedMemory.is_core || selectedMemory.locked) {
+      setMemoryError('Esta memória está protegida. Desfixe a Core Memory antes de excluí-la.')
+      return
+    }
+    if (!window.confirm('Excluir esta memória permanentemente?')) return
     void runMemoryAction('excluindo', async () => {
-      await deleteCognitiveMemory(selectedMemory.id, Boolean(selectedMemory.is_core || selectedMemory.locked))
-      setSelectedId('sistema-contexto')
+      await deleteCognitiveMemory(selectedMemory.id, false)
+      setSelectedId('')
     })
   }, [runMemoryAction, selectedMemory])
 
@@ -1069,6 +927,43 @@ export function BrainMap({
       await updateCognitiveMemory(selectedMemory.id, { importance: nextImportance })
     })
   }, [runMemoryAction, selectedMemory])
+
+  const renderMemoryActions = () => {
+    if (!selectedMemory) return null
+    const isProtected = Boolean(selectedMemory.is_core || selectedMemory.locked)
+    return (
+      <div className="memory-curation-actions">
+        <button type="button" onClick={handleToggleCore} disabled={Boolean(memoryAction)}>
+          <Pin size={13} />
+          {selectedMemory.is_core ? 'Desfixar Core' : 'Fixar como Core'}
+        </button>
+        <label>
+          Força visual
+          <input
+            type="range"
+            min="0.2"
+            max="1"
+            step="0.05"
+            value={selectedMemory.importance ?? 0.5}
+            disabled={Boolean(memoryAction)}
+            onChange={event => handleImportanceChange(Number(event.target.value))}
+          />
+        </label>
+        <button
+          type="button"
+          className="danger"
+          onClick={handleDeleteMemory}
+          disabled={Boolean(memoryAction)}
+          title={isProtected ? 'Desfixe esta memória antes de excluí-la' : 'Excluir memória'}
+        >
+          <Trash2 size={13} />
+          {isProtected ? 'Memória protegida' : 'Excluir'}
+        </button>
+        {memoryAction && <small>Atualizando...</small>}
+        {memoryError && <small className="error-text">{memoryError}</small>}
+      </div>
+    )
+  }
 
   return (
     <div className="obsidian-graph-page">
@@ -1084,64 +979,67 @@ export function BrainMap({
               type="button"
               className={period === option.id ? 'is-active' : ''}
               onClick={() => setPeriod(option.id)}
+              aria-pressed={period === option.id}
             >
               {option.label}
             </button>
           ))}
-          <button type="button" onClick={() => setIsStatsOpen(true)}>
+          <button
+            type="button"
+            onClick={() => setIsStatsOpen(true)}
+            aria-label="Abrir estatísticas da memória"
+            title="Estatísticas da memória"
+          >
             <BarChart3 size={14} />
           </button>
         </div>
       </header>
 
-      <main className="obsidian-graph-main">
+      <main className={`obsidian-graph-main ${selectedNode ? 'has-selection' : ''}`}>
         <ObsidianMemoryGraph
           nodes={visibleNodes}
-          selectedId={selectedNode?.id ?? selectedId}
-          onSelect={handleSelectNode}
+          links={visibleLinks}
+          selectedId={selectedNode?.id ?? ''}
+          onSelect={setSelectedId}
         />
 
-        <aside className="obsidian-memory-card">
-          <span>{selectedNode ? KIND_LABEL[selectedNode.kind] : 'Memória'}</span>
-          <strong>{selectedNode?.label ?? 'Aether Core'}</strong>
-          <p>{selectedNode?.summary ?? 'Cada bolinha representa uma memória, documento, conceito ou aprendizado salvo pelo Aether Memory.'}</p>
-          <div className="obsidian-memory-meta">
-            <small>Origem: {selectedNode?.source ?? 'Aether'}</small>
-            <small>Data: {selectedNode ? formatShortDate(selectedNode.createdAt) : '--'}</small>
-            <small>Peso: {selectedNode?.weight ?? 0}</small>
-          </div>
-          {selectedNode?.tags?.length ? (
-            <div className="obsidian-memory-tags">
-              {selectedNode.tags.slice(0, 7).map(tag => <em key={tag}>{tag}</em>)}
+        {selectedNode && (
+          <aside className="obsidian-memory-card">
+            <span>{KIND_LABEL[selectedNode.kind]}</span>
+            <strong>{selectedNode.label}</strong>
+            <p>{selectedNode.summary}</p>
+            <div className="obsidian-memory-meta">
+              <small>Origem: {selectedNode.source}</small>
+              <small>Data: {formatShortDate(selectedNode.createdAt)}</small>
+              <small>Peso: {selectedNode.weight}</small>
             </div>
-          ) : null}
-          {selectedMemory && (
-            <div className="memory-curation-actions">
-              <button type="button" onClick={handleToggleCore} disabled={Boolean(memoryAction)}>
-                <Pin size={13} />
-                {selectedMemory.is_core ? 'Desfixar Core' : 'Fixar Core'}
-              </button>
-              <label>
-                Força visual
-                <input
-                  type="range"
-                  min="0.2"
-                  max="1"
-                  step="0.05"
-                  value={selectedMemory.importance ?? 0.5}
-                  disabled={Boolean(memoryAction)}
-                  onChange={event => handleImportanceChange(Number(event.target.value))}
-                />
-              </label>
-              <button type="button" className="danger" onClick={handleDeleteMemory} disabled={Boolean(memoryAction)}>
-                <Trash2 size={13} />
-                Excluir
-              </button>
-              {memoryAction && <small>Atualizando...</small>}
-              {memoryError && <small className="error-text">{memoryError}</small>}
+            {selectedNode.tags.length > 0 && (
+              <div className="obsidian-memory-tags">
+                {selectedNode.tags.slice(0, 7).map(tag => <em key={tag}>{tag}</em>)}
+              </div>
+            )}
+            <div className="obsidian-node-relations">
+              <span>Conexões ({selectedRelations.length})</span>
+              {selectedRelations.length > 0 ? selectedRelations.map(relation => (
+                <button
+                  key={relation.id}
+                  type="button"
+                  onClick={() => setSelectedId(relation.peer.id)}
+                  title={`Abrir ${relation.peer.label}`}
+                >
+                  <i style={{ background: KIND_COLOR[relation.peer.kind] }} />
+                  <span>
+                    <strong>{relation.peer.label}</strong>
+                    <small>{relation.relationType}</small>
+                  </span>
+                </button>
+              )) : (
+                <small>Esta memória ainda não possui uma relação verificável.</small>
+              )}
             </div>
-          )}
-        </aside>
+            {renderMemoryActions()}
+          </aside>
+        )}
 
         <div className="obsidian-graph-legend">
           {(['memoria', 'fonte', 'entidade', 'topico'] as MemoryKind[]).map(kind => (
@@ -1154,9 +1052,9 @@ export function BrainMap({
 
         <div className="obsidian-graph-stats">
           <div><span>Nós</span><strong>{visibleNodes.length}</strong></div>
-          <div><span>Memórias</span><strong>{savedMemoryCount}</strong></div>
-          <div><span>Docs</span><strong>{learnedCount}</strong></div>
-          <div><span>Relações</span><strong>{graphEdgeCount}</strong></div>
+          <div><span>Memórias</span><strong>{cognitiveMemories.length}</strong></div>
+          <div><span>Docs</span><strong>{knowledgeSources.length}</strong></div>
+          <div><span>Relações</span><strong>{visibleLinks.length}</strong></div>
         </div>
       </main>
 
@@ -1165,13 +1063,13 @@ export function BrainMap({
           <motion.div
             className="brain-stats-popover"
             role="dialog"
+            aria-modal="true"
             aria-label="Painel de memória cognitiva"
             initial={{ opacity: 0, x: 28, scale: 0.98 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: 28, scale: 0.98 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}
           >
-            {/* ── Cabeçalho ─────────────────────────────────────────── */}
             <div className="brain-stats-popover-head">
               <div>
                 <span className="eyebrow">Aether · Second Brain</span>
@@ -1182,142 +1080,89 @@ export function BrainMap({
               </button>
             </div>
 
-            {/* ── Perfil do usuário ──────────────────────────────────── */}
-            {cognitiveMemories.filter(m => m.memory_type === 'long' || m.is_core).length > 0 && (
+            {cognitiveMemories.filter(memory => memory.memory_type === 'long' || memory.is_core).length > 0 && (
               <div className="brain-user-profile-section">
                 <div className="brain-section-label">
                   <LockKeyhole size={13} />
                   <span>Perfil salvo</span>
-                  <small>{cognitiveMemories.filter(m => m.memory_type === 'long' || m.is_core).length} memórias permanentes</small>
+                  <small>
+                    {cognitiveMemories.filter(memory => memory.memory_type === 'long' || memory.is_core).length} memórias permanentes
+                  </small>
                 </div>
                 <div className="brain-profile-memories">
                   {cognitiveMemories
-                    .filter(m => m.memory_type === 'long' || m.is_core)
+                    .filter(memory => memory.memory_type === 'long' || memory.is_core)
                     .slice(0, 5)
                     .map(memory => (
-                    <div key={memory.id} className={`brain-profile-chip ${memory.is_core ? 'is-core' : ''}`}>
-                      {memory.is_core ? <Pin size={11} /> : <Database size={11} />}
-                      <span>{compactLabel(memory.content, 'Memória', 72)}</span>
-                      <small>{Math.round((memory.importance ?? 0) * 100)}%</small>
-                    </div>
-                  ))}
+                      <div key={memory.id} className={`brain-profile-chip ${memory.is_core ? 'is-core' : ''}`}>
+                        {memory.is_core ? <Pin size={11} /> : <Database size={11} />}
+                        <span>{compactLabel(memory.content, 'Memória', 72)}</span>
+                        <small>{Math.round((memory.importance ?? 0) * 100)}%</small>
+                      </div>
+                    ))}
                 </div>
               </div>
             )}
 
-            {/* ── Métricas principais ────────────────────────────────── */}
             <div className="brain-stats">
               <div className="brain-stat-card">
-                <span>Nós totais</span>
-                <strong>{allNodes.length}</strong>
-                <small>grafo ativo</small>
+                <span>Nós visíveis</span>
+                <strong>{visibleNodes.length}</strong>
+                <small>no período</small>
               </div>
               <div className="brain-stat-card">
                 <span>Memórias</span>
-                <strong>{savedMemoryCount}</strong>
+                <strong>{cognitiveMemories.length}</strong>
                 <small>banco cognitivo</small>
               </div>
               <div className="brain-stat-card">
                 <span>Docs</span>
-                <strong>{learnedCount}</strong>
-                <small>importados</small>
+                <strong>{knowledgeSources.length}</strong>
+                <small>indexados</small>
               </div>
               <div className="brain-stat-card">
                 <span>Conceitos</span>
                 <strong>{graphEntityCount}</strong>
-                <small>no grafo</small>
+                <small>no grafo real</small>
               </div>
               <div className="brain-stat-card">
-                <span>Relações</span>
+                <span>Relações KG</span>
                 <strong>{graphEdgeCount}</strong>
-                <small>cognitivas</small>
+                <small>salvas no banco</small>
               </div>
               <div className="brain-stat-card">
-                <span>Tokens</span>
-                <strong>{processedTokens > 999 ? `${(processedTokens / 1000).toFixed(1)}k` : processedTokens}</strong>
-                <small>processados</small>
-              </div>
-              <div className="brain-stat-card">
-                <span>Densidade</span>
-                <strong>{memoryLoad}%</strong>
-                <small>do mapa</small>
-              </div>
-              <div className="brain-stat-card">
-                <span>Qualidade</span>
-                <strong>{Math.min(99, 82 + learnedCount * 3)}%</strong>
-                <small>contextual</small>
+                <span>Mensagens</span>
+                <strong>{activeMessages.length}</strong>
+                <small>na conversa</small>
               </div>
             </div>
 
-            {/* ── Nó selecionado ─────────────────────────────────────── */}
             <div className="brain-detail">
               <div className="brain-section-label">
                 <Network size={13} />
                 <span>Nó selecionado</span>
                 {selectedNode && <small>{KIND_LABEL[selectedNode.kind]}</small>}
               </div>
-              <strong>
-                {selectedNode?.isCore && <LockKeyhole size={14} />}
-                {selectedNode?.label ?? 'Aether Core'}
-              </strong>
-              <p>{selectedNode?.summary ?? 'Selecione um nó no grafo para ver detalhes.'}</p>
-              <div className="memory-meta-grid">
-                <small>Origem: {selectedNode?.source ?? 'Aether Core'}</small>
-                <small>Data: {selectedNode ? formatShortDate(selectedNode.createdAt) : '--'}</small>
-                <small>Peso: {selectedNode?.weight ?? 0}</small>
-                <small>Tipo: {selectedNode ? KIND_LABEL[selectedNode.kind] : '--'}</small>
-              </div>
-              {selectedMemory && (
-                <div className="memory-curation-actions">
-                  <button type="button" onClick={handleToggleCore} disabled={Boolean(memoryAction)}>
-                    <Pin size={13} />
-                    {selectedMemory.is_core ? 'Desfixar Core' : 'Fixar como Core'}
-                  </button>
-                  <label>
-                    Força visual
-                    <input
-                      type="range"
-                      min="0.2"
-                      max="1"
-                      step="0.05"
-                      value={selectedMemory.importance ?? 0.5}
-                      disabled={Boolean(memoryAction)}
-                      onChange={event => handleImportanceChange(Number(event.target.value))}
-                    />
-                  </label>
-                  <button type="button" className="danger" onClick={handleDeleteMemory} disabled={Boolean(memoryAction)}>
-                    <Trash2 size={13} />
-                    Excluir
-                  </button>
-                  {memoryAction && <small>Atualizando...</small>}
-                  {memoryError && <small className="error-text">{memoryError}</small>}
-                </div>
+              {selectedNode ? (
+                <>
+                  <strong>
+                    {selectedNode.isCore && <LockKeyhole size={14} />}
+                    {selectedNode.label}
+                  </strong>
+                  <p>{selectedNode.summary}</p>
+                  <div className="memory-meta-grid">
+                    <small>Origem: {selectedNode.source}</small>
+                    <small>Data: {formatShortDate(selectedNode.createdAt)}</small>
+                    <small>Peso: {selectedNode.weight}</small>
+                    <small>Tipo: {KIND_LABEL[selectedNode.kind]}</small>
+                  </div>
+                  {renderMemoryActions()}
+                </>
+              ) : (
+                <p>Selecione um nó no grafo para ver detalhes.</p>
               )}
             </div>
 
-            {/* ── Sinapses ───────────────────────────────────────────── */}
-            <div className="brain-signal-panel">
-              <div>
-                <Activity size={13} />
-                <span>Sinapses</span>
-                <strong>{totalConnections}</strong>
-              </div>
-              <div>
-                <Network size={13} />
-                <span>Conceitos</span>
-                <strong>{graphEntityCount}</strong>
-              </div>
-              <div>
-                <Database size={13} />
-                <span>Mensagens</span>
-                <strong>{activeMessages.length}</strong>
-              </div>
-              <div className="brain-signal-bars" aria-hidden="true">
-                <span /><span /><span /><span /><span />
-              </div>
-            </div>
-
-            {/* ── Aprendizados recentes ──────────────────────────────── */}
             {recentLearning.length > 0 && (
               <div className="recent-learning-strip">
                 <div className="brain-section-label">
@@ -1336,7 +1181,6 @@ export function BrainMap({
               </div>
             )}
 
-            {/* ── Memórias cognitivas ────────────────────────────────── */}
             <div className="learned-source-list">
               <div className="brain-section-label">
                 <Database size={13} />
@@ -1357,45 +1201,39 @@ export function BrainMap({
                   </span>
                 </button>
               )) : (
-                <p>Nenhuma memória cognitiva salva ainda. Converse com o Aether para ele começar a aprender.</p>
+                <p>Nenhuma memória cognitiva salva ainda.</p>
               )}
             </div>
 
-            {/* ── Fontes importadas ──────────────────────────────────── */}
             <div className="learned-source-list">
               <div className="brain-section-label">
                 <FileText size={13} />
                 <span>Documentos indexados</span>
                 <small>{knowledgeSources.length} fontes</small>
               </div>
-              {knowledgeSources.length ? knowledgeSources.slice(0, 6).map(source => {
-                const title = getLearningTitle(source)
-                const topics = source.topics?.slice(0, 3).join(' · ') || ''
-                return (
-                  <button key={source.id} type="button" onClick={() => setSelectedId(`fonte-${source.id}`)}>
-                    <FileText size={14} />
-                    <span>
-                      <strong>{title}</strong>
-                      <small>
-                        <span className="memory-type-badge type-source">{source.source_type}</span>
-                        {topics && ` · ${topics}`}
-                      </small>
-                    </span>
-                  </button>
-                )
-              }) : (
-                <p>Nenhum PDF, página ou pesquisa importada. Use o botão ↑ no chat para importar.</p>
+              {knowledgeSources.length ? knowledgeSources.slice(0, 6).map(source => (
+                <button key={source.id} type="button" onClick={() => setSelectedId(`fonte-${source.id}`)}>
+                  <FileText size={14} />
+                  <span>
+                    <strong>{getLearningTitle(source)}</strong>
+                    <small>
+                      <span className="memory-type-badge type-source">{source.source_type}</span>
+                      {source.topics?.length ? ` · ${source.topics.slice(0, 3).join(' · ')}` : ''}
+                    </small>
+                  </span>
+                </button>
+              )) : (
+                <p>Nenhum documento importado ainda.</p>
               )}
             </div>
 
-            {/* ── Índice de nós ─────────────────────────────────────── */}
             <div className="concept-list">
               <div className="brain-section-label">
                 <ScanSearch size={13} />
                 <span>Índice de nós</span>
-                <small>top {Math.min(allNodes.length, 10)}</small>
+                <small>top {Math.min(graphData.nodes.length, 10)}</small>
               </div>
-              {allNodes.slice(0, 10).map(node => (
+              {graphData.nodes.slice(0, 10).map(node => (
                 <button
                   key={node.id}
                   type="button"

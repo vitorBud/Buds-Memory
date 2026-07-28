@@ -2,10 +2,7 @@ sounddevice
 soundfile
 numpy
 requests
-pyttsx3
-SpeechRecognition
 flask
-flask-cors
 faster-whisper
 huggingface-hub
 PyPDF2

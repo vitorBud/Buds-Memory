@@ -14,6 +14,9 @@ cd "$ROOT_DIR"
 echo "==> Buildando Aether Memory..."
 npm run build
 
+echo "==> Empacotando backend autocontido..."
+npm run build:backend:mac
+
 echo "==> Gerando app macOS..."
 npx electron-builder --mac dir
 

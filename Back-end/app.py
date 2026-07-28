@@ -1,6 +1,16 @@
 # pyrefly: ignore [missing-import]
+import sys
+
+if __name__ == "__main__" and "--piper-cli" in sys.argv:
+    # Entrada mínima usada pelo pacote desktop: encerra antes de carregar Flask,
+    # banco, RAG e STT a cada frase sintetizada.
+    sys.argv.remove("--piper-cli")
+    from piper.__main__ import main as piper_main
+
+    piper_main()
+    raise SystemExit(0)
+
 from flask import Flask, request, jsonify, Response, send_from_directory
-from flask_cors import CORS
 import contextlib
 import os
 import platform
@@ -61,9 +71,7 @@ IS_WINDOWS = platform.system().lower() == "windows"
 WINDOWS_PIPER_TTS_ENABLED = os.getenv("NEXUS_WINDOWS_PIPER_TTS", "0").lower() in {"1", "true", "yes", "sim"}
 TTS_FUTURE_TIMEOUT = float(os.getenv("NEXUS_TTS_FUTURE_TIMEOUT", "2.5" if IS_WINDOWS else "8.0"))
 
-app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
-# Habilita CORS para permitir conexões do Front-end em outras portas
-CORS(app, allow_headers=["Content-Type", "Authorization", "X-Nexus-Token"])
+app = Flask(__name__, static_folder=None)
 
 # Inicializa as tabelas do banco de dados SQLite (existentes)
 database.init_db()
@@ -89,11 +97,25 @@ _TTS_POOL = concurrent.futures.ThreadPoolExecutor(
 
 
 @app.before_request
-def enforce_remote_auth():
-    """Protege APIs quando o Aether Memory está em modo remoto/VPN."""
-    if request.method == "OPTIONS" or not remote_access.REMOTE_MODE:
-        return None
+def enforce_api_security():
+    """Valida a origem sempre e, em modo remoto, exige autenticação."""
     if not request.path.startswith("/api/"):
+        return None
+
+    origin = request.headers.get("Origin")
+    if not remote_access.is_trusted_origin(
+        origin,
+        request_host=request.host,
+        request_scheme=request.scheme,
+        user_agent=request.headers.get("User-Agent", ""),
+    ):
+        return jsonify({
+            "error": "Origem não autorizada para acessar a API do Aether Memory.",
+        }), 403
+
+    if request.method == "OPTIONS":
+        return app.make_default_options_response()
+    if not remote_access.REMOTE_MODE:
         return None
     if request.path in {
         "/api/health",
@@ -114,6 +136,31 @@ def enforce_remote_auth():
             "auth_required": True,
         }), 401
     return None
+
+
+@app.after_request
+def apply_cors_headers(response):
+    """Expõe CORS somente para origens explicitamente confiáveis."""
+    if not request.path.startswith("/api/"):
+        return response
+    origin = request.headers.get("Origin")
+    if not origin or not remote_access.is_trusted_origin(
+        origin,
+        request_host=request.host,
+        request_scheme=request.scheme,
+        user_agent=request.headers.get("User-Agent", ""),
+    ):
+        return response
+
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Vary"] = "Origin"
+    response.headers["Access-Control-Allow-Headers"] = (
+        "Content-Type, Authorization, X-Nexus-Token"
+    )
+    response.headers["Access-Control-Allow-Methods"] = (
+        "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+    )
+    return response
 
 
 def sse_event(payload: dict) -> str:
@@ -173,17 +220,21 @@ def prepare_session_context(
     user_text: str,
     *,
     pipeline: str = "STANDARD_PATH",
+    selected_model: Optional[str] = None,
     trace: Optional[PerfTrace] = None,
 ):
     history = []
     title_update = None
-    budget = budget_for_pipeline(pipeline)
+    budget = budget_for_pipeline(pipeline, selected_model)
 
     if not session_id:
         return history, title_update, ""
 
     with trace.span("db_recent_history") if trace else _nullcontext():
         history = database.get_recent_session_messages(session_id, limit=budget["history_messages"])
+    if trace:
+        trace.set("history_messages_loaded", len(history))
+        trace.set("history_message_limit", budget["history_messages"])
     with trace.span("conversation_summary_load") if trace else _nullcontext():
         conversation_summary = cognitive_summarizer.get_conversation_summary(session_id)
     if not history:
@@ -434,6 +485,9 @@ def get_direct_reply(
     profile_reply = get_direct_profile_reply(user_text, session_id)
     if profile_reply:
         return profile_reply
+    continuity_reply = cognitive_conversation.answer_recent_assistant_reference(user_text, history or [])
+    if continuity_reply:
+        return continuity_reply
     return cognitive_finance.build_financial_reply(user_text, history=history)
 
 
@@ -441,7 +495,7 @@ def process_post_chat_cognition(session_id: str, user_text: str, ai_text: str) -
     """Processa memória, perfil e resumo sem segurar a resposta do chat."""
     def _detect():
         try:
-            cognitive_detector.process_chat_async(
+            cognitive_detector.process_chat(
                 session_id=session_id,
                 user_text=user_text,
                 ai_text=ai_text,
@@ -516,14 +570,19 @@ def build_contextual_retrieval_query(user_text: str, history: list[dict], sessio
 
 @app.route('/')
 def index():
-    """Serve o index.html principal do Front-end."""
-    return send_from_directory(STATIC_DIR, 'index.html')
+    """Serve o build React ou explica como gerá-lo no ambiente de desenvolvimento."""
+    if not (FRONTEND_DIST_DIR / "index.html").is_file():
+        return jsonify({
+            "error": "Frontend não compilado.",
+            "detail": "Execute `npm run build` em front-end ou use `npm run dev` durante o desenvolvimento.",
+        }), 503
+    return send_from_directory(FRONTEND_DIST_DIR, 'index.html')
 
 
 @app.route('/assets/<path:filename>')
 def frontend_assets(filename):
     """Serve os arquivos gerados pelo Vite em front-end/dist/assets."""
-    return send_from_directory(STATIC_DIR / "assets", filename)
+    return send_from_directory(FRONTEND_DIST_DIR / "assets", filename)
 
 
 @app.route('/favicon.svg')
@@ -533,14 +592,14 @@ def frontend_public_asset():
     """Serve ícones públicos do Front-end pela mesma porta do Flask."""
     requested = request.path.lstrip("/")
     filename = "favicon.svg" if requested == "nexus-icon.svg" else requested
-    return send_from_directory(STATIC_DIR, filename)
+    return send_from_directory(FRONTEND_DIST_DIR, filename)
 
 
 @app.route('/manifest.webmanifest')
 @app.route('/sw.js')
 def pwa_asset():
     """Serve arquivos PWA na raiz, como navegadores mobile esperam."""
-    return send_from_directory(STATIC_DIR, request.path.lstrip("/"))
+    return send_from_directory(FRONTEND_DIST_DIR, request.path.lstrip("/"))
 
 
 @app.route('/api/health', methods=['GET'])
@@ -641,7 +700,6 @@ def get_config():
         "google_search_available": is_google_search_configured(),
         "data_dir": str(get_data_dir()),
         "remote": remote_access.get_remote_config(),
-        "mobile_token": remote_access.get_or_create_mobile_token(),
     }), 200
 
 
@@ -913,6 +971,7 @@ def chat():
             session_id,
             user_text,
             pipeline=pipeline,
+            selected_model=selected_model,
             trace=trace,
         )
         with trace.span("direct_reply"):
@@ -1051,6 +1110,7 @@ def chat_stream():
                 session_id,
                 user_text,
                 pipeline=pipeline,
+                selected_model=selected_model,
                 trace=trace,
             )
             with trace.span("direct_reply"):
@@ -1231,7 +1291,11 @@ def get_audio(filename):
 if __name__ == "__main__":
     # Local por padrão; em NEXUS_REMOTE_MODE=true escuta em 0.0.0.0 para LAN/VPN/Tailscale.
     config = remote_access.get_remote_config()
-    mobile_token = remote_access.get_or_create_mobile_token()
+    mobile_token = (
+        remote_access.get_or_create_mobile_token()
+        if remote_access.REMOTE_MODE
+        else None
+    )
     print(
         "[Remote] "
         f"mode={config['remote_mode']} host={config['host']} port={config['port']} "
@@ -1260,6 +1324,5 @@ if __name__ == "__main__":
         print(f"Front no iPhone em desenvolvimento: {config['frontend_dev_url']}")
         print(f"Backend/API no iPhone: {config['local_url']}")
         print("Para Wi-Fi diferente, use Tailscale ou defina NEXUS_PUBLIC_URL/NEXUS_PUBLIC_FRONTEND_URL.")
-        print(f"Token que sera usado: {mobile_token}")
     print("")
     app.run(host=remote_access.HOST, port=remote_access.PORT, debug=False, use_reloader=False)

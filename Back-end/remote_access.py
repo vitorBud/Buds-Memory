@@ -8,9 +8,12 @@ import socket
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from flask import Request
+from llm.ollama_client import OLLAMA_BASE_URL, OLLAMA_TAGS_URL
+from storage import get_data_dir
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -20,16 +23,30 @@ def env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "sim", "on"}
 
 
-REMOTE_MODE = env_bool("NEXUS_REMOTE_MODE", False)
-HOST = os.getenv("NEXUS_HOST") or ("0.0.0.0" if REMOTE_MODE else "127.0.0.1")
+_CONFIGURED_HOST = (os.getenv("NEXUS_HOST") or "").strip()
+_EXPLICIT_REMOTE_MODE = env_bool("NEXUS_REMOTE_MODE", False)
+# Escutar fora do loopback sem autenticação é uma configuração insegura.
+# Portanto, qualquer host amplo/LAN ativa automaticamente o modo remoto.
+REMOTE_MODE = _EXPLICIT_REMOTE_MODE or (
+    bool(_CONFIGURED_HOST)
+    and _CONFIGURED_HOST.lower() not in {"127.0.0.1", "localhost", "::1"}
+)
+HOST = _CONFIGURED_HOST or ("0.0.0.0" if REMOTE_MODE else "127.0.0.1")
 PORT = int(os.getenv("NEXUS_PORT", "5050"))
 FRONTEND_PORT = int(os.getenv("NEXUS_FRONTEND_PORT", "5174"))
 AUTH_TOKEN = os.getenv("NEXUS_AUTH_TOKEN", "").strip()
 SESSION_TTL_SECONDS = int(float(os.getenv("NEXUS_SESSION_TTL_HOURS", "24")) * 3600)
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434").rstrip("/")
-TOKEN_FILE = Path(__file__).resolve().parent / ".nexus_remote_token"
+# Compatibilidade: consumidores antigos esperam que remote_access.OLLAMA_URL
+# represente a base, enquanto o cliente LLM usa o endpoint /api/generate.
+OLLAMA_URL = OLLAMA_BASE_URL
+TOKEN_FILE = get_data_dir() / ".nexus_remote_token"
 PUBLIC_URL = os.getenv("NEXUS_PUBLIC_URL", "").strip().rstrip("/")
 PUBLIC_FRONTEND_URL = os.getenv("NEXUS_PUBLIC_FRONTEND_URL", "").strip().rstrip("/")
+EXTRA_ALLOWED_ORIGINS = tuple(
+    origin.strip()
+    for origin in os.getenv("NEXUS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+)
 
 
 def get_or_create_mobile_token() -> str:
@@ -40,8 +57,13 @@ def get_or_create_mobile_token() -> str:
             token = TOKEN_FILE.read_text(encoding="utf-8").strip()
             if token:
                 return token
+        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
         token = secrets.token_hex(24)
         TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
+        try:
+            TOKEN_FILE.chmod(0o600)
+        except OSError:
+            pass
         return token
     except Exception:
         return secrets.token_hex(24)
@@ -64,6 +86,93 @@ def get_local_ip() -> str:
             return "127.0.0.1"
     finally:
         sock.close()
+
+
+def _canonical_origin(value: str) -> Optional[str]:
+    """Converte uma URL em origem comparável, sem caminho, query ou fragmento."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if value.lower() == "null":
+        return "null"
+
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() == "file":
+        return "file://"
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return None
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), "", "", ""))
+
+
+def trusted_origins() -> set[str]:
+    """
+    Origens autorizadas para chamar a API pelo navegador.
+
+    Inclui o build servido pelo Flask, Vite local, o endereço LAN anunciado
+    pelo app e URLs públicas explicitamente configuradas. O renderer Electron
+    com origem opaca é tratado separadamente por ``is_trusted_origin``.
+    """
+    local_ip = get_local_ip()
+    candidates = {
+        f"http://localhost:{PORT}",
+        f"http://127.0.0.1:{PORT}",
+        f"http://[::1]:{PORT}",
+        f"http://localhost:{FRONTEND_PORT}",
+        f"http://127.0.0.1:{FRONTEND_PORT}",
+        f"http://[::1]:{FRONTEND_PORT}",
+        # Compatibilidade com o script desktop:dev legado e o Vite padrão.
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://[::1]:5173",
+        f"http://{local_ip}:{PORT}",
+        f"http://{local_ip}:{FRONTEND_PORT}",
+        PUBLIC_URL,
+        PUBLIC_FRONTEND_URL,
+        *EXTRA_ALLOWED_ORIGINS,
+    }
+    return {
+        canonical
+        for candidate in candidates
+        if (canonical := _canonical_origin(candidate))
+    }
+
+
+def is_trusted_origin(
+    origin: Optional[str],
+    *,
+    request_host: Optional[str] = None,
+    request_scheme: str = "http",
+    user_agent: str = "",
+) -> bool:
+    """
+    Valida Origin sem depender do modo remoto.
+
+    Requisições sem Origin continuam válidas para clientes não-browser, curl e
+    verificações internas. Se a origem for a mesma do Host recebido, ela também
+    é aceita para o build servido diretamente pelo Flask.
+    """
+    if not origin:
+        return True
+    canonical = _canonical_origin(origin)
+    if not canonical:
+        return False
+    # file:// produz Origin "null" no Electron. Não aceitamos origens opacas
+    # de navegadores comuns, porque páginas sandboxadas também usam "null".
+    # User-Agent é suficiente aqui como barreira CORS: scripts web não podem
+    # sobrescrever esse cabeçalho proibido. Em modo remoto o token continua
+    # obrigatório, independentemente da origem.
+    if canonical in {"null", "file://"}:
+        return "Electron/" in user_agent
+    if canonical in trusted_origins():
+        return True
+    if request_host:
+        same_origin = _canonical_origin(f"{request_scheme}://{request_host}")
+        if canonical == same_origin:
+            # Em modo local, aceitar qualquer Host refletido permitiria DNS
+            # rebinding contra o loopback. No remoto, o token é obrigatório e
+            # hosts de VPN/túnel podem variar; por isso same-origin é aceito.
+            return REMOTE_MODE
+    return False
 
 
 def get_remote_config() -> dict:
@@ -94,7 +203,7 @@ def get_remote_config() -> dict:
 
 def is_ollama_online(timeout: float = 1.2) -> bool:
     try:
-        response = requests.get(f"{OLLAMA_URL}/api/tags", timeout=timeout)
+        response = requests.get(OLLAMA_TAGS_URL, timeout=timeout)
         return response.ok
     except Exception:
         return False

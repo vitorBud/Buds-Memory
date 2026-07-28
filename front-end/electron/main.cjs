@@ -5,7 +5,7 @@ const fs = require('node:fs')
 const { pathToFileURL } = require('node:url')
 
 const BACKEND_URL = 'http://127.0.0.1:5050'
-const API_CONFIG_URL = `${BACKEND_URL}/api/config`
+const API_HEALTH_URL = `${BACKEND_URL}/api/health`
 
 let mainWindow = null
 let splashWindow = null
@@ -165,7 +165,8 @@ function sleep(ms) {
 
 async function isBackendReady() {
   try {
-    const response = await fetch(API_CONFIG_URL)
+    // /health permanece público também no modo remoto; /config exige token.
+    const response = await fetch(API_HEALTH_URL)
     return response.ok
   } catch {
     return false
@@ -174,7 +175,7 @@ async function isBackendReady() {
 
 function resolveBackendDir() {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'Back-end')
+    return path.join(process.resourcesPath, 'AetherBackend')
   }
   return path.resolve(__dirname, '..', '..', 'Back-end')
 }
@@ -184,8 +185,9 @@ function registerAssetProtocol() {
     const assetRoot = path.join(process.resourcesPath, 'NexusAssets')
     const requestedPath = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, '')
     const filePath = path.normalize(path.join(assetRoot, requestedPath))
+    const relativePath = path.relative(assetRoot, filePath)
 
-    if (!filePath.startsWith(assetRoot)) {
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
       return new Response('Asset path inválido', { status: 403 })
     }
 
@@ -205,6 +207,32 @@ function resolvePythonExecutable(backendDir) {
     '/usr/bin/python3',
   ]
   return candidates.find(candidate => fs.existsSync(candidate)) || 'python3'
+}
+
+function resolveBackendRuntime() {
+  const backendDir = resolveBackendDir()
+  if (app.isPackaged) {
+    const executable = path.join(backendDir, 'aether-backend')
+    return {
+      command: executable,
+      args: [],
+      cwd: backendDir,
+      description: executable,
+      exists: fs.existsSync(executable),
+      selfContained: true,
+    }
+  }
+
+  const appFile = path.join(backendDir, 'app.py')
+  const pythonExecutable = resolvePythonExecutable(backendDir)
+  return {
+    command: pythonExecutable,
+    args: ['app.py'],
+    cwd: backendDir,
+    description: `${pythonExecutable} ${appFile}`,
+    exists: fs.existsSync(appFile),
+    selfContained: false,
+  }
 }
 
 function syncEnvFileToDataDir() {
@@ -228,34 +256,34 @@ async function startBackend() {
     return true
   }
 
-  const backendDir = resolveBackendDir()
-  const pythonExecutable = resolvePythonExecutable(backendDir)
-  const appFile = path.join(backendDir, 'app.py')
-  const hasLocalEnv = (
-    fs.existsSync(path.join(backendDir, 'ambiente')) ||
-    fs.existsSync(path.join(backendDir, 'venv')) ||
-    fs.existsSync(path.join(backendDir, '.venv'))
+  const runtime = resolveBackendRuntime()
+  const hasLocalEnv = runtime.selfContained || (
+    fs.existsSync(path.join(runtime.cwd, 'ambiente')) ||
+    fs.existsSync(path.join(runtime.cwd, 'venv')) ||
+    fs.existsSync(path.join(runtime.cwd, '.venv'))
   )
 
-  if (!fs.existsSync(appFile)) {
-    logLine('[Aether Backend] app.py não encontrado:', appFile)
+  if (!runtime.exists) {
+    logLine('[Aether Backend] runtime não encontrado:', runtime.description)
     await dialog.showMessageBox({
       type: 'error',
       title: 'Backend não encontrado',
-      message: 'Não encontrei o app.py do backend.',
-      detail: appFile,
+      message: app.isPackaged
+        ? 'O app foi empacotado sem o backend Python autocontido.'
+        : 'Não encontrei o app.py do backend.',
+      detail: runtime.description,
     })
     return false
   }
 
   syncEnvFileToDataDir()
   backendLogTail = []
-  logLine('[Aether Backend] iniciando', pythonExecutable, appFile, 'cwd=', backendDir)
+  logLine('[Aether Backend] iniciando', runtime.description, 'cwd=', runtime.cwd)
   backendStartedByElectron = true
 
   try {
-    backendProcess = spawn(pythonExecutable, ['app.py'], {
-      cwd: backendDir,
+    backendProcess = spawn(runtime.command, runtime.args, {
+      cwd: runtime.cwd,
       env: {
         ...process.env,
         NEXUS_DATA_DIR: resolveDataDir(),
@@ -296,12 +324,12 @@ async function startBackend() {
     title: 'Backend não iniciou',
     message: 'O Aether Memory não conseguiu ligar o backend automaticamente.',
     detail: [
-      `Backend: ${backendDir}`,
-      `Python: ${pythonExecutable}`,
+      `Backend: ${runtime.cwd}`,
+      `Runtime: ${runtime.description}`,
       '',
       hasLocalEnv
         ? 'Confira se o Ollama está ativo e se a porta 5050 está livre.'
-        : 'O ambiente Python do backend não foi encontrado dentro do app.',
+        : 'O ambiente Python de desenvolvimento não foi encontrado.',
       '',
       backendLogTail.join('\n'),
     ].filter(Boolean).join('\n'),
@@ -326,7 +354,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
       backgroundThrottling: false,
     },
   })
@@ -352,8 +380,23 @@ function createWindow() {
   })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol === 'https:' || parsed.protocol === 'mailto:') {
+        void shell.openExternal(url)
+      }
+    } catch {
+      logLine('[Electron] URL externa inválida bloqueada:', url)
+    }
     return { action: 'deny' }
+  })
+
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    const currentUrl = mainWindow.webContents.getURL()
+    if (url !== currentUrl) {
+      event.preventDefault()
+      logLine('[Electron] navegação do renderer bloqueada:', url)
+    }
   })
 }
 
@@ -364,6 +407,30 @@ ipcMain.handle('nexus:pick-folder', async () => {
   })
   if (result.canceled || !result.filePaths.length) return null
   return result.filePaths[0]
+})
+
+ipcMain.handle('nexus:get-remote-token', () => {
+  // O segredo nunca trafega por /api/config: só o renderer local e isolado
+  // pode pedi-lo ao processo principal do Electron.
+  const tokenFile = path.join(resolveDataDir(), '.nexus_remote_token')
+  try {
+    if (fs.existsSync(tokenFile)) {
+      return fs.readFileSync(tokenFile, 'utf8').trim()
+    }
+
+    const envFile = path.join(resolveDataDir(), '.env')
+    if (fs.existsSync(envFile)) {
+      const line = fs.readFileSync(envFile, 'utf8')
+        .split(/\r?\n/)
+        .find(value => value.trim().startsWith('NEXUS_AUTH_TOKEN='))
+      if (line) {
+        return line.slice(line.indexOf('=') + 1).trim().replace(/^['"]|['"]$/g, '')
+      }
+    }
+  } catch (error) {
+    logLine('[Electron] não foi possível ler o token remoto local:', error)
+  }
+  return ''
 })
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────

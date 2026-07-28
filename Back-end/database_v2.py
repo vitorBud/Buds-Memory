@@ -41,12 +41,16 @@ def migrate():
         _create_insights(conn)
         _create_embeddings(conn)
         _create_ingestion_cache(conn)
+        _create_backup_import_map(conn)
         _create_conversation_summaries(conn)
         _create_codebase_index(conn)
         _migrate_memories_core_columns(conn)
         _migrate_knowledge_source_intelligence(conn)
         _migrate_embeddings_metadata(conn)
+        _migrate_entity_mention_counts(conn)
         _create_indexes(conn)
+        _create_rag_cleanup_triggers(conn)
+        _cleanup_orphaned_rag(conn)
         _create_fts_tables(conn)
         conn.commit()
     print("[DB v2] Migração cognitiva concluída com sucesso.")
@@ -217,6 +221,20 @@ def _create_ingestion_cache(conn):
     """)
 
 
+def _create_backup_import_map(conn):
+    """Mapa interno usado para reimportações de backup idempotentes."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS aether_backup_import_map (
+            backup_key TEXT NOT NULL,
+            table_name TEXT NOT NULL,
+            source_key TEXT NOT NULL,
+            target_key TEXT NOT NULL,
+            imported_at TEXT NOT NULL,
+            PRIMARY KEY (backup_key, table_name, source_key)
+        );
+    """)
+
+
 def _create_conversation_summaries(conn):
     conn.execute("""
         CREATE TABLE IF NOT EXISTS conversation_summaries (
@@ -344,6 +362,73 @@ def _create_fts_tables(conn):
     _rebuild_fts_if_empty(conn, "embeddings_fts", "embeddings")
 
 
+def _create_rag_cleanup_triggers(conn):
+    """
+    Embeddings e cache usam referência polimórfica e, por isso, não podem ter
+    uma FOREIGN KEY SQLite convencional. Triggers mantêm o mesmo comportamento
+    de ON DELETE CASCADE para as fontes atualmente indexáveis.
+    """
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS knowledge_sources_cleanup_rag
+        AFTER DELETE ON knowledge_sources
+        BEGIN
+            DELETE FROM embeddings
+            WHERE source_table='knowledge_sources' AND source_id=OLD.id;
+            DELETE FROM ingestion_cache
+            WHERE source_table='knowledge_sources' AND source_id=OLD.id;
+            UPDATE project_documents
+            SET knowledge_source_id=NULL
+            WHERE knowledge_source_id=OLD.id;
+        END;
+    """)
+    conn.execute("""
+        CREATE TRIGGER IF NOT EXISTS messages_cleanup_rag
+        AFTER DELETE ON messages
+        BEGIN
+            DELETE FROM embeddings
+            WHERE source_table='messages' AND source_id=OLD.id;
+            DELETE FROM ingestion_cache
+            WHERE source_table='messages' AND source_id=OLD.id;
+        END;
+    """)
+
+
+def _cleanup_orphaned_rag(conn):
+    """Remove chunks/cache órfãos deixados por versões anteriores."""
+    conn.execute("""
+        DELETE FROM embeddings
+        WHERE source_table='knowledge_sources'
+          AND NOT EXISTS (
+              SELECT 1 FROM knowledge_sources
+              WHERE knowledge_sources.id=embeddings.source_id
+          )
+    """)
+    conn.execute("""
+        DELETE FROM ingestion_cache
+        WHERE source_table='knowledge_sources'
+          AND NOT EXISTS (
+              SELECT 1 FROM knowledge_sources
+              WHERE knowledge_sources.id=ingestion_cache.source_id
+          )
+    """)
+    conn.execute("""
+        DELETE FROM embeddings
+        WHERE source_table='messages'
+          AND NOT EXISTS (
+              SELECT 1 FROM messages
+              WHERE messages.id=embeddings.source_id
+          )
+    """)
+    conn.execute("""
+        DELETE FROM ingestion_cache
+        WHERE source_table='messages'
+          AND NOT EXISTS (
+              SELECT 1 FROM messages
+              WHERE messages.id=ingestion_cache.source_id
+          )
+    """)
+
+
 def _table_count(conn, table_name: str) -> int:
     try:
         return int(conn.execute(f"SELECT COUNT(*) as n FROM {table_name}").fetchone()["n"])
@@ -397,6 +482,18 @@ def _migrate_embeddings_metadata(conn):
         conn.execute("ALTER TABLE embeddings ADD COLUMN chunk_metadata TEXT DEFAULT '{}'")
     except Exception:
         pass  # Coluna já existe — sem problema
+
+
+def _migrate_entity_mention_counts(conn):
+    """
+    Corrige a semântica histórica: a primeira menção era gravada como zero.
+
+    O grafo exige ao menos uma menção para exibir uma entidade, portanto esses
+    registros existentes representam uma menção real e devem começar em 1.
+    """
+    conn.execute(
+        "UPDATE kg_entities SET access_count=1 WHERE access_count IS NULL OR access_count < 1"
+    )
 
 
 # ── Helpers de data ──────────────────────────────────────────────────────────

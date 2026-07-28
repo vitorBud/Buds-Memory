@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+from urllib.parse import urlsplit, urlunsplit
 
 # Garante que Back-end/ está no sys.path (necessário quando importado standalone)
 _BACKEND_DIR = str(Path(__file__).resolve().parent.parent)
@@ -47,7 +48,41 @@ from performance import (  # noqa: E402
 # CONFIGURAÇÃO
 # ═══════════════════════════════════════════════════════════════════════════════
 
-OLLAMA_URL   = "http://localhost:11434/api/generate"
+def resolve_ollama_urls(configured_url: Optional[str] = None) -> tuple[str, str, str]:
+    """
+    Normaliza OLLAMA_URL aceitando tanto a base quanto um endpoint da API.
+
+    Exemplos compatíveis:
+      - http://localhost:11434
+      - http://localhost:11434/api/generate
+      - http://localhost:11434/api/tags
+
+    Retorna (base_url, generate_url, tags_url). Prefixos de caminho usados por
+    proxies reversos também são preservados.
+    """
+    raw_url = (configured_url or os.getenv("OLLAMA_URL") or "http://localhost:11434").strip()
+    parsed = urlsplit(raw_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(
+            "OLLAMA_URL deve ser uma URL HTTP(S) absoluta, por exemplo "
+            "http://localhost:11434."
+        )
+
+    path = parsed.path.rstrip("/")
+    for endpoint in ("/api/generate", "/api/tags"):
+        if path.endswith(endpoint):
+            path = path[:-len(endpoint)].rstrip("/")
+            break
+
+    base_url = urlunsplit((parsed.scheme, parsed.netloc, path, "", "")).rstrip("/")
+    return (
+        base_url,
+        f"{base_url}/api/generate",
+        f"{base_url}/api/tags",
+    )
+
+
+OLLAMA_BASE_URL, OLLAMA_URL, OLLAMA_TAGS_URL = resolve_ollama_urls()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
 IS_WINDOWS = platform.system().lower() == "windows"
 
@@ -97,7 +132,7 @@ def get_ollama_models() -> list[str]:
 
     try:
         response = requests.get(
-            "http://localhost:11434/api/tags",
+            OLLAMA_TAGS_URL,
             timeout=2,
         )
         if response.status_code == 200:
@@ -185,7 +220,7 @@ def llm_ollama(
             selected_model=selected_model,
         )
     response_profile = infer_response_profile(user_text)
-    options = options_for_pipeline(OLLAMA_OPTIONS, response_profile, pipeline)
+    options = options_for_pipeline(OLLAMA_OPTIONS, response_profile, pipeline, selected_model)
     if trace:
         trace.set("ollama_model", selected_model)
         trace.set("prompt_chars", len(prompt))
@@ -227,7 +262,7 @@ def llm_ollama_raw(
     """
     selected_model = resolve_ollama_model(model)
     response_profile = {"num_predict": num_predict}
-    options = options_for_pipeline(OLLAMA_OPTIONS, response_profile, pipeline)
+    options = options_for_pipeline(OLLAMA_OPTIONS, response_profile, pipeline, selected_model)
     if trace:
         trace.set("raw_prompt_tokens_est", estimate_tokens(prompt))
         trace.set("raw_ollama_num_predict", options.get("num_predict"))
@@ -278,7 +313,7 @@ def llm_ollama_stream(
             selected_model=selected_model,
         )
     response_profile = infer_response_profile(user_text)
-    options = options_for_pipeline(OLLAMA_OPTIONS, response_profile, pipeline)
+    options = options_for_pipeline(OLLAMA_OPTIONS, response_profile, pipeline, selected_model)
     if trace:
         trace.set("ollama_model", selected_model)
         trace.set("prompt_chars", len(prompt))

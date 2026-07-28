@@ -1,0 +1,3 @@
+# Dependência exclusiva do empacotamento desktop.
+# Mantida fora de requirements.txt para não pesar no uso normal do backend.
+pyinstaller>=6.0,<7

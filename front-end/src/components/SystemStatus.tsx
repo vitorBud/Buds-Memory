@@ -7,7 +7,7 @@ interface SystemStatusProps {
   selectedModel?: string
 }
 
-// ── Indicador compacto de saúde dos serviços no TopBar ────────────────────────
+// ── Indicador compacto de saúde dos serviços na Sidebar ───────────────────────
 export function SystemStatus({ health, selectedModel }: SystemStatusProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)

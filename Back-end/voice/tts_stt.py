@@ -110,6 +110,12 @@ def _resolve_piper_command() -> list[str]:
             return [resolved]
         raise FileNotFoundError(f"AETHER_PIPER_BIN aponta para um Piper inexistente: {explicit_bin}")
 
+    # O app desktop empacotado reutiliza o próprio executável Python congelado
+    # como entrada para o CLI do Piper. Assim não dependemos de um shebang ou
+    # ambiente virtual pertencente à máquina onde o app foi compilado.
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--piper-cli"]
+
     local_candidates: list[Path] = []
     if sys.platform == "win32":
         local_candidates.append(PIPER_EXE)
@@ -157,14 +163,18 @@ def tts_piper(texto: str, out_wav: Path) -> None:
         raise FileNotFoundError(f"Configuração .onnx.json não encontrada em: {CONFIG}")
 
     piper_command = _resolve_piper_command()
-    result = subprocess.run(
-        [*piper_command, "-m", str(MODEL), "-c", str(CONFIG), "-f", str(out_wav)],
-        input=texto,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            [*piper_command, "-m", str(MODEL), "-c", str(CONFIG), "-f", str(out_wav)],
+            input=texto,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            timeout=45,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Piper excedeu o limite de 45 segundos e foi encerrado.") from exc
 
     if result.returncode != 0:
         raise RuntimeError(

@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('nexus', {
   isDesktop: true,
   platform: process.platform,
   pickFolder: () => ipcRenderer.invoke('nexus:pick-folder'),
+  getRemoteToken: () => ipcRenderer.invoke('nexus:get-remote-token'),
 })

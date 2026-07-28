@@ -123,7 +123,7 @@ def upsert_entity(
                 INSERT INTO kg_entities
                   (name, entity_type, description, importance, access_count,
                    first_seen, last_seen, metadata)
-                VALUES (?,?,?,?,0,?,?,?)
+                VALUES (?,?,?,?,1,?,?,?)
                 """,
                 (name_clean, entity_type, description, importance, ts, ts, metadata_str),
             )

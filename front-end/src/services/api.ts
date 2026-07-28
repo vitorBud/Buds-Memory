@@ -7,7 +7,6 @@ import type {
   Message,
   BackendConfig,
   ChatStreamEvent,
-  CodebaseIndexResult,
   CognitiveMemory,
   KnowledgeGraph,
   KnowledgeSource,
@@ -35,16 +34,11 @@ export function getRemoteSessionToken(): string {
   }
 }
 
-export function setRemoteSessionToken(token: string) {
+function setRemoteSessionToken(token: string) {
   try {
     if (token) localStorage.setItem(REMOTE_SESSION_KEY, token)
     else localStorage.removeItem(REMOTE_SESSION_KEY)
   } catch { /* localStorage unavailable */ }
-}
-
-export function getAuthHeaders(): Record<string, string> {
-  const token = getRemoteSessionToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
@@ -102,7 +96,7 @@ function humanizeError(err: unknown): Error {
 
   if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
     return new Error(
-      'Não foi possível conectar ao servidor local. Verifique se o backend Flask está rodando na porta 5050 (execute start_backend.sh).',
+      'Não foi possível conectar ao servidor local. Verifique se o backend do Aether está rodando na porta 5050.',
     )
   }
   return err instanceof Error ? err : new Error(String(err))
@@ -129,23 +123,6 @@ async function fetchJsonWithStartupRetry<T>(url: string, attempts = isDesktop() 
 
 export async function getBackendConfig(): Promise<BackendConfig> {
   return fetchJsonWithStartupRetry<BackendConfig>(`${getBase()}/config`)
-}
-
-export async function getHealth(): Promise<{
-  status: string
-  ollama: boolean
-  rag: boolean
-  knowledge_graph: boolean
-  authenticated?: boolean
-  remote?: {
-    remote_mode: boolean
-    local_url: string
-    auth_required: boolean
-    auth_configured: boolean
-    session_ttl_seconds: number
-  }
-}> {
-  return fetchJsonWithStartupRetry(`${getBase()}/health`)
 }
 
 export async function loginRemote(token: string): Promise<{ access_token?: string; success: boolean; error?: string }> {
@@ -291,15 +268,6 @@ export async function indexCodebase(projectRoot: string, maxFiles = 900): Promis
     indexed_rows: data.indexed_rows ?? data.records_indexed ?? 0,
     files_skipped: data.files_skipped ?? 0,
   }
-}
-
-export async function searchCodebase(query: string, projectRoot?: string, limit = 12): Promise<CodebaseIndexResult[]> {
-  const params = new URLSearchParams({ q: query, limit: String(limit) })
-  if (projectRoot) params.set('project_root', projectRoot)
-  const data = await fetchJsonWithStartupRetry<{ results: CodebaseIndexResult[] }>(
-    `${getBase()}/cognitive/codebase/search?${params.toString()}`,
-  )
-  return data.results
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────
@@ -459,11 +427,4 @@ export async function streamChat(
   }
 
   throw humanizeError(lastError) ?? new Error('Falha ao conectar com o chat.')
-}
-
-// ── Audio URL ───────────────────────────────────────────────────────────────
-
-/** Retorna a URL absoluta para um arquivo de áudio gerado pelo backend. */
-export function getAudioUrl(filename: string): string {
-  return resolveUrl(`/api/audio/${filename}`)
 }

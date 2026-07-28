@@ -7,13 +7,13 @@ Analisa pares (usuário, IA) de cada conversa e:
   3. Para conteúdo relevante, extrai fatos estruturados antes de salvar
   4. Decide o tipo de memória (short/medium/long) com base no score
 
-Roda em thread de background — zero impacto na latência.
+O chamador decide onde executar o pipeline; o app usa um pool compartilhado
+para evitar a criação de threads aninhadas a cada resposta.
 """
 
 from __future__ import annotations
 
 import re
-import threading
 from typing import Optional
 
 from cognitive import knowledge_graph, memory, timeline, projects, user_profile
@@ -122,32 +122,27 @@ _STUDY_PATTERNS = [
 # TEMPLATES PARA EXTRAÇÃO DE FATOS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Mapeamento: padrão no texto → template de fato estruturado
-_FACT_TEMPLATES: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\b(implementei|criei|desenvolvi|fiz)\b.{0,80}", re.I), "Usuário {match}"),
-    (re.compile(r"\b(estou aprendendo|estou estudando|aprendi)\b.{0,80}", re.I), "Usuário {match}"),
-    (re.compile(r"\b(utilizo|uso|trabalho com|prefiro)\b.{0,80}", re.I), "Usuário {match}"),
-    (re.compile(r"\b(meu projeto|no projeto|trabalhando em)\b.{0,80}", re.I), "Usuário {match}"),
-    (re.compile(r"\b(decidi|vou usar|vou criar)\b.{0,80}", re.I), "Usuário {match}"),
-]
+# Padrões que identificam fatos estruturáveis no texto do usuário.
+_FACT_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"\b(implementei|criei|desenvolvi|fiz)\b.{0,80}", re.I),
+    re.compile(r"\b(estou aprendendo|estou estudando|aprendi)\b.{0,80}", re.I),
+    re.compile(r"\b(utilizo|uso|trabalho com|prefiro)\b.{0,80}", re.I),
+    re.compile(r"\b(meu projeto|no projeto|trabalhando em)\b.{0,80}", re.I),
+    re.compile(r"\b(decidi|vou usar|vou criar)\b.{0,80}", re.I),
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PONTO DE ENTRADA PÚBLICO
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def process_chat_async(
+def process_chat(
     session_id: str,
     user_text: str,
     ai_text: str,
 ) -> None:
-    """Dispara análise cognitiva em thread de background (não bloqueia resposta)."""
-    t = threading.Thread(
-        target=_process_chat,
-        args=(session_id, user_text, ai_text),
-        daemon=True,
-    )
-    t.start()
+    """Executa o pipeline cognitivo no executor escolhido pelo chamador."""
+    _process_chat(session_id, user_text, ai_text)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -333,8 +328,8 @@ def _extract_knowledge_fact(
     """
     user_clean = (user_text or "").strip()
 
-    # Tenta extrair via templates
-    for pattern, template in _FACT_TEMPLATES:
+    # Tenta extrair pelos padrões conhecidos
+    for pattern in _FACT_PATTERNS:
         match = pattern.search(user_clean)
         if match:
             raw = match.group(0).strip()

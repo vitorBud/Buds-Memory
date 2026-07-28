@@ -11,21 +11,15 @@ from __future__ import annotations
 import json
 import re
 
+from code_intent import is_code_request
 
 INTERNAL_TAGS = (
     "thinking", "analysis", "tool", "tools", "context", "system", "developer",
     "prompt", "scratchpad", "plan", "internal", "doc_external",
 )
 
-CODE_QUERY_RE = re.compile(
-    r"\b(c[oó]digo|code|fun[cç][aã]o|classe|script|python|javascript|typescript|"
-    r"react|sql|html|css|terminal|erro|bug|stack|traceback|api|endpoint)\b",
-    re.I,
-)
-
-
 def allows_code(user_text: str) -> bool:
-    return bool(CODE_QUERY_RE.search(user_text or ""))
+    return is_code_request(user_text)
 
 
 def sanitize_response(

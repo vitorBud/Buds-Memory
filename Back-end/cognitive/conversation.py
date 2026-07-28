@@ -472,6 +472,46 @@ def resolve_context_references(
     return hints[:5]
 
 
+def answer_recent_assistant_reference(user_text: str, history: list[dict]) -> Optional[str]:
+    """
+    Responde de forma fundamentada quando o usuário pergunta por que foi chamado
+    de determinado termo que aparece numa fala recente do próprio assistente.
+    """
+    text = re.sub(r"\s+", " ", (user_text or "").strip())
+    match = re.search(
+        r"\b(?:por que|porque|pq)\b.{0,60}\b(?:você|voce)\s+(?:me\s+)?"
+        r"chamou(?:\s+de)?\s+[\"'“”]?([^?!.;,\"'“”]{1,60})",
+        text,
+        flags=re.I,
+    )
+    if not match:
+        return None
+
+    label = match.group(1).strip(" -:").strip()
+    label = re.sub(r"\s+(?:antes|ali|aí|ai|agora)$", "", label, flags=re.I).strip()
+    if not label or len(label.split()) > 6:
+        return None
+
+    normalized_label = re.sub(r"\s+", " ", label.casefold())
+    referenced_turn = None
+    for item in reversed(history or []):
+        if item.get("sender") == "user":
+            continue
+        assistant_text = re.sub(r"\s+", " ", str(item.get("text", "")).casefold())
+        if normalized_label in assistant_text:
+            referenced_turn = str(item.get("text", "")).strip()
+            break
+
+    if not referenced_turn:
+        return None
+
+    return (
+        f"Eu realmente usei “{label}” na mensagem anterior, tentando deixar o tom informal. "
+        "Foi uma escolha de linguagem minha, não algo que você tenha dito. "
+        "Se soou inadequado, desculpe — não vou repetir esse tratamento."
+    )
+
+
 def plan_response(user_text: str, intent: dict, interpretation: dict) -> dict:
     """Define diretrizes internas para a resposta antes de chamar o modelo."""
     lower = (interpretation.get("normalized") or user_text or "").lower()

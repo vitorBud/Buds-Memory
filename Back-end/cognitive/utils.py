@@ -6,7 +6,6 @@ database.py. Sem dependências externas — apenas stdlib.
 
 Funções exportadas:
   freshness_score(created_at)     → float 0.0–1.0
-  tokenize(text, min_len)         → list[str]
   is_vague_text(text)             → bool
   clip(text, limit)               → str
   jaccard_similarity(a, b)        → float
@@ -17,13 +16,6 @@ from __future__ import annotations
 import datetime
 import re
 from typing import Optional
-
-# Palavras que nunca contribuem para busca
-_STOP_WORDS: frozenset[str] = frozenset({
-    "para", "como", "qual", "quais", "sobre", "onde", "quando", "isso",
-    "esse", "essa", "aqui", "voce", "você", "documento", "arquivo",
-    "the", "and", "from", "with", "this", "that",
-})
 
 # Pronomes e termos que indicam referência vaga ao contexto anterior
 _VAGUE_WORDS: frozenset[str] = frozenset({
@@ -63,27 +55,6 @@ def freshness_score(created_at: Optional[str]) -> float:
     if age_days <= 180: return 0.45
     if age_days <= 365: return 0.35
     return 0.2
-
-
-def tokenize(text: str, min_len: int = 3) -> list[str]:
-    """
-    Extrai tokens relevantes de texto, removendo stop words e caracteres especiais.
-
-    Args:
-        text: Texto de entrada.
-        min_len: Comprimento mínimo do token (padrão: 3).
-
-    Returns:
-        Lista de tokens únicos em minúsculas.
-    """
-    clean = re.sub(r"[^\w\s./_-]", " ", (text or "").lower())
-    tokens = []
-    seen: set[str] = set()
-    for word in clean.split():
-        if len(word) >= min_len and word not in _STOP_WORDS and word not in seen:
-            tokens.append(word)
-            seen.add(word)
-    return tokens
 
 
 def is_vague_text(text: str) -> bool:

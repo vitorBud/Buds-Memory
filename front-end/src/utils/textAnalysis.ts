@@ -3,7 +3,7 @@
 
 import type { Message } from '../types'
 
-export const STOP_WORDS = new Set([
+const STOP_WORDS = new Set([
   'para', 'como', 'uma', 'com', 'que', 'por', 'mais', 'menos', 'isso', 'esse',
   'essa', 'aqui', 'voce', 'você', 'esta', 'está', 'ser', 'ter', 'das', 'dos',
   'nas', 'nos', 'sim', 'não', 'nao', 'meu', 'minha', 'seu', 'sua', 'ele',
@@ -11,7 +11,7 @@ export const STOP_WORDS = new Set([
   'quando', 'onde', 'porque', 'qual', 'quais', 'cada', 'todo', 'toda',
 ])
 
-export function normalizeText(text: string) {
+function normalizeText(text: string) {
   return text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')

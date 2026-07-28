@@ -230,7 +230,29 @@ def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVE
         if len(buffer) >= MIN_CHUNK_LEN:
             chunks.append(buffer)
 
-    return chunks
+    overlap = max(0, min(int(overlap), max(0, chunk_size // 2)))
+    if overlap == 0 or len(chunks) < 2:
+        return chunks
+
+    overlapped = [chunks[0]]
+    for previous, current in zip(chunks, chunks[1:]):
+        # Blocos de código são unidades atômicas e não recebem texto vizinho.
+        if "```" in previous or "```" in current:
+            overlapped.append(current)
+            continue
+
+        tail = previous[-overlap:].strip()
+        if len(previous) > overlap:
+            boundary = re.search(r"\s", tail)
+            if boundary:
+                tail = tail[boundary.end():].strip()
+
+        if tail and not current.startswith(tail):
+            overlapped.append(f"{tail}\n\n{current}")
+        else:
+            overlapped.append(current)
+
+    return overlapped
 
 
 def chunk_document_with_metadata(content: str) -> list[dict]:

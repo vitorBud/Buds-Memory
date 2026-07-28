@@ -14,26 +14,7 @@ import re
 import math
 from typing import Optional
 from database_v2 import get_db_connection, now_iso
-
-
-def _freshness_score(created_at) -> float:
-    """Score de frescor baseado na data de criação (0.2 a 1.0)."""
-    if not created_at:
-        return 0.5
-    try:
-        import datetime
-        ts = datetime.datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
-        ts = ts.replace(tzinfo=None)
-        age_days = (datetime.datetime.now() - ts).days
-    except Exception:
-        return 0.5
-    if age_days <= 1:   return 1.0
-    if age_days <= 7:   return 0.9
-    if age_days <= 30:  return 0.7
-    if age_days <= 90:  return 0.55
-    if age_days <= 180: return 0.45
-    if age_days <= 365: return 0.35
-    return 0.2
+from cognitive.utils import freshness_score as _freshness_score
 
 
 def global_search(query: str, limit: int = 30, session_id: Optional[str] = None) -> dict:

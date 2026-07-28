@@ -163,9 +163,78 @@ def get_all_sessions():
 
 def delete_session(session_id):
     with get_db_connection() as conn:
+        # Compatibilidade com bancos que ainda não executaram os triggers da
+        # migração cognitiva. A operação inteira continua atômica.
+        if _table_exists(conn, "embeddings") or _table_exists(conn, "ingestion_cache"):
+            message_ids = [
+                row["id"]
+                for row in conn.execute(
+                    "SELECT id FROM messages WHERE session_id=?",
+                    (session_id,),
+                ).fetchall()
+            ]
+            knowledge_ids = [
+                row["id"]
+                for row in conn.execute(
+                    "SELECT id FROM knowledge_sources WHERE session_id=?",
+                    (session_id,),
+                ).fetchall()
+            ]
+            _delete_rag_sources(conn, "messages", message_ids)
+            _delete_rag_sources(conn, "knowledge_sources", knowledge_ids)
         conn.execute("DELETE FROM sessions WHERE id = ?;", (session_id,))
         conn.commit()
     return True
+
+
+def delete_knowledge_source(source_id, session_id=None):
+    """Exclui um documento e todo o índice RAG associado atomicamente."""
+    with get_db_connection() as conn:
+        params = [source_id]
+        where = "id=?"
+        if session_id is not None:
+            where += " AND session_id=?"
+            params.append(session_id)
+        cursor = conn.execute(
+            f"DELETE FROM knowledge_sources WHERE {where}",
+            params,
+        )
+        if cursor.rowcount > 0:
+            _delete_rag_sources(conn, "knowledge_sources", [source_id])
+        conn.commit()
+    return cursor.rowcount > 0
+
+
+def _table_exists(conn, table_name):
+    return bool(
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table_name,),
+        ).fetchone()
+    )
+
+
+def _delete_rag_sources(conn, source_table, source_ids):
+    if not source_ids:
+        return
+    placeholders = ",".join("?" for _ in source_ids)
+    params = [source_table, *source_ids]
+    if _table_exists(conn, "embeddings"):
+        conn.execute(
+            f"""
+            DELETE FROM embeddings
+            WHERE source_table=? AND source_id IN ({placeholders})
+            """,
+            params,
+        )
+    if _table_exists(conn, "ingestion_cache"):
+        conn.execute(
+            f"""
+            DELETE FROM ingestion_cache
+            WHERE source_table=? AND source_id IN ({placeholders})
+            """,
+            params,
+        )
 
 def update_session_title(session_id, title):
     title = (title or "").strip()

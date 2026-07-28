@@ -59,37 +59,6 @@ export interface ChatStreamEvent {
   results?: Array<{ title: string; link: string; snippet: string }>
 }
 
-export interface SystemStats {
-  cpu: number
-  gpu: number
-  memory: number
-  network: number
-}
-
-export interface ModelStat {
-  id: string
-  name: string
-  role: string
-  pct: number
-  color: string
-  active: boolean
-}
-
-export interface ActivityItem {
-  id: string
-  label: string
-  time: string
-  color: 'cyan' | 'violet' | 'emerald' | 'amber' | 'rose'
-}
-
-export interface TaskItem {
-  id: string
-  title: string
-  category: string
-  progress: number
-  color: string
-}
-
 export interface InterfaceSettings {
   theme: ThemeMode
   density: DensityMode
@@ -108,7 +77,6 @@ export interface BackendConfig {
   ollama_url: string
   google_search_available: boolean
   data_dir?: string
-  mobile_token?: string
   remote?: {
     remote_mode: boolean
     host: string
@@ -145,26 +113,6 @@ export interface CognitiveMemory {
   source_table?: string | null
   source_id?: number | null
   created_at: string
-}
-
-export interface CodebaseIndexResult {
-  id: number
-  project_root: string
-  relative_path: string
-  file_name: string
-  language: string
-  kind: string
-  symbol_name?: string | null
-  signature?: string | null
-  imports: string[]
-  dependencies: string[]
-  routes: string[]
-  hooks: string[]
-  classes: string[]
-  functions: string[]
-  summary: string
-  score: number
-  indexed_at: string
 }
 
 export interface KnowledgeGraphEntity {

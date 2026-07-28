@@ -297,22 +297,6 @@ def _save_insight(
     return _row_to_dict(row)
 
 
-def get_pending_insights(limit: int = 10) -> list[dict]:
-    """Retorna insights não lidos e não expirados."""
-    with get_db_connection() as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM insights
-            WHERE is_read = 0
-            AND (expires_at IS NULL OR expires_at > ?)
-            ORDER BY importance DESC, created_at DESC
-            LIMIT ?
-            """,
-            (now_iso(), limit),
-        ).fetchall()
-    return [_row_to_dict(r) for r in rows]
-
-
 def get_all_insights(include_read: bool = False, limit: int = 50) -> list[dict]:
     with get_db_connection() as conn:
         if include_read:

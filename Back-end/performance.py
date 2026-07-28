@@ -16,6 +16,7 @@ import time
 import uuid
 from typing import Iterator, Optional
 
+from code_intent import is_code_request
 
 FAST_PATH = "FAST_PATH"
 STANDARD_PATH = "STANDARD_PATH"
@@ -146,8 +147,43 @@ def estimate_tokens(text: Optional[str]) -> int:
     return max(1, int(max(words * 1.35, chars / 4.2)))
 
 
-def budget_for_pipeline(pipeline: str) -> dict:
-    return dict(PIPELINE_BUDGETS.get(pipeline, PIPELINE_BUDGETS[STANDARD_PATH]))
+def model_size_billions(model: Optional[str]) -> float:
+    """Extrai o porte anunciado no nome do modelo, por exemplo 7 de ``qwen:7b``."""
+    match = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)\s*b\b", (model or "").lower())
+    return float(match.group(1)) if match else 0.0
+
+
+def budget_for_pipeline(pipeline: str, model: Optional[str] = None) -> dict:
+    """
+    Retorna o orçamento do pipeline ajustado à capacidade do modelo.
+
+    Modelos 7B+ recebem mais turnos recentes e uma janela maior. O 3B mantém os
+    limites leves atuais, evitando aumentar custo para o modo rápido padrão.
+    """
+    budget = dict(PIPELINE_BUDGETS.get(pipeline, PIPELINE_BUDGETS[STANDARD_PATH]))
+    if model_size_billions(model) < 7:
+        return budget
+
+    history_floor = {
+        FAST_PATH: 8,
+        STANDARD_PATH: 14,
+        DEEP_PATH: 20,
+    }
+    context_floor = {
+        FAST_PATH: 0,
+        STANDARD_PATH: 7000,
+        DEEP_PATH: 10000,
+    }
+    num_ctx_floor = {
+        FAST_PATH: 4096,
+        STANDARD_PATH: 8192,
+        DEEP_PATH: 8192,
+    }
+    normalized_pipeline = pipeline if pipeline in history_floor else STANDARD_PATH
+    budget["history_messages"] = max(budget["history_messages"], history_floor[normalized_pipeline])
+    budget["context_chars"] = max(budget["context_chars"], context_floor[normalized_pipeline])
+    budget["num_ctx"] = max(budget["num_ctx"], num_ctx_floor[normalized_pipeline])
+    return budget
 
 
 def clip_context(text: Optional[str], max_chars: int) -> str:
@@ -189,6 +225,9 @@ def classify_pipeline(
     if any(re.search(pattern, lower) for pattern in deep_patterns):
         return DEEP_PATH
 
+    if is_conversation_followup(text):
+        return STANDARD_PATH
+
     memory_patterns = [
         r"\b(meu|minha|meus|minhas|sobre mim|quem sou|qual .*meu|lembra|lembrar|mem[oó]ria|perfil)\b",
         r"\b(qual .* eu|que .* eu|eu uso|eu tenho|meu computador|minha m[aá]quina)\b",
@@ -198,11 +237,13 @@ def classify_pipeline(
     if any(re.search(pattern, lower) for pattern in memory_patterns):
         return STANDARD_PATH
 
-    finance_or_code = [
+    if is_code_request(text):
+        return STANDARD_PATH
+
+    finance_patterns = [
         r"\b(fatura|cart[aã]o|sal[aá]rio|parcela|pix|or[cç]amento|investimento|limite)\b",
-        r"\b(c[oó]digo|fun[cç][aã]o|classe|bug|erro|traceback|endpoint|react|python|javascript|typescript)\b",
     ]
-    if any(re.search(pattern, lower) for pattern in finance_or_code):
+    if any(re.search(pattern, lower) for pattern in finance_patterns):
         return STANDARD_PATH
 
     social_patterns = [
@@ -217,6 +258,23 @@ def classify_pipeline(
         return FAST_PATH
 
     return STANDARD_PATH
+
+
+def is_conversation_followup(user_text: str) -> bool:
+    """Detecta perguntas que só fazem sentido à luz de falas anteriores."""
+    lower = re.sub(r"\s+", " ", (user_text or "").strip().lower())
+    if not lower:
+        return False
+    patterns = [
+        r"\b(antes disso|voltando ao que (?:você|voce) (?:disse|falou|respondeu)|na sua resposta)\b",
+        r"\b(?:você|voce)\s+(?:me\s+)?(?:chamou|disse|falou|respondeu|escreveu)\b",
+        r"\b(?:quando|por que|porque|pq)\b.{0,50}\b(?:você|voce)\b.{0,45}\b(?:disse|falou|chamou|respondeu|escreveu)\b",
+        r"\b(?:por que|porque|pq)\s+(?:disse|falou|respondeu|escreveu|fez)\s+(?:isso|assim)\b",
+        r"\b(?:o que|oque)\s+(?:você|voce)\s+quis dizer\b",
+        r"\b(?:do que|sobre o que)\s+(?:você|voce)\s+(?:está|esta|tá|ta)\s+falando\b",
+        r"\b(?:essa|esta|aquela)\s+(?:resposta|frase|palavra|expressão|expressao)\b",
+    ]
+    return any(re.search(pattern, lower) for pattern in patterns)
 
 
 def select_model_for_pipeline(requested_model: str, pipeline: str, available_models: list[str]) -> str:
@@ -234,9 +292,14 @@ def select_model_for_pipeline(requested_model: str, pipeline: str, available_mod
     return requested_model
 
 
-def options_for_pipeline(base_options: dict, response_profile: dict, pipeline: str) -> dict:
+def options_for_pipeline(
+    base_options: dict,
+    response_profile: dict,
+    pipeline: str,
+    model: Optional[str] = None,
+) -> dict:
     """Aplica orçamento de contexto/geração sem ignorar o perfil da resposta."""
-    budget = budget_for_pipeline(pipeline)
+    budget = budget_for_pipeline(pipeline, model)
     options = dict(base_options)
     requested_predict = int(response_profile.get("num_predict") or options.get("num_predict") or 380)
     max_predict = int(budget["num_predict"])

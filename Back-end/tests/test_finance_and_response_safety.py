@@ -151,6 +151,36 @@ Resposta final: A fatura bruta é R$ 2.795 e o impacto pessoal é R$ 795.
         self.assertNotIn("\\times", clean)
         self.assertIn("Fatura Bruta Mensal:", clean)
 
+    def test_explicit_java_request_preserves_fenced_code(self):
+        question = "beleza, consegue me mandar um hello world em java?"
+        raw = """Claro! Aqui está um exemplo simples:
+
+```java
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}
+```
+
+Salve como Main.java e execute normalmente.
+"""
+        clean = response_safety.sanitize_response(raw, user_text=question)
+
+        self.assertTrue(response_safety.allows_code(question))
+        self.assertIn("```java", clean)
+        self.assertIn('System.out.println("Hello, World!");', clean)
+        self.assertIn("Salve como Main.java", clean)
+
+    def test_streaming_preserves_incomplete_fence_for_code_request(self):
+        partial = "```java\npublic class Main {"
+        clean = response_safety.sanitize_response(
+            partial,
+            user_text="mande um hello world em Java",
+            streaming=True,
+        )
+        self.assertEqual(clean, partial)
+
 
 if __name__ == "__main__":
     unittest.main()
