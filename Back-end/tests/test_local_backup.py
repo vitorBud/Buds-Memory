@@ -13,9 +13,16 @@ if str(BACKEND_DIR) not in sys.path:
 import local_backup  # noqa: E402
 
 
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        result = super().__exit__(exc_type, exc_value, traceback)
+        self.close()
+        return result
+
+
 def make_connection_factory(db_path: Path):
     def _connect():
-        conn = sqlite3.connect(str(db_path))
+        conn = sqlite3.connect(str(db_path), factory=ClosingConnection)
         conn.row_factory = sqlite3.Row
         return conn
 

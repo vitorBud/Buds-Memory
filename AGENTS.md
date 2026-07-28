@@ -12,7 +12,8 @@ existente e faca mudancas incrementais.
 Use estes arquivos especializados conforme a tarefa:
 
 - [Agente Frontend Liquid Glass](.agents/frontend-liquid-glass.md): UI, UX,
-  Home, Chat, Voice Mode, configuracoes, responsividade e design system.
+  Home, Chat, Voice Mode, configuracoes, responsividade, design system e
+  performance visual no Windows.
 - [Agente Backend API](.agents/backend-api.md): Flask, rotas, Ollama, auth,
   sessoes, importacao, voz e estabilidade do backend.
 - [Agente Memoria RAG Cognicao](.agents/memory-rag-cognition.md): memoria,
@@ -30,9 +31,18 @@ Graph + Frontend Liquid Glass.
 
 - Nome publico atual: `Aether Memory`.
 - Nome curto permitido: `Aether`.
-- A IA deve se apresentar como Aether Memory/Aether, criada por Vitor.
+- A IA deve se apresentar como Aether Memory/Aether.
+- O Aether Memory foi criado por Vitor, mas isso nao deve ser repetido em toda
+  resposta. Cite Vitor somente quando a pergunta for diretamente sobre criador,
+  origem, autoria ou dono do projeto.
 - Ao explicar o nome, use: Aether vem do eter, o quinto elemento da filosofia
   grega, associado ao espaco e ao conhecimento.
+- Ao perguntarem modelo, versao ou runtime, explique que DeepSeek, Qwen, Llama
+  ou outro nome do Ollama e apenas o motor local usado para gerar texto naquela
+  execucao; nao e a identidade publica do Aether.
+- Ao perguntarem diferencial, explique o conjunto do produto: assistente
+  local-first com memoria SQLite, RAG, Knowledge Graph, Core Memory, Obsidian
+  visual, documentos/codebase, voz e backup portatil.
 - Nao reintroduza textos publicos com `Nexus IA`, `Nexus AI` ou `Nexus Prime`.
 
 Alguns nomes tecnicos legados ainda existem por compatibilidade e nao devem ser
@@ -57,6 +67,48 @@ O Aether Memory e um assistente local-first:
 - Obsidian/Second Brain com memorias, documentos, entidades e grafo.
 - Codebase Indexer para entender projetos de codigo.
 - App desktop macOS via Electron que tenta iniciar o backend automaticamente.
+- Perfil Windows para reduzir travadas de Chrome/Electron sem enfraquecer o LLM.
+
+## Regra de Plataforma: Inteligencia Global, Performance Local
+
+Este projeto roda em macOS e Windows, mas nem todo ajuste deve atingir os dois
+ambientes da mesma forma.
+
+Mudancas que devem valer para ambas as plataformas:
+
+- Identidade, nome, personalidade e estilo do Aether.
+- Prompt, regras de resposta, seguranca contra vazamento de prompt e qualidade
+  de conversa.
+- Memoria, RAG, perfil do usuario, Knowledge Graph, Core Memory e Obsidian como
+  conceito de produto.
+- Regras de modelo: separar identidade publica do Aether do motor local Ollama
+  em uso.
+- Correcoes de bugs logicos, dados, banco, rotas, contratos de API e testes que
+  nao dependem de comportamento especifico do sistema operacional.
+
+Mudancas que devem ser tratadas por plataforma:
+
+- Travamento, FPS, repintura visual, blur, sombras, animacoes e custo de canvas.
+- Voz/TTS/STT, microfone, Piper, SpeechSynthesis e codecs de audio.
+- Threads, timeouts, processos em background, locks de SQLite e paths de
+  ambiente Python.
+- Electron, bootstrap do backend, scripts de inicializacao, portas e detalhes de
+  sistema operacional.
+- Dependencias locais e comandos de ativacao: macOS costuma usar
+  `Back-end/ambiente`; Windows usa preferencialmente `Back-end/.venv`.
+
+Regra pratica:
+
+- Se o problema for inteligencia, memoria, identidade ou qualidade da resposta,
+  ajuste o comportamento geral para Mac e Windows.
+- Se o problema for travamento, lentidao visual, aquecimento, audio, processo,
+  path, venv ou Electron, implemente condicionais por plataforma e preserve o
+  comportamento que ja roda liso no Mac.
+- Nunca "otimize Windows" reduzindo inteligencia do LLM sem pedido explicito do
+  usuario. Primeiro reduza custo de UI, paralelismo, TTS, canvas, animacoes e
+  trabalho em background.
+- Sempre que criar um ajuste Windows-only, deixe claro no codigo ou CSS por que
+  ele existe e mantenha o caminho macOS separado quando necessario.
 
 ## Estrutura Principal
 
@@ -92,6 +144,7 @@ front-end/
   src/components/panels/  Paineis de memoria, arquivos, resumo, etc.
   src/hooks/useChat.ts    Streaming do chat e fila offline
   src/hooks/useRecorder.ts Gravacao/transcricao
+  src/utils/runtime.ts    Deteccao de plataforma e perfil visual Windows
   src/index.css           Design system Liquid Glass e responsividade
   electron/main.cjs       App desktop e bootstrap do backend
   electron/preload.cjs    Bridge segura do Electron
@@ -102,9 +155,19 @@ front-end/
 
 Backend:
 
+macOS / ambiente original:
+
 ```bash
 cd Back-end
 source ambiente/bin/activate
+python app.py
+```
+
+Windows / venv local:
+
+```powershell
+cd Back-end
+.\.venv\Scripts\Activate.ps1
 python app.py
 ```
 
@@ -162,7 +225,11 @@ env PYTHONPYCACHEPREFIX=/private/tmp/aether_pycache ambiente/bin/python -m py_co
 Backend:
 
 - Arquivo oficial: `Back-end/requirements.txt`.
-- Ambiente local comum: `Back-end/ambiente`.
+- Ambiente macOS original: `Back-end/ambiente`.
+- Ambiente Windows preferido: `Back-end/.venv`.
+- Nao renomear nem remover `ambiente/` so porque o Windows usa `.venv/`.
+- Nao assumir que um ajuste de dependencia/teste feito no Windows altera o
+  ambiente do Mac; trate cada venv/ambiente como instalacao local separada.
 - Nao comitar `ambiente/`, `.venv/`, `venv/`, `chat_history.db*`, `.env`,
   `Back-end/models/`, `front-end/dist/` ou `front-end/release/`.
 
@@ -324,8 +391,54 @@ Regras praticas:
 - `BrainMap.tsx` cuida da Obsidian.
 - `HomeBrain.tsx` cuida do cerebro da Home.
 - Estilos principais ficam em `front-end/src/index.css`.
+- `front-end/src/utils/runtime.ts` detecta Windows; use esse helper para
+  ajustes condicionais de plataforma.
 - Use `lucide-react` para icones.
 - Nao crie landing page generica; a Home deve ser produto funcional.
+
+## Performance no Windows
+
+O Windows deve continuar forte no LLM, mas leve na UI. Nao trate maquina Windows
+potente como PC fraco; o gargalo principal costuma ser repintura visual em
+Chrome/Electron.
+
+Importante: esta secao e Windows-only. Nao remova efeitos, animacoes ou o
+comportamento visual do macOS apenas porque o Windows precisa de um perfil mais
+leve. Use `IS_WINDOWS` no backend e `isWindowsRuntime()`/`data-platform="windows"`
+no frontend quando a diferenca for de plataforma.
+
+Regras:
+
+- Preserve `data-platform="windows"` no `documentElement`.
+- Mantenha o perfil Windows em `index.css` removendo blur pesado, sombras
+  grandes e animacoes nas telas Chat, Config e Obsidian.
+- Evite `backdrop-filter`, `filter: blur`, `drop-shadow` e sombras gigantes em
+  areas que mudam durante digitacao ou streaming.
+- Nao reative animacoes de troca de tela no Windows sem medir FPS.
+- Textarea do chat no Windows deve evitar medir `scrollHeight` a cada tecla.
+- HomeBrain e BrainMap devem manter pixel ratio controlado e FPS limitado no
+  Windows.
+- Piper backend deve continuar opt-in no Windows (`NEXUS_WINDOWS_PIPER_TTS=1`).
+- SQLite deve fechar conexoes no `__exit__`; no Windows arquivo `.db` aberto
+  bloqueia backup, teste e limpeza.
+- Se uma resposta "nao aparece" no chat, diferencie logs informativos de erro:
+  `GET /api/cognitive/memory ... 200` e `GET /api/cognitive/graph ... 200` sao
+  chamadas normais da Obsidian/memoria, nao falha do chat.
+- Para falhas reais de chat streaming, garanta que o frontend finalize a bolha
+  de resposta e mostre uma mensagem clara ao usuario.
+
+Validacao minima para mudancas que tocam Windows:
+
+```powershell
+cd Back-end
+.\.venv\Scripts\Activate.ps1
+python -m unittest discover -s tests
+```
+
+```powershell
+cd front-end
+npm run build
+```
 
 Responsividade:
 
@@ -381,6 +494,14 @@ Para mudancas de backend:
 ```bash
 cd Back-end
 env PYTHONPYCACHEPREFIX=/private/tmp/aether_pycache ambiente/bin/python -m py_compile app.py agenty.py cognitive/*.py
+```
+
+No Windows, prefira:
+
+```powershell
+cd Back-end
+.\.venv\Scripts\Activate.ps1
+python -m unittest discover -s tests
 ```
 
 Para mudancas em rotas:

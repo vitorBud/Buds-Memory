@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import contextlib
 import os
+import platform
 import sys
 import time
 import threading
@@ -48,6 +49,7 @@ from performance import (  # noqa: E402
 
 OLLAMA_URL   = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:3b")
+IS_WINDOWS = platform.system().lower() == "windows"
 
 OLLAMA_OPTIONS: dict = {
     "temperature":    0.42,
@@ -56,7 +58,11 @@ OLLAMA_OPTIONS: dict = {
     "num_ctx":        int(os.getenv("OLLAMA_NUM_CTX", "8192")),
     "num_predict":    int(os.getenv("OLLAMA_NUM_PREDICT", "-1")),
 }
-OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "5m")
+if IS_WINDOWS and "OLLAMA_NUM_THREAD" not in os.environ:
+    cpu_count = os.cpu_count() or 4
+    OLLAMA_OPTIONS["num_thread"] = max(4, min(12, cpu_count - 4 if cpu_count >= 12 else cpu_count - 1))
+
+OLLAMA_KEEP_ALIVE = os.getenv("OLLAMA_KEEP_ALIVE", "10m" if IS_WINDOWS else "5m")
 
 # ── Cache de modelos disponíveis (TTL 60s) ────────────────────────────────────
 _MODELS_CACHE: list[str] = []

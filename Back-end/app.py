@@ -2,6 +2,8 @@
 from flask import Flask, request, jsonify, Response, send_from_directory
 from flask_cors import CORS
 import contextlib
+import os
+import platform
 import json
 import time
 import re
@@ -55,6 +57,9 @@ from performance import (
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST_DIR = BASE_DIR.parent / "front-end" / "dist"
 STATIC_DIR = FRONTEND_DIST_DIR if FRONTEND_DIST_DIR.exists() else BASE_DIR / "static"
+IS_WINDOWS = platform.system().lower() == "windows"
+WINDOWS_PIPER_TTS_ENABLED = os.getenv("NEXUS_WINDOWS_PIPER_TTS", "0").lower() in {"1", "true", "yes", "sim"}
+TTS_FUTURE_TIMEOUT = float(os.getenv("NEXUS_TTS_FUTURE_TIMEOUT", "2.5" if IS_WINDOWS else "8.0"))
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="")
 # Habilita CORS para permitir conexões do Front-end em outras portas
@@ -70,11 +75,17 @@ database_v2.migrate()
 app.register_blueprint(cognitive_bp)
 
 # Pool compartilhado para background cognition — evita acúmulo de threads daemon
-_COGNITION_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="aether-cognition")
+_COGNITION_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1 if IS_WINDOWS else 2,
+    thread_name_prefix="aether-cognition",
+)
 
 # Pool dedicado ao TTS — roda Piper em paralelo ao streaming de tokens
 # max_workers=2 cobre sobreposição de sentenças sem saturar CPU no M1
-_TTS_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="aether-tts")
+_TTS_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1 if IS_WINDOWS else 2,
+    thread_name_prefix="aether-tts",
+)
 
 
 @app.before_request
@@ -246,12 +257,7 @@ def get_direct_profile_reply(user_text: str, session_id: Optional[str]) -> Optio
         lower,
     ))
     if asks_identity:
-        return (
-            "Eu sou o Aether Memory, ou só Aether. Meu nome vem de Aether, o éter: "
-            "o quinto elemento da filosofia grega, associado ao espaço e ao conhecimento. "
-            "A ideia é representar uma memória viva, onde suas conversas, documentos e conexões "
-            "ficam organizados como um segundo cérebro."
-        )
+        return _aether_identity_reply()
 
     facts = user_profile.update_from_text(clean, session_id=session_id)
     name_fact = next((fact for fact in facts if fact.get("fact_key") == "name"), None)
@@ -299,26 +305,100 @@ def _pipeline_description(pipeline: str) -> str:
     return labels.get(pipeline, pipeline or "pipeline padrão")
 
 
+def _aether_identity_reply(
+    selected_model: str = "",
+    pipeline: str = "",
+    *,
+    include_creator: bool = False,
+    include_name: bool = False,
+    include_difference: bool = False,
+    include_runtime: bool = False,
+) -> str:
+    first_line = "Eu sou o Aether Memory, ou Aether."
+    if include_creator:
+        first_line += " Fui criado pelo Vitor."
+
+    lines = [first_line]
+    if include_name:
+        lines.append(
+            "Meu nome vem de Aether, o éter: o quinto elemento da filosofia grega, "
+            "associado ao espaço, ao conhecimento e ao campo onde memórias e conexões podem existir."
+        )
+    if include_difference:
+        lines.append(
+            "Meu diferencial é ser um assistente local-first com memória SQLite, RAG, Knowledge Graph, "
+            "Core Memory, Obsidian visual, importação de documentos/codebase, voz e backup portátil. "
+            "Eu não sou só o modelo que responde texto; sou o sistema inteiro que organiza e usa esse conhecimento local."
+        )
+    if include_runtime:
+        lines.append(
+            "Quando o Windows mostra DeepSeek, Qwen, Llama ou outro nome do Ollama, isso é apenas o meu motor local "
+            "de geração de texto nesta execução, não minha identidade."
+        )
+        model = selected_model or "não informado"
+        lines.append(f"Agora estou usando o modelo Ollama `{model}` como motor local.")
+    return "\n\n".join(lines)
+
+
 def get_direct_self_reply(user_text: str, selected_model: str, pipeline: str) -> Optional[str]:
     """Responde dúvidas sobre o próprio Aether sem depender do LLM."""
     clean = re.sub(r"\s+", " ", user_text or "").strip()
     lower = clean.lower()
 
+    asks_identity = bool(re.search(
+        r"\b(quem (?:é|e) voc[eê]|quem (?:é|e) voce|quem (?:é|e) o aether|quem e o aether|qual (?:é|e) (?:o )?seu nome|como voc[eê] se chama|como voce se chama|que ia (?:é|e) voc[eê]|que ia (?:é|e) voce)\b",
+        lower,
+    ))
+    asks_creator = bool(re.search(
+        r"\b(quem .{0,30}(criou|fez|desenvolveu|programou)|criado por quem|feito por quem|seu criador|teu criador|quem (?:é|e) seu dono|quem (?:é|e) o vitor)\b",
+        lower,
+    ))
+    asks_name_meaning = bool(re.search(
+        r"\b(por que .{0,25}(nome|chama|aether)|porque .{0,25}(nome|chama|aether)|significado .{0,25}(nome|aether)|o que significa aether|explica .{0,25}nome)\b",
+        lower,
+    ))
+    asks_difference = bool(re.search(
+        r"\b(diferencial|diferente|te diferencia|o que voc[eê] faz de diferente|o que voce faz de diferente|por que usar voc[eê]|por que usar voce)\b",
+        lower,
+    ))
+    asks_life = bool(re.search(
+        r"\b(vida pr[oó]pria|consci[eê]ncia|consciente|sentimentos?|voc[eê] sente|voce sente|tem vida|est[aá] vivo|esta vivo)\b",
+        lower,
+    ))
+    mentions_base_model_as_identity = any(
+        model_name in lower
+        for model_name in ("deepseek", "qwen", "llama", "mistral", "gemma", "phi", "codellama", "ollama")
+    ) and bool(re.search(r"\b(voc[eê]|voce|vc|tu|é|e|sou|modelo|ia|assistente)\b", lower))
+
+    if asks_life:
+        return (
+            "Não tenho vida própria nem consciência. Eu funciono como o Aether Memory: "
+            "um assistente local que conversa, usa memória/contexto do projeto e responde pelo motor do Ollama quando precisa gerar texto."
+        )
+
+    if asks_identity or asks_creator or asks_name_meaning or asks_difference or mentions_base_model_as_identity:
+        include_runtime = mentions_base_model_as_identity or "modelo" in lower or "ollama" in lower or "vers" in lower
+        return _aether_identity_reply(
+            selected_model,
+            pipeline,
+            include_creator=asks_creator,
+            include_name=asks_name_meaning,
+            include_difference=asks_difference,
+            include_runtime=include_runtime,
+        )
+
     asks_model = bool(re.search(
         r"\b(qual|que|em qual|em que).{0,28}(modelo|modo|vers[aã]o|ia).{0,40}(voc[eê]|voce|est[aá]|usa|usando|rodando)\b"
         r"|\b(voc[eê]|voce).{0,28}(modelo|modo|vers[aã]o).{0,40}(usa|est[aá]|rodando)\b"
         r"|\b(est[aá] em qual modo|qual modo voc[eê] est[aá]|qual modelo est[aá] ativo)\b"
-        r"|\b(qual (?:é|e|sua|a sua) (?:vers[aã]o|modelo|modo)|qual modelo|qual vers[aã]o|modelo ativo)\b",
+        r"|\b(qual (?:é|e)?\s*(?:a\s+)?sua\s+(?:vers[aã]o|modelo|modo)|qual (?:é|e)?\s*(?:a\s+)?(?:vers[aã]o|modelo|modo) atual|qual modelo|qual vers[aã]o|modelo ativo)\b",
         lower,
     ))
     if asks_model:
         label, hint = _model_personality(selected_model)
         return (
-            f"Estou respondendo com `{selected_model}` agora.\n\n"
-            f"No Aether Memory, isso aparece como modo **{label}**: {hint}\n"
-            f"Pipeline desta pergunta: `{_pipeline_description(pipeline)}`\n\n"
-            "Importante: o modelo selecionado nas configurações é respeitado. "
-            "Se você trocar para 7B ou 14B, as próximas respostas usam esse modelo, salvo se ele não estiver instalado no Ollama."
+            f"Sou o Aether Memory. Agora estou usando o modelo Ollama `{selected_model}` como motor local de texto. "
+            f"No Aether, isso está no modo **{label}**: {hint}"
         )
 
     asks_obsidian = "obsidian" in lower and bool(re.search(
@@ -633,6 +713,9 @@ def get_requested_web_search() -> bool:
 
 def get_requested_tts() -> bool:
     """Lê se o front-end quer receber arquivos de áudio gerados pelo backend."""
+    if IS_WINDOWS and not WINDOWS_PIPER_TTS_ENABLED:
+        return False
+
     data = request.get_json(silent=True) if request.is_json else {}
     data = data or {}
     value = request.form.get("tts")
@@ -1071,7 +1154,7 @@ def chat_stream():
             # O Piper rodou em paralelo — a maioria das futures já está pronta aqui
             for fut, audio_url, sentence_text in tts_futures:
                 try:
-                    fut.result(timeout=8.0)  # aguarda no máximo 8s por sentença
+                    fut.result(timeout=TTS_FUTURE_TIMEOUT)
                     yield sse_event({
                         'type': 'audio_sentence',
                         'text': sentence_text,
@@ -1081,6 +1164,12 @@ def chat_stream():
                     print(f"[TTS] Sentença ignorada ({tts_exc})")
 
             full_response = response_safety.sanitize_response(raw_response, user_text=user_text)
+            if not full_response.strip():
+                full_response = (
+                    "Não consegui obter uma resposta do Ollama agora. "
+                    "Confere se o Ollama está aberto e se o modelo selecionado está carregado."
+                )
+                trace.mark("empty_ollama_response")
 
             if (
                 not direct_reply

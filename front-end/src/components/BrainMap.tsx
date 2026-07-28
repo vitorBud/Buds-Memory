@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { deleteCognitiveMemory, setCoreMemory, updateCognitiveMemory } from '../services/api'
 import type { CognitiveMemory, KnowledgeGraph, KnowledgeSource, Message } from '../types'
+import { getWindowsVisualProfile, isWindowsRuntime } from '../utils/runtime'
 
 interface BrainMapProps {
   messages: Message[]
@@ -115,9 +116,11 @@ const KIND_COLOR: Record<MemoryKind, string> = {
 }
 
 const MAX_OBSIDIAN_GRAPH_NODES = 260
+const MAX_OBSIDIAN_GRAPH_NODES_WINDOWS = 190
 const COMPACT_GRAPH_THRESHOLD = 180
 const MAX_OBSIDIAN_LINKS = 720
 const MAX_OBSIDIAN_LINKS_COMPACT = 520
+const MAX_OBSIDIAN_LINKS_WINDOWS = 440
 
 const KIND_RENDER_PRIORITY: Record<MemoryKind, number> = {
   sistema: 80,
@@ -249,7 +252,7 @@ function positionNodes(nodes: Omit<MemoryNode, 'angle' | 'radius' | 'x' | 'y' | 
 
 function selectGraphNodes<T extends { kind: MemoryKind; weight: number; createdAt: Date; isCore?: boolean }>(
   nodes: T[],
-  limit = MAX_OBSIDIAN_GRAPH_NODES,
+  limit = isWindowsRuntime() ? MAX_OBSIDIAN_GRAPH_NODES_WINDOWS : MAX_OBSIDIAN_GRAPH_NODES,
 ): T[] {
   if (nodes.length <= limit) return nodes
   const now = Date.now()
@@ -509,8 +512,10 @@ export function ThreeMemoryGraph({
     const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100)
     camera.position.set(0, 0.65, 7.2)
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25))
+    const isWindows = isWindowsRuntime()
+    const windowsProfile = getWindowsVisualProfile()
+    const renderer = new THREE.WebGLRenderer({ antialias: isWindows ? windowsProfile.antialias : true, alpha: true, powerPreference: 'high-performance' })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isWindows ? windowsProfile.pixelRatio : 1.25))
     renderer.setClearColor(0x000000, 0)
     renderer.domElement.style.touchAction = 'none'
     renderer.domElement.style.pointerEvents = 'auto'
@@ -768,7 +773,13 @@ export function ThreeMemoryGraph({
 
     let frame = 0
     let animationId = 0
+    let lastFrameAt = 0
+    const targetFrameMs = isWindows ? windowsProfile.targetFrameMs : 16
     const animate = () => {
+      animationId = window.requestAnimationFrame(animate)
+      const now = performance.now()
+      if (now - lastFrameAt < targetFrameMs) return
+      lastFrameAt = now
       frame += 1
       if (!dragging) {
         targetRotY += idleVelocity
@@ -811,7 +822,6 @@ export function ThreeMemoryGraph({
       })
 
       renderer.render(scene, camera)
-      animationId = window.requestAnimationFrame(animate)
     }
     animate()
 
@@ -844,7 +854,7 @@ function ObsidianMemoryGraph({
   const graph = useMemo(() => {
     const center = { x: 500, y: 430 }
     const compact = nodes.length > COMPACT_GRAPH_THRESHOLD
-    const linkBudget = compact ? MAX_OBSIDIAN_LINKS_COMPACT : MAX_OBSIDIAN_LINKS
+    const linkBudget = isWindowsRuntime() ? MAX_OBSIDIAN_LINKS_WINDOWS : compact ? MAX_OBSIDIAN_LINKS_COMPACT : MAX_OBSIDIAN_LINKS
     const neighborWindow = compact ? 5 : 9
     const points = nodes.map((node, index) => {
       const kindBias: Record<MemoryKind, { x: number; y: number; r: number }> = {

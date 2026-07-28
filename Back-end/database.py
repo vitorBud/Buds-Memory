@@ -18,6 +18,13 @@ SEARCH_STOP_WORDS = {
 }
 
 
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        result = super().__exit__(exc_type, exc_value, traceback)
+        self.close()
+        return result
+
+
 def normalize_search_text(text):
     text = (text or "").lower()
     text = re.sub(r"https?://\S+", " ", text)
@@ -65,7 +72,7 @@ def score_text(text, terms):
     return score
 
 def get_db_connection():
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), factory=ClosingConnection)
     conn.row_factory = sqlite3.Row
     # Habilita suporte a chaves estrangeiras (cascade delete)
     conn.execute("PRAGMA foreign_keys = ON;")

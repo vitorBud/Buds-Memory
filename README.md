@@ -1,540 +1,103 @@
 # Aether Memory
 
-Aether Memory e um assistente local com chat, voz, memoria, RAG, importacao de conhecimento, Obsidian visual, backup portatil da memoria e app desktop via Electron.
+Aether Memory e um assistente local-first com chat, voz, memoria, RAG, Obsidian visual, backup portatil e app desktop via Electron.
 
-O nome vem de Aether, o eter: o quinto elemento da filosofia grega, associado ao espaco e ao conhecimento. A ideia do produto e ser um campo vivo de memoria, onde conversas, documentos, codigo e conexoes formam um segundo cerebro pessoal.
+O projeto roda com Ollama local, salva dados em SQLite e foi adaptado para macOS e Windows sem precisar trocar a API do frontend. No Mac ele preserva o visual mais pesado. No Windows ele usa um perfil visual mais leve para evitar travadas no Chromium/Electron.
 
-O projeto foi pensado para funcionar offline no Mac/Windows sempre que possivel. A IA roda com Ollama local, o historico fica em SQLite e a memoria pode ser exportada/importada em um arquivo JSON.
+## Recursos
 
-## Recursos Principais
-
-- Chat com streaming de resposta via Ollama.
-- Modelos locais configuraveis: rapido, padrao e mais potente.
-- Memoria cognitiva: short, medium, long e Core Memory.
-- Obsidian/Second Brain: grafo visual de memorias, documentos, conceitos e relacoes.
-- Importacao de PDFs, URLs, textos e pesquisas.
-- RAG hibrido: chunks, BM25 offline, metadados e suporte opcional a embeddings locais.
-- Codebase Indexer: indexa projetos e permite perguntas sobre arquivos, funcoes, classes, hooks, rotas e imports.
-- Modo voz/conversacao.
-- TTS offline com Piper.
+- Chat com streaming via Ollama.
+- Modelos locais: `qwen2.5-coder:3b`, `qwen2.5-coder:7b` e `qwen2.5-coder:14b`.
+- Memoria cognitiva com short, medium, long, archive e Core Memory.
+- RAG local com BM25 e embeddings opcionais.
+- Importacao de PDFs, textos, URLs e pesquisas.
+- Obsidian/Second Brain com grafo de memorias, documentos, topicos e entidades.
+- Codebase Indexer para perguntar sobre arquivos, funcoes, classes, hooks, rotas e imports.
+- Voz no navegador e TTS Piper local.
 - STT com faster-whisper.
-- Busca Google opcional via Google Custom Search.
-- Backup local portatil para levar conversas, PDFs, memorias, RAG e grafo para outro computador.
-- App macOS plug and play via Electron.
+- Backup local em JSON para migrar memoria entre computadores.
+- Acesso remoto opcional por LAN/VPN/Tailscale/ngrok/Cloudflare Tunnel.
 
 ## Estrutura
 
 ```text
 Nexus-Assistent-v1/
-├── Back-end/
-│   ├── app.py                    # API Flask principal, porta 5050
-│   ├── agenty.py                 # Ollama, voz, STT/TTS e prompt principal
-│   ├── database.py               # Historico, sessoes e conhecimento importado
-│   ├── database_v2.py            # Tabelas cognitivas e migracoes
-│   ├── local_backup.py           # Exportacao/importacao da memoria local
-│   ├── start_backend.sh          # Atalho para iniciar backend no macOS
-│   ├── requirements.txt          # Dependencias Python
-│   ├── cognitive/
-│   │   ├── memory.py             # Memorias e Core Memory
-│   │   ├── rag.py                # RAG e contexto de conhecimento
-│   │   ├── codebase_indexer.py   # Indexador de projetos
-│   │   ├── knowledge_graph.py    # Grafo de conhecimento
-│   │   ├── summarizer.py         # Resumos persistentes
-│   │   ├── detector.py           # Detecao cognitiva em conversas
-│   │   ├── projects.py           # Projetos e sessoes relacionadas
-│   │   ├── timeline.py           # Eventos cognitivos
-│   │   └── search.py             # Busca interna
-│   ├── voz/                      # Modelo de voz Piper
-│   └── piper/                    # Binarios do Piper
-├── front-end/
-│   ├── src/                      # React/Vite
-│   ├── electron/                 # App desktop Electron
-│   ├── public/models             # Assets 3D
-│   ├── public/textures           # Texturas
-│   ├── package.json
-│   └── scripts/update-app.sh
-└── CROSS_PLATFORM.md
+  Back-end/
+    app.py                    API Flask principal, porta 5050
+    agenty.py                 Ollama, prompt, voz, STT/TTS e busca
+    performance.py            roteamento de pipeline e orcamentos
+    database.py               sessoes, mensagens e knowledge_sources
+    database_v2.py            tabelas cognitivas e migracoes
+    local_backup.py           exportacao/importacao da memoria local
+    cognitive/                memoria, RAG, grafo, perfil, resumo e codebase
+    llm/ollama_client.py      cliente Ollama
+    voice/tts_stt.py          STT/TTS
+  front-end/
+    src/App.tsx               telas Home, Chat, Voice, Obsidian e Config
+    src/index.css             design system e perfil Windows
+    src/hooks/useChat.ts      streaming, audio e fila offline
+    src/components/           UI principal
+    src/utils/runtime.ts      deteccao de plataforma
+    electron/                 app desktop
 ```
 
 ## Requisitos
 
-### Obrigatorios
-
-- macOS ou Windows.
 - Python 3.9+.
 - Node.js 20+ recomendado.
 - npm.
 - Ollama instalado e rodando.
 - Pelo menos um modelo Ollama baixado.
 
-### Recomendados
-
-- `qwen2.5-coder:3b` para modo rapido.
-- `qwen2.5-coder:7b` para uso padrao.
-- `qwen2.5-coder:14b` para melhor raciocinio, se o Mac aguentar.
-- 8 GB de RAM para modelos 3B.
-- 16 GB ou mais para 7B/14B com mais conforto.
-
-### Opcionais
-
-- Google Custom Search para busca web em tempo real.
-- Modelo `faster-whisper-base` local para STT.
-- Embeddings `sentence-transformers` para RAG semantico opcional.
-
-## Instalacao
-
-Clone o projeto:
-
-```bash
-git clone https://github.com/Nexus-Assitent-v1/Nexus-Assistent-v1.git
-cd Nexus-Assistent-v1
-```
-
-## Backend
-
-Entre na pasta do backend:
-
-```bash
-cd Back-end
-```
-
-Crie o ambiente virtual, se ainda nao existir:
-
-```bash
-python3 -m venv ambiente
-```
-
-Ative o ambiente no macOS/Linux:
-
-```bash
-source ambiente/bin/activate
-```
-
-No Windows PowerShell:
+Modelos recomendados:
 
 ```powershell
-.\ambiente\Scripts\Activate.ps1
-```
-
-Instale as dependencias:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-Se o comando `python` nao existir no macOS, use:
-
-```bash
-python3 -m pip install -r requirements.txt
-```
-
-## Ollama
-
-Instale o Ollama:
-
-```text
-https://ollama.com
-```
-
-Baixe os modelos recomendados:
-
-```bash
 ollama pull qwen2.5-coder:3b
 ollama pull qwen2.5-coder:7b
 ```
 
-Opcional, modelo mais pesado:
+Opcional:
 
-```bash
+```powershell
 ollama pull qwen2.5-coder:14b
 ```
 
-Confirme os modelos:
+## Instalacao no Windows
 
-```bash
-ollama list
-```
+Backend:
 
-O Ollama precisa estar ativo antes do chat responder.
-
-## Variaveis de Ambiente
-
-Crie o arquivo `Back-end/.env` baseado em `Back-end/.env.example`.
-
-Exemplo:
-
-```env
-GOOGLE_API_KEY=
-GOOGLE_CSE_ID=
-
-OLLAMA_NUM_CTX=12288
-OLLAMA_NUM_PREDICT=-1
-OLLAMA_MODEL=qwen2.5-coder:7b
-```
-
-Observacoes:
-
-- O Aether Memory nao precisa de conta ou banco externo para salvar memoria.
-- Se o Mac estiver travando, reduza `OLLAMA_NUM_CTX` para `8192` ou `4096`.
-- O projeto carrega `.env` manualmente, entao `python-dotenv` nao e obrigatorio.
-
-## Rodando em Desenvolvimento
-
-### 1. Inicie o backend
-
-Na pasta `Back-end`:
-
-```bash
-source ambiente/bin/activate
+```powershell
+cd C:\Users\Vitor\Desktop\programacao\Nexus-Assistent-v1\Back-end
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python baixar_stt.py
 python app.py
 ```
 
-Ou no macOS:
+Frontend:
 
-```bash
-./start_backend.sh
-```
-
-O backend roda em:
-
-```text
-http://127.0.0.1:5050
-```
-
-Teste:
-
-```bash
-curl http://127.0.0.1:5050/api/config
-```
-
-### 2. Inicie o frontend
-
-Em outro terminal:
-
-```bash
-cd front-end
-npm install
+```powershell
+cd C:\Users\Vitor\Desktop\programacao\Nexus-Assistent-v1\front-end
+npm ci
 npm run dev
 ```
 
-O frontend roda em:
+Abra:
 
 ```text
 http://localhost:5173
 ```
 
-O Vite redireciona `/api` para:
-
-```text
-http://127.0.0.1:5050
-```
-
-## App macOS
-
-O projeto possui Electron para gerar um app desktop.
-
-Para abrir em modo desktop de desenvolvimento:
-
-```bash
-cd front-end
-npm run desktop
-```
-
-Para gerar e instalar o app em `/Applications`:
-
-```bash
-cd front-end
-npm run update:app
-```
-
-Esse script:
-
-- builda o frontend;
-- gera o app Electron;
-- fecha o Aether Memory antigo, se estiver aberto;
-- copia `Aether Memory.app` para `/Applications`;
-- copia `Back-end/.env` para `~/Library/Application Support/Aether Memory/.env`;
-- abre o app.
-
-No app desktop, o Electron tenta iniciar o backend automaticamente em `127.0.0.1:5050`.
-
-## Banco de Dados Local
-
-O Aether Memory usa SQLite.
-
-No desenvolvimento, o banco fica em:
-
-```text
-Back-end/chat_history.db
-```
-
-No app desktop, o banco fica em:
-
-```text
-~/Library/Application Support/Aether Memory/chat_history.db
-```
-
-Arquivos locais de banco e audio nao devem ser commitados.
-
-## Backup Local
-
-O Aether Memory salva tudo em SQLite local. Para trocar de computador ou guardar
-uma copia da memoria, use a aba `Config > Backup`.
-
-### Baixar memoria
-
-No app ou site:
-
-```text
-Config > Backup > Baixar memoria
-```
-
-Isso gera um arquivo:
-
-```text
-aether-memory-backup-AAAAMMDD-HHMMSS.json
-```
-
-O backup inclui conversas, mensagens, PDFs/textos importados, memorias, Core
-Memory, perfil do usuario, resumos, Knowledge Graph, embeddings do RAG,
-projetos e indice de codebase.
-
-### Inserir em outro sistema
-
-No outro Mac ou instalacao:
-
-```text
-Config > Backup > Inserir backup
-```
-
-A importacao funciona em modo merge: ela adiciona ou atualiza registros do
-backup sem apagar o banco local atual.
-
-### Testar pelo terminal
-
-Com backend ligado:
-
-```bash
-curl http://127.0.0.1:5050/api/local-backup/status
-```
-
-Para baixar manualmente:
-
-```bash
-curl -o aether-memory-backup.json http://127.0.0.1:5050/api/local-backup/export
-```
-
-## Busca Google
-
-Para ativar busca web em tempo real, use Google Custom Search JSON API.
-
-No `.env`:
-
-```env
-GOOGLE_API_KEY=sua_api_key
-GOOGLE_CSE_ID=seu_cse_id
-```
-
-No Google Programmable Search Engine, configure para pesquisar a web inteira se quiser resultados gerais.
-
-Teste pelo app ativando `Buscar no Google` nas configuracoes e fazendo uma pergunta atual.
-
-## Voz
-
-### TTS
-
-O TTS usa Piper local com:
-
-```text
-Back-end/voz/pt_BR-faber-medium.onnx
-Back-end/voz/pt_BR-faber-medium.onnx.json
-```
-
-O backend procura o Piper nesta ordem:
-
-1. `NEXUS_PIPER_BIN`;
-2. binario em `Back-end/piper`;
-3. `piper` no PATH.
-
-### STT
-
-O STT usa `faster-whisper`.
-
-O modelo esperado fica em:
-
-```text
-Back-end/models/faster-whisper-base
-```
-
-Se precisar baixar:
-
-```bash
-cd Back-end
-source ambiente/bin/activate
-python baixar_stt.py
-```
-
-Chat por texto funciona mesmo sem STT.
-
-## RAG, PDFs e Memoria
-
-Quando voce importa PDF, texto, URL ou pesquisa:
-
-- o conteudo completo e salvo em `knowledge_sources`;
-- o texto e dividido em chunks;
-- os chunks sao salvos em `embeddings`;
-- o sistema gera resumo, topicos e entidades;
-- o grafo cognitivo recebe conceitos detectados;
-- a Obsidian passa a mostrar nos relacionados.
-
-O RAG funciona offline com BM25. A busca semantica com `sentence-transformers` e opcional e controlada por:
-
-```env
-NEXUS_ENABLE_SEMANTIC_RAG=1
-NEXUS_EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
-```
-
-Por padrao, o semantico pode ficar desligado para deixar o app mais leve.
-
-## Codebase Indexer
-
-Nas configuracoes do app existe a area `Codebase`.
-
-Ela permite indexar uma pasta de projeto. O Aether Memory salva:
-
-- arquivos;
-- funcoes;
-- classes;
-- imports;
-- hooks;
-- rotas;
-- endpoints;
-- dependencias;
-- componentes;
-- resumo estrutural.
-
-Depois disso, voce pode perguntar coisas como:
-
-```text
-Onde esta a funcao login?
-Quais componentes usam useState?
-Quais endpoints existem no backend?
-Explique a estrutura desse projeto.
-```
-
-## Endpoints Importantes
-
-```text
-GET  /api/config
-GET  /api/sessions
-POST /api/sessions
-GET  /api/sessions/<id>/messages
-GET  /api/sessions/<id>/knowledge
-POST /api/sessions/<id>/knowledge
-POST /api/chat
-POST /api/chat/stream
-GET  /api/local-backup/status
-GET  /api/local-backup/export
-POST /api/local-backup/import
-GET  /api/cognitive/health
-GET  /api/cognitive/memory
-GET  /api/cognitive/graph
-POST /api/cognitive/codebase/index
-GET  /api/cognitive/codebase/search
-```
-
-## Troubleshooting
-
-### `zsh: command not found: python`
-
-No macOS, use:
-
-```bash
-python3 app.py
-```
-
-Ou ative o ambiente:
-
-```bash
-source ambiente/bin/activate
-python app.py
-```
-
-### `ModuleNotFoundError: No module named flask`
-
-Voce nao esta no ambiente virtual ou nao instalou dependencias:
-
-```bash
-cd Back-end
-source ambiente/bin/activate
-python -m pip install -r requirements.txt
-python app.py
-```
-
-### `Address already in use Port 5050`
-
-Ja existe backend rodando na porta 5050.
-
-Veja processos:
-
-```bash
-ps aux | grep app.py
-```
-
-Ou feche o app/terminal antigo antes de iniciar outro backend.
-
-### Aviso `NotOpenSSLWarning` / LibreSSL
-
-No macOS com Python do sistema, o `urllib3` pode avisar sobre LibreSSL. Em geral e apenas aviso. Se quiser evitar, instale Python recente via Homebrew ou python.org.
-
-### Chat nao responde
-
-Confira:
-
-```bash
-ollama list
-curl http://127.0.0.1:5050/api/config
-```
-
-O Ollama precisa estar aberto e com modelo baixado.
-
-### Frontend branco no Electron
-
-Rode build novamente:
-
-```bash
-cd front-end
-npm run build
-npm run desktop
-```
-
-Para reinstalar:
-
-```bash
-npm run update:app
-```
-
-## Git e Arquivos Grandes
-
-Nao commitar:
-
-- `front-end/release/`;
-- `front-end/dist/`;
-- `Back-end/chat_history.db*`;
-- `Back-end/models/`;
-- ambientes virtuais;
-- `.env`;
-- arquivos gerados de audio.
-
-Esses itens ja devem estar no `.gitignore`.
-
-## Comandos Rapidos
+## Instalacao no macOS
 
 Backend:
 
 ```bash
 cd Back-end
+python3 -m venv ambiente
 source ambiente/bin/activate
+python -m pip install -r requirements.txt
 python app.py
 ```
 
@@ -542,38 +105,171 @@ Frontend:
 
 ```bash
 cd front-end
+npm ci
 npm run dev
 ```
 
-Build:
+## Portas
 
-```bash
+- Backend Flask: `http://127.0.0.1:5050`
+- Frontend Vite: `http://localhost:5173`
+- Frontend mobile/dev remoto: `5174` quando usado pelo script mobile
+
+## Variaveis Uteis
+
+```env
+OLLAMA_MODEL=qwen2.5-coder:7b
+OLLAMA_NUM_CTX=8192
+OLLAMA_NUM_PREDICT=-1
+OLLAMA_NUM_THREAD=12
+
+GOOGLE_API_KEY=
+GOOGLE_CSE_ID=
+
+NEXUS_WINDOWS_HIGH_PERFORMANCE=1
+NEXUS_WINDOWS_PIPER_TTS=0
+NEXUS_RETRIEVAL_WORKERS=6
+```
+
+Notas:
+
+- `NEXUS_WINDOWS_HIGH_PERFORMANCE=1` mantem Windows com orcamento forte.
+- `NEXUS_WINDOWS_HIGH_PERFORMANCE=0` ativa modo economico no Windows.
+- `NEXUS_WINDOWS_PIPER_TTS=1` religa Piper no backend Windows, mas pode pesar.
+- O Mac nao usa o perfil visual Windows.
+
+## Performance no Windows
+
+O Windows usa um perfil proprio porque Chrome/Electron no Windows costuma sofrer com:
+
+- `backdrop-filter` em areas grandes;
+- sombras grandes em elementos que repintam;
+- troca de telas com scale/opacity;
+- canvas 3D junto de Ollama usando CPU/GPU;
+- textarea medindo altura a cada tecla.
+
+Adaptacoes feitas:
+
+- HTML recebe `data-platform="windows"`.
+- CSS remove blur pesado, sombras grandes e animacoes do Chat/Config/Obsidian no Windows.
+- Troca de Home/Chat/Voice/Obsidian fica sem transicao no Windows.
+- Textarea do chat tem altura fixa no Windows.
+- HomeBrain e BrainMap usam menos pixel ratio, menos antialias e 30 FPS no Windows.
+- Ollama no Windows usa ate 12 threads por padrao em maquina forte, deixando folga para UI.
+
+## Backup Local
+
+No app:
+
+```text
+Config > Backup > Baixar memoria
+Config > Backup > Inserir backup
+```
+
+O backup exporta conversas, mensagens, PDFs/textos, memorias, perfil, resumos, grafo, embeddings, projetos e indice de codebase.
+
+Pelo terminal:
+
+```powershell
+curl http://127.0.0.1:5050/api/local-backup/status
+curl -o aether-memory-backup.json http://127.0.0.1:5050/api/local-backup/export
+```
+
+## Acesso Remoto
+
+Modo local e padrao:
+
+```powershell
+python Back-end\app.py
+```
+
+Para LAN/VPN:
+
+```powershell
+$env:NEXUS_REMOTE_MODE="true"
+$env:NEXUS_AUTH_TOKEN="troque-por-um-token-longo"
+python Back-end\app.py
+```
+
+Em modo remoto, rotas `/api/*` exigem token, exceto health/login/status.
+
+## Comandos de Validacao
+
+Backend:
+
+```powershell
+cd Back-end
+.\.venv\Scripts\Activate.ps1
+python -m unittest discover -s tests
+```
+
+Frontend:
+
+```powershell
 cd front-end
 npm run build
 ```
 
-Lint:
+Health:
 
-```bash
-cd front-end
-npm run lint
+```powershell
+curl http://127.0.0.1:5050/api/health
+curl http://127.0.0.1:5050/api/config
 ```
 
-Atualizar app macOS:
+## Troubleshooting
 
-```bash
-cd front-end
-npm run update:app
+### Venv nao ativa no PowerShell
+
+Use:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
 ```
 
-## Status Atual Esperado
+`source activate` e comando de shell Unix/conda, nao de PowerShell.
 
-Com tudo funcionando:
+### Chat nao responde
 
-- backend responde em `http://127.0.0.1:5050/api/config`;
-- frontend abre em `http://localhost:5173`;
-- Ollama lista pelo menos um modelo;
-- chat responde por texto;
-- importacao de PDF cria conhecimento na Obsidian;
-- backup local baixa um arquivo JSON em `Config > Backup`;
-- app desktop abre sem precisar iniciar backend pela IDE.
+Confira:
+
+```powershell
+ollama list
+curl http://127.0.0.1:5050/api/config
+```
+
+### Porta 5050 ocupada
+
+Existe outro backend rodando. Feche o terminal/app antigo antes de iniciar outro.
+
+### Front travando no Windows
+
+Reinicie o Vite depois das mudancas:
+
+```powershell
+cd front-end
+npm run dev
+```
+
+Se ainda travar, teste com voz automatica desligada e com a tela Home/Obsidian fechada. O chat deve ficar mais liso com o perfil Windows ativo.
+
+## Arquivos que Nao Devem Ir Para o Git
+
+- `.env`
+- `Back-end/chat_history.db*`
+- `Back-end/out/*.wav`
+- `Back-end/.venv/`, `Back-end/ambiente/`, `venv/`
+- `Back-end/models/`
+- `front-end/node_modules/`
+- `front-end/dist/`
+- `front-end/release/`
+- backups `aether-memory-backup-*.json`
+
+## Status Esperado
+
+- Backend online em `127.0.0.1:5050`.
+- Frontend online em `localhost:5173`.
+- Ollama com pelo menos um modelo instalado.
+- Chat responde por texto.
+- Backup exporta JSON.
+- Obsidian abre sem congelar o chat no Windows.

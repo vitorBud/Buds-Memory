@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import platform
 import re
 import time
 import uuid
@@ -19,30 +20,38 @@ from typing import Iterator, Optional
 FAST_PATH = "FAST_PATH"
 STANDARD_PATH = "STANDARD_PATH"
 DEEP_PATH = "DEEP_PATH"
+IS_WINDOWS = platform.system().lower() == "windows"
+WINDOWS_HIGH_PERFORMANCE = os.getenv("NEXUS_WINDOWS_HIGH_PERFORMANCE", "1").lower() in {"1", "true", "yes", "sim"}
+
+
+def _platform_default(windows_value: str, mac_value: str) -> str:
+    if IS_WINDOWS and not WINDOWS_HIGH_PERFORMANCE:
+        return windows_value
+    return mac_value
 
 
 PIPELINE_BUDGETS = {
     FAST_PATH: {
-        "history_messages": int(os.getenv("AETHER_FAST_HISTORY", "4")),
+        "history_messages": int(os.getenv("AETHER_FAST_HISTORY", _platform_default("3", "4"))),
         "context_chars": int(os.getenv("AETHER_FAST_CONTEXT_CHARS", "0")),
         "num_ctx": int(os.getenv("AETHER_FAST_NUM_CTX", "2048")),
-        "num_predict": int(os.getenv("AETHER_FAST_NUM_PREDICT", "120")),
+        "num_predict": int(os.getenv("AETHER_FAST_NUM_PREDICT", _platform_default("90", "120"))),
         "retrieval": False,
         "reflection": False,
     },
     STANDARD_PATH: {
-        "history_messages": int(os.getenv("AETHER_STANDARD_HISTORY", "8")),
-        "context_chars": int(os.getenv("AETHER_STANDARD_CONTEXT_CHARS", "5200")),
-        "num_ctx": int(os.getenv("AETHER_STANDARD_NUM_CTX", "4096")),
-        "num_predict": int(os.getenv("AETHER_STANDARD_NUM_PREDICT", "420")),
+        "history_messages": int(os.getenv("AETHER_STANDARD_HISTORY", _platform_default("5", "8"))),
+        "context_chars": int(os.getenv("AETHER_STANDARD_CONTEXT_CHARS", _platform_default("3200", "5200"))),
+        "num_ctx": int(os.getenv("AETHER_STANDARD_NUM_CTX", _platform_default("3072", "4096"))),
+        "num_predict": int(os.getenv("AETHER_STANDARD_NUM_PREDICT", _platform_default("280", "420"))),
         "retrieval": True,
         "reflection": False,
     },
     DEEP_PATH: {
-        "history_messages": int(os.getenv("AETHER_DEEP_HISTORY", "12")),
-        "context_chars": int(os.getenv("AETHER_DEEP_CONTEXT_CHARS", "9000")),
-        "num_ctx": int(os.getenv("AETHER_DEEP_NUM_CTX", "8192")),
-        "num_predict": int(os.getenv("AETHER_DEEP_NUM_PREDICT", "1100")),
+        "history_messages": int(os.getenv("AETHER_DEEP_HISTORY", _platform_default("8", "12"))),
+        "context_chars": int(os.getenv("AETHER_DEEP_CONTEXT_CHARS", _platform_default("6200", "9000"))),
+        "num_ctx": int(os.getenv("AETHER_DEEP_NUM_CTX", _platform_default("6144", "8192"))),
+        "num_predict": int(os.getenv("AETHER_DEEP_NUM_PREDICT", _platform_default("700", "1100"))),
         "retrieval": True,
         "reflection": os.getenv("NEXUS_ENABLE_REFLECTION", "0").lower() in {"1", "true", "yes", "sim"},
     },

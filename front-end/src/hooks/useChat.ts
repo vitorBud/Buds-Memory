@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { streamChat } from '../services/api'
 import type { Message, AiState, Session, ChatStreamEvent, VoiceProvider } from '../types'
+import { isWindowsRuntime } from '../utils/runtime'
 
 interface UseChatOptions {
   sessionId: string | null
@@ -134,6 +135,8 @@ export function useChat({
   const activeAbortRef = useRef<AbortController | null>(null)
   const msgCountRef = useRef(0)
   const streamIdRef = useRef(-1)
+  const pendingTokensRef = useRef<Map<number, string>>(new Map())
+  const tokenFlushTimerRef = useRef<number | null>(null)
   const flushingOfflineRef = useRef(false)
 
   useEffect(() => {
@@ -220,6 +223,11 @@ export function useChat({
   const stopOutput = useCallback(() => {
     activeAbortRef.current?.abort()
     activeAbortRef.current = null
+    pendingTokensRef.current = new Map()
+    if (tokenFlushTimerRef.current !== null) {
+      window.clearTimeout(tokenFlushTimerRef.current)
+      tokenFlushTimerRef.current = null
+    }
     audioQueueRef.current = []
     speechQueueRef.current = []
     currentAudioRef.current?.pause()
@@ -241,6 +249,46 @@ export function useChat({
     onMsgCountChange(msgCountRef.current)
   }
 
+  function drainStreamingTokens() {
+    const pending = pendingTokensRef.current
+    if (!pending.size) return
+
+    pendingTokensRef.current = new Map()
+    setMessages(prev => {
+      let next = prev
+
+      pending.forEach((token, messageId) => {
+        const existing = next.find(msg => msg.id === messageId)
+        if (!existing) {
+          next = [...next, {
+            id: messageId,
+            sender: 'ia',
+            text: token,
+            streaming: true,
+            created_at: new Date().toISOString(),
+          }]
+          return
+        }
+
+        next = next.map(msg => {
+          if (msg.id !== messageId) return msg
+          const text = msg.text === '__thinking__' ? token : msg.text + token
+          return { ...msg, text, streaming: true }
+        })
+      })
+
+      return next
+    })
+  }
+
+  function flushStreamingTokens() {
+    if (tokenFlushTimerRef.current !== null) {
+      window.clearTimeout(tokenFlushTimerRef.current)
+      tokenFlushTimerRef.current = null
+    }
+    drainStreamingTokens()
+  }
+
   function createAssistantPlaceholder() {
     const id = streamIdRef.current
     streamIdRef.current -= 1
@@ -256,27 +304,21 @@ export function useChat({
   }
 
   function appendStreamingToken(messageId: number, token: string) {
-    setMessages(prev => {
-      const existing = prev.find(msg => msg.id === messageId)
-      if (!existing) {
-        return [...prev, {
-          id: messageId,
-          sender: 'ia',
-          text: token,
-          streaming: true,
-          created_at: new Date().toISOString(),
-        }]
-      }
+    pendingTokensRef.current.set(
+      messageId,
+      (pendingTokensRef.current.get(messageId) ?? '') + token,
+    )
 
-      return prev.map(msg => {
-        if (msg.id !== messageId) return msg
-        const text = msg.text === '__thinking__' ? token : msg.text + token
-        return { ...msg, text, streaming: true }
-      })
-    })
+    if (tokenFlushTimerRef.current === null) {
+      tokenFlushTimerRef.current = window.setTimeout(() => {
+        tokenFlushTimerRef.current = null
+        drainStreamingTokens()
+      }, 45)
+    }
   }
 
   function replaceStreamingText(messageId: number, text: string) {
+    flushStreamingTokens()
     setMessages(prev => prev.map(msg => (
       msg.id === messageId
         ? { ...msg, text: text.trim(), streaming: true }
@@ -293,6 +335,7 @@ export function useChat({
   }
 
   function finalizeStreaming(messageId: number) {
+    flushStreamingTokens()
     setMessages(prev => {
       let finalized = false
       const next = prev.map(msg => {
@@ -326,6 +369,7 @@ export function useChat({
     let speechBuffer = ''
     let receivedAudio = false
     const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
+    const useStreamingBrowserVoice = useBrowserVoice && !isWindowsRuntime()
     const useBackendVoice = autoPlayAudio && voiceProvider === 'piper'
     const controller = new AbortController()
     activeAbortRef.current = controller
@@ -335,7 +379,7 @@ export function useChat({
         if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
-          if (useBrowserVoice) {
+          if (useStreamingBrowserVoice) {
             speechBuffer += event.content
             const extracted = extractCompleteSentences(speechBuffer)
             extracted.sentences.forEach(queueSpeech)
@@ -354,14 +398,18 @@ export function useChat({
           queueAudio(event.url)
         } else if (event.type === 'done') {
           finalizeStreaming(assistantMessageId)
-          if (useBrowserVoice) {
+          if (useStreamingBrowserVoice) {
             if (speechBuffer.trim()) queueSpeech(speechBuffer)
+          } else if (useBrowserVoice) {
+            speakText(streamedText)
           } else if (autoPlayAudio && !receivedAudio) {
             speakText(streamedText)
           }
           onLatency(Date.now() - start)
         } else if (event.type === 'error') {
           console.error('[Chat] SSE error:', event.content)
+          replaceStreamingText(assistantMessageId, `Falha no chat: ${event.content || 'o backend interrompeu a resposta.'}`)
+          finalizeStreaming(assistantMessageId)
           onStateChange('error')
         }
       }, controller.signal)
@@ -422,6 +470,7 @@ export function useChat({
     let speechBuffer = ''
     let receivedAudio = false
     const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
+    const useStreamingBrowserVoice = useBrowserVoice && !isWindowsRuntime()
     const useBackendVoice = autoPlayAudio && voiceProvider === 'piper'
     const controller = new AbortController()
     activeAbortRef.current = controller
@@ -442,7 +491,7 @@ export function useChat({
         } else if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
-          if (useBrowserVoice) {
+          if (useStreamingBrowserVoice) {
             speechBuffer += event.content
             const extracted = extractCompleteSentences(speechBuffer)
             extracted.sentences.forEach(queueSpeech)
@@ -461,12 +510,19 @@ export function useChat({
           queueAudio(event.url)
         } else if (event.type === 'done') {
           finalizeStreaming(assistantMessageId)
-          if (useBrowserVoice) {
+          if (useStreamingBrowserVoice) {
             if (speechBuffer.trim()) queueSpeech(speechBuffer)
+          } else if (useBrowserVoice) {
+            speakText(streamedText)
           } else if (autoPlayAudio && !receivedAudio) {
             speakText(streamedText)
           }
           onLatency(Date.now() - start)
+        } else if (event.type === 'error') {
+          console.error('[Audio Chat] SSE error:', event.content)
+          replaceStreamingText(assistantMessageId, `Falha no chat: ${event.content || 'o backend interrompeu a resposta.'}`)
+          finalizeStreaming(assistantMessageId)
+          onStateChange('error')
         }
       }, controller.signal)
     } catch (err) {
@@ -485,12 +541,22 @@ export function useChat({
   }
 
   const clearMessages = useCallback(() => {
+    pendingTokensRef.current = new Map()
+    if (tokenFlushTimerRef.current !== null) {
+      window.clearTimeout(tokenFlushTimerRef.current)
+      tokenFlushTimerRef.current = null
+    }
     setMessages([])
     msgCountRef.current = 0
     onMsgCountChange(0)
   }, [onMsgCountChange])
 
   const loadMessages = useCallback((msgs: Message[]) => {
+    pendingTokensRef.current = new Map()
+    if (tokenFlushTimerRef.current !== null) {
+      window.clearTimeout(tokenFlushTimerRef.current)
+      tokenFlushTimerRef.current = null
+    }
     setMessages(msgs)
     msgCountRef.current = msgs.length
     onMsgCountChange(msgs.length)

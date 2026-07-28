@@ -9,6 +9,7 @@ entre computadores sem depender de banco externo.
 from __future__ import annotations
 
 import base64
+import contextlib
 import datetime
 from typing import Any
 
@@ -43,14 +44,15 @@ def export_backup() -> dict:
     tables: dict[str, list[dict]] = {}
     counts: dict[str, int] = {}
 
-    with get_db_connection() as conn:
-        for table in BACKUP_TABLES:
-            if not _table_exists(conn, table):
-                continue
-            rows = conn.execute(f"SELECT * FROM {table}").fetchall()
-            serialized = [_serialize_row(dict(row)) for row in rows]
-            tables[table] = serialized
-            counts[table] = len(serialized)
+    with contextlib.closing(get_db_connection()) as conn:
+        with conn:
+            for table in BACKUP_TABLES:
+                if not _table_exists(conn, table):
+                    continue
+                rows = conn.execute(f"SELECT * FROM {table}").fetchall()
+                serialized = [_serialize_row(dict(row)) for row in rows]
+                tables[table] = serialized
+                counts[table] = len(serialized)
 
     return {
         "format": BACKUP_FORMAT,
@@ -66,12 +68,13 @@ def get_status() -> dict:
     """Retorna métricas locais para a UI de backup, sem depender de nuvem."""
     counts: dict[str, int] = {}
 
-    with get_db_connection() as conn:
-        for table in BACKUP_TABLES:
-            if not _table_exists(conn, table):
-                continue
-            row = conn.execute(f"SELECT COUNT(*) AS n FROM {_quote_identifier(table)}").fetchone()
-            counts[table] = int(row["n"] if row else 0)
+    with contextlib.closing(get_db_connection()) as conn:
+        with conn:
+            for table in BACKUP_TABLES:
+                if not _table_exists(conn, table):
+                    continue
+                row = conn.execute(f"SELECT COUNT(*) AS n FROM {_quote_identifier(table)}").fetchone()
+                counts[table] = int(row["n"] if row else 0)
 
     counts["total"] = sum(counts.values())
     return {
@@ -96,40 +99,39 @@ def import_backup(payload: dict) -> dict:
     imported: dict[str, int] = {}
     skipped: dict[str, int] = {}
 
-    with get_db_connection() as conn:
-        for table in BACKUP_TABLES:
-            rows = tables.get(table) or []
-            if not rows:
-                imported[table] = 0
-                skipped[table] = 0
-                continue
-            if not _table_exists(conn, table):
-                imported[table] = 0
-                skipped[table] = len(rows)
-                continue
-
-            columns = _table_columns(conn, table)
-            count = 0
-            ignored = 0
-            for row in rows:
-                if not isinstance(row, dict):
-                    ignored += 1
+    with contextlib.closing(get_db_connection()) as conn:
+        with conn:
+            for table in BACKUP_TABLES:
+                rows = tables.get(table) or []
+                if not rows:
+                    imported[table] = 0
+                    skipped[table] = 0
                     continue
-                clean = {
-                    key: _deserialize_value(value)
-                    for key, value in row.items()
-                    if key in columns
-                }
-                if not clean:
-                    ignored += 1
+                if not _table_exists(conn, table):
+                    imported[table] = 0
+                    skipped[table] = len(rows)
                     continue
-                _upsert_row(conn, table, clean, columns)
-                count += 1
 
-            imported[table] = count
-            skipped[table] = ignored
+                columns = _table_columns(conn, table)
+                count = 0
+                ignored = 0
+                for row in rows:
+                    if not isinstance(row, dict):
+                        ignored += 1
+                        continue
+                    clean = {
+                        key: _deserialize_value(value)
+                        for key, value in row.items()
+                        if key in columns
+                    }
+                    if not clean:
+                        ignored += 1
+                        continue
+                    _upsert_row(conn, table, clean, columns)
+                    count += 1
 
-        conn.commit()
+                imported[table] = count
+                skipped[table] = ignored
 
     return {
         "success": True,

@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { Bot, ChevronDown, Compass, Mic, MicOff, Send, ShieldCheck, Square, Zap } from 'lucide-react'
 import type { DensityMode } from '../types'
+import { isWindowsRuntime } from '../utils/runtime'
 
 interface ChatInputProps {
   onSend: (text: string) => void
@@ -50,14 +51,16 @@ export function ChatInput({
   const [text, setText] = useState('')
   const [showModelPicker, setShowModelPicker] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const isWindowsUi = isWindowsRuntime()
 
   useEffect(() => {
+    if (isWindowsUi) return
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
       const maxHeight = density === 'compact' ? 104 : 142
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, maxHeight) + 'px'
     }
-  }, [text, density])
+  }, [text, density, isWindowsUi])
 
   function handleSend() {
     if (isProcessing) {

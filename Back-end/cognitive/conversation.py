@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import platform
 import re
 from typing import Optional
 
@@ -62,6 +63,12 @@ INTENTS = {
 }
 
 MAX_CONTEXT_CHARS = int(os.getenv("NEXUS_CONTEXT_MAX_CHARS", "8000"))
+IS_WINDOWS = platform.system().lower() == "windows"
+WINDOWS_RETRIEVAL_WORKERS = max(3, min(6, (os.cpu_count() or 4) // 3))
+RETRIEVAL_WORKERS = int(os.getenv(
+    "NEXUS_RETRIEVAL_WORKERS",
+    str(WINDOWS_RETRIEVAL_WORKERS if IS_WINDOWS else 4),
+))
 INTENT_TIEBREAK_PRIORITY = {
     "TROUBLESHOOTING": 0,
     "FINANCIAL_BUDGET": 1,
@@ -203,7 +210,7 @@ def build_conversation_context(
             (retrieve_timeline, (rewritten_query, intent["primary"])),
             (retrieve_projects, (rewritten_query, intent["primary"])),
         ]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=RETRIEVAL_WORKERS) as executor:
             futures = {executor.submit(fn, *args): fn.__name__ for fn, args in retrieval_fns}
             for future in concurrent.futures.as_completed(futures, timeout=5):
                 try:

@@ -12269,3 +12269,81 @@ input {
   border-color: rgba(255, 255, 255, 0.28);
   color: #ffffff;
 }
+
+/* Windows performance profile: Chrome/Electron no Windows sofre com blur,
+   sombras grandes e transicoes em areas que repintam enquanto o usuario digita. */
+:root[data-platform='windows'] .chat-scroll-scene *,
+:root[data-platform='windows'] .home-landing *,
+:root[data-platform='windows'] .obsidian-scroll-scene *,
+:root[data-platform='windows'] .settings-page-shell * {
+  transition-duration: 0ms !important;
+}
+
+:root[data-platform='windows'] .chat-scroll-scene,
+:root[data-platform='windows'] .chat-scroll-scene *,
+:root[data-platform='windows'] .settings-page-shell,
+:root[data-platform='windows'] .settings-page-shell *,
+:root[data-platform='windows'] .obsidian-scroll-scene,
+:root[data-platform='windows'] .obsidian-scroll-scene * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-platform='windows'] .message-row,
+:root[data-platform='windows'] .thinking-dots span,
+:root[data-platform='windows'] .streaming-cursor::after,
+:root[data-platform='windows'] .brain-signal-bars span,
+:root[data-platform='windows'] .chat-scroll-scene.is-revealing .content-grid,
+:root[data-platform='windows'] .chat-scroll-scene.is-revealing .content-grid::before,
+:root[data-platform='windows'] .chat-scroll-scene.is-revealing .workspace,
+:root[data-platform='windows'] .chat-scroll-scene.is-revealing .chat-input-shell {
+  animation: none !important;
+}
+
+:root[data-platform='windows'] .chat-scroll-scene .content-grid,
+:root[data-platform='windows'] .chat-scroll-scene .chat-window,
+:root[data-platform='windows'] .chat-scroll-scene .chat-input-shell,
+:root[data-platform='windows'] .chat-scroll-scene .composer,
+:root[data-platform='windows'] .chat-scroll-scene .message-bubble,
+:root[data-platform='windows'] .settings-page-shell,
+:root[data-platform='windows'] .settings-panel,
+:root[data-platform='windows'] .obsidian-learn-toolbar,
+:root[data-platform='windows'] .obsidian-memory-card,
+:root[data-platform='windows'] .brain-stats-popover {
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+:root[data-platform='windows'] .chat-scroll-scene .content-grid {
+  background: var(--liquid-panel) !important;
+}
+
+:root[data-platform='windows'] .chat-scroll-scene .chat-window {
+  background: transparent !important;
+  contain: layout paint;
+}
+
+:root[data-platform='windows'] .chat-scroll-scene .composer {
+  background: var(--liquid-panel-soft) !important;
+  min-height: 58px;
+}
+
+:root[data-platform='windows'] .chat-scroll-scene .composer:focus-within {
+  border-color: var(--liquid-border-strong);
+}
+
+:root[data-platform='windows'] .chat-scroll-scene .composer textarea {
+  height: 42px !important;
+  max-height: 42px !important;
+  overflow-y: auto;
+  resize: none;
+}
+
+:root[data-platform='windows'] .home-landing .home-brand-mark {
+  height: min(72vh, 720px) !important;
+  min-height: 460px !important;
+}
+
+:root[data-platform='windows'] .home-landing {
+  scroll-behavior: auto !important;
+}

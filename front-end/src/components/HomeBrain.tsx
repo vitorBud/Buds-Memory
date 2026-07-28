@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import type { AiState, ThemeMode } from '../types'
+import { getWindowsVisualProfile, isWindowsRuntime } from '../utils/runtime'
 
 interface HomeBrainProps {
   theme: ThemeMode
@@ -167,11 +168,13 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
 
     const width = container.clientWidth || 400
     const height = container.clientHeight || 400
+    const isWindows = isWindowsRuntime()
+    const windowsProfile = getWindowsVisualProfile()
     const isCompactScreen = window.matchMedia('(max-width: 680px), (pointer: coarse)').matches
-    const maxBrainPoints = isCompactScreen ? 1250 : 2200
-    const maxLines = isCompactScreen ? 240 : 650
-    const numSparks = isCompactScreen ? 8 : 24
-    const targetFrameMs = isCompactScreen ? 33 : 16
+    const maxBrainPoints = isCompactScreen ? 1250 : isWindows ? 1650 : 2200
+    const maxLines = isCompactScreen ? 240 : isWindows ? 420 : 650
+    const numSparks = isCompactScreen ? 8 : isWindows ? 14 : 24
+    const targetFrameMs = isCompactScreen || isWindows ? windowsProfile.targetFrameMs : 16
 
     // 1. Scene & Camera
     const scene = new THREE.Scene()
@@ -179,8 +182,8 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
     camera.position.z = isCompactScreen ? 3.45 : 3.15
 
     // 2. Renderer
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: !isCompactScreen })
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isCompactScreen ? 1.1 : 1.5))
+    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: isWindows ? windowsProfile.antialias : !isCompactScreen })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, isCompactScreen ? 1.1 : isWindows ? windowsProfile.pixelRatio : 1.5))
     renderer.setSize(width, height)
     container.appendChild(renderer.domElement)
 

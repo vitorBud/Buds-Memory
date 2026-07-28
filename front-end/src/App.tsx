@@ -14,6 +14,7 @@ import {
   House,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import type { Transition } from 'framer-motion'
 import { Sidebar } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { ChatInput } from './components/ChatInput'
@@ -27,6 +28,7 @@ import { useHealthPolling } from './hooks/useHealthPolling'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, exportLocalMemoryBackup, importLocalMemoryBackup, getCognitiveMemories, getKnowledgeGraph } from './services/api'
 import type { AiState, BackendConfig, Session, ActivityItem, InterfaceSettings, LocalBackupStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
+import { isWindowsRuntime } from './utils/runtime'
 
 const HomeBrain = lazy(() => import('./components/HomeBrain').then(module => ({ default: module.HomeBrain })))
 const VoiceMode = lazy(() => import('./components/VoiceMode').then(module => ({ default: module.VoiceMode })))
@@ -146,6 +148,9 @@ function getInitialSettings(): InterfaceSettings {
     if (parsed.voiceProvider !== 'browser' && parsed.voiceProvider !== 'piper') {
       parsed.voiceProvider = DEFAULT_SETTINGS.voiceProvider
     }
+    if (isWindowsRuntime() && parsed.voiceProvider === 'piper') {
+      parsed.voiceProvider = 'browser'
+    }
     return parsed
   } catch {
     return DEFAULT_SETTINGS
@@ -204,6 +209,21 @@ export default function App() {
     if (window.location.hash === '#obsidian') return 'obsidian'
     return 'home'
   })
+  const isWindowsUi = isWindowsRuntime()
+  const viewTransition: Transition = isWindowsUi ? { duration: 0 } : { duration: 0.28, ease: 'easeOut' }
+  const viewMotionProps = isWindowsUi
+    ? {
+        initial: { opacity: 1, scale: 1 },
+        animate: { opacity: 1, scale: 1 },
+        exit: { opacity: 1, scale: 1 },
+        transition: viewTransition,
+      }
+    : {
+        initial: { opacity: 0, scale: 0.96 },
+        animate: { opacity: 1, scale: 1 },
+        exit: { opacity: 0, scale: 1.02 },
+        transition: viewTransition,
+      }
 
   const handleBootDone = useCallback((h: SystemHealth) => {
     setSystemHealth(h)
@@ -222,6 +242,7 @@ export default function App() {
     document.documentElement.dataset.theme = settings.theme
     document.documentElement.dataset.accent = settings.theme
     document.documentElement.dataset.density = 'compact'
+    document.documentElement.dataset.platform = isWindowsRuntime() ? 'windows' : 'default'
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
   }, [settings])
 
@@ -720,17 +741,14 @@ export default function App() {
       {renderViewNav('floating')}
 
 
-      <AnimatePresence mode="wait" initial={false}>
+      <AnimatePresence mode={isWindowsUi ? 'sync' : 'wait'} initial={false}>
         {activeView === 'home' && (
           <motion.section
             key="home"
             className="home-landing"
             id="inicio"
             aria-label="Tela inicial Aether Memory"
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.02 }}
-            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            {...viewMotionProps}
           >
             <div className="home-content-column">
               <div className="home-hero-zone">
@@ -814,10 +832,7 @@ export default function App() {
             className={`chat-scroll-scene ${chatRevealActive ? 'is-revealing' : ''}`}
             id="chat"
             ref={chatSceneRef}
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.02 }}
-            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            {...viewMotionProps}
           >
             <div className={`app-layout theme-${settings.theme} density-${settings.density}`}>
               <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
@@ -946,10 +961,7 @@ export default function App() {
         {activeView === 'voice' && (
           <motion.div
             key="voice"
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.02 }}
-            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            {...viewMotionProps}
             style={{ minHeight: '100vh' }}
           >
             <Suspense fallback={<DeferredSurface label="Carregando conversa..." />}>
@@ -979,10 +991,7 @@ export default function App() {
             className="obsidian-scroll-scene"
             id="obsidian"
             ref={obsidianSceneRef}
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 1.02 }}
-            transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+            {...viewMotionProps}
           >
             <div className="obsidian-sticky-stage">
               <div className="obsidian-stage-graph">
