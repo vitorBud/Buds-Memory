@@ -153,6 +153,65 @@ def model_size_billions(model: Optional[str]) -> float:
     return float(match.group(1)) if match else 0.0
 
 
+_NUMBER_WORDS = {
+    "um": 1,
+    "uma": 1,
+    "dois": 2,
+    "duas": 2,
+    "três": 3,
+    "tres": 3,
+    "quatro": 4,
+    "cinco": 5,
+    "seis": 6,
+    "sete": 7,
+    "oito": 8,
+    "nove": 9,
+    "dez": 10,
+    "onze": 11,
+    "doze": 12,
+    "quinze": 15,
+    "vinte": 20,
+}
+
+_LIST_ITEM_NOUN_RE = re.compile(
+    r"\b(ideias?|op[cç][oõ]es|sugest[oõ]es|exemplos?|alternativas?|passos|"
+    r"t[oó]picos|nomes|projetos|motivos|formas|maneiras|dicas|itens)\b",
+    re.I,
+)
+
+_LIST_REQUEST_ACTION_RE = re.compile(
+    r"\b(me\s+)?(d[eê]|liste|sugira|mostre|crie|gere|mande|envie)|"
+    r"\b(quero|preciso de|pode (?:me )?(?:dar|listar|sugerir|mostrar|criar|gerar))\b",
+    re.I,
+)
+
+
+def requested_item_count(user_text: str) -> int:
+    """Extrai a quantidade pedida em listas como ``me dê 5 ideias``."""
+    text = re.sub(r"\s+", " ", (user_text or "").strip().lower())
+    if (
+        not text
+        or not _LIST_ITEM_NOUN_RE.search(text)
+        or not _LIST_REQUEST_ACTION_RE.search(text)
+    ):
+        return 0
+
+    count_pattern = "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True))
+    match = re.search(
+        rf"\b(\d{{1,2}}|{count_pattern})\s+"
+        rf"(?:ideias?|op[cç][oõ]es|sugest[oõ]es|exemplos?|alternativas?|passos|"
+        rf"t[oó]picos|nomes|projetos|motivos|formas|maneiras|dicas|itens)\b",
+        text,
+        flags=re.I,
+    )
+    if not match:
+        return 0
+
+    raw_count = match.group(1).lower()
+    count = int(raw_count) if raw_count.isdigit() else _NUMBER_WORDS.get(raw_count, 0)
+    return count if 1 <= count <= 30 else 0
+
+
 def budget_for_pipeline(pipeline: str, model: Optional[str] = None) -> dict:
     """
     Retorna o orçamento do pipeline ajustado à capacidade do modelo.
@@ -179,10 +238,16 @@ def budget_for_pipeline(pipeline: str, model: Optional[str] = None) -> dict:
         STANDARD_PATH: 8192,
         DEEP_PATH: 8192,
     }
+    generation_floor = {
+        FAST_PATH: 180,
+        STANDARD_PATH: 700,
+        DEEP_PATH: 1100,
+    }
     normalized_pipeline = pipeline if pipeline in history_floor else STANDARD_PATH
     budget["history_messages"] = max(budget["history_messages"], history_floor[normalized_pipeline])
     budget["context_chars"] = max(budget["context_chars"], context_floor[normalized_pipeline])
     budget["num_ctx"] = max(budget["num_ctx"], num_ctx_floor[normalized_pipeline])
+    budget["num_predict"] = max(budget["num_predict"], generation_floor[normalized_pipeline])
     return budget
 
 
@@ -224,6 +289,9 @@ def classify_pipeline(
     ]
     if any(re.search(pattern, lower) for pattern in deep_patterns):
         return DEEP_PATH
+
+    if requested_item_count(text) >= 3:
+        return STANDARD_PATH
 
     if is_conversation_followup(text):
         return STANDARD_PATH
@@ -302,7 +370,9 @@ def options_for_pipeline(
     budget = budget_for_pipeline(pipeline, model)
     options = dict(base_options)
     requested_predict = int(response_profile.get("num_predict") or options.get("num_predict") or 380)
-    max_predict = int(budget["num_predict"])
+    minimum_predict = max(0, int(response_profile.get("minimum_predict") or 0))
+    requested_predict = max(requested_predict, minimum_predict)
+    max_predict = max(int(budget["num_predict"]), minimum_predict)
     options["num_predict"] = min(requested_predict, max_predict)
     options["num_ctx"] = min(int(options.get("num_ctx") or budget["num_ctx"]), int(budget["num_ctx"]))
     return options

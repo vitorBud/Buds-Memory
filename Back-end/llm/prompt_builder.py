@@ -33,7 +33,11 @@ if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
 
 from code_intent import is_code_request  # noqa: E402
-from performance import budget_for_pipeline, is_conversation_followup  # noqa: E402
+from performance import (  # noqa: E402
+    budget_for_pipeline,
+    is_conversation_followup,
+    requested_item_count,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -151,6 +155,31 @@ def infer_response_profile(user_text: str) -> dict:
     asks_for_code_fix = bool(re.search(
         r"\b(erro|bug|corrig|arruma|conserta|traceback|exception)\b", lower
     ))
+    list_count = requested_item_count(text)
+
+    if list_count:
+        detailed_list = asks_for_detail
+        requested_predict = min(
+            1400,
+            max(360, 160 + list_count * (105 if detailed_list else 80)),
+        )
+        minimum_predict = min(1200, max(300, 120 + list_count * 70))
+        technical_rule = (
+            " Se os itens tiverem código, use blocos Markdown completos com a linguagem indicada."
+            if has_code or asks_for_code_fix
+            else ""
+        )
+        return {
+            "name": "lista",
+            "num_predict": requested_predict,
+            "minimum_predict": minimum_predict,
+            "instruction": (
+                f"Entregue exatamente {list_count} itens numerados e conclua todos eles. "
+                "Mantenha cada item objetivo, com uma explicação curta e útil. "
+                "Não comece um item que não conseguirá terminar e não encerre antes do último."
+                f"{technical_rule}"
+            ),
+        }
 
     if asks_for_detail:
         return {

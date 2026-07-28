@@ -11,6 +11,7 @@ from performance import (
     is_conversation_followup,
     model_size_billions,
     options_for_pipeline,
+    requested_item_count,
     select_model_for_pipeline,
 )
 from llm.prompt_builder import build_prompt, infer_response_profile
@@ -34,6 +35,33 @@ class PerformanceRouterTests(unittest.TestCase):
     def test_deep_work_keeps_deep_path(self):
         text = "faça uma auditoria completa do projeto inteiro e analise profundamente"
         self.assertEqual(classify_pipeline(text), DEEP_PATH)
+
+    def test_explicit_list_count_gets_enough_budget_to_finish(self):
+        question = "me de 5 ideias de projetos"
+        profile = infer_response_profile(question)
+        options_3b = options_for_pipeline(
+            {"num_ctx": 8192, "num_predict": -1},
+            profile,
+            classify_pipeline(question),
+            "qwen2.5-coder:3b",
+        )
+        options_7b = options_for_pipeline(
+            {"num_ctx": 8192, "num_predict": -1},
+            profile,
+            classify_pipeline(question),
+            "qwen2.5-coder:7b",
+        )
+
+        self.assertEqual(requested_item_count(question), 5)
+        self.assertEqual(classify_pipeline(question), STANDARD_PATH)
+        self.assertEqual(profile["name"], "lista")
+        self.assertIn("exatamente 5 itens", profile["instruction"])
+        self.assertGreaterEqual(options_3b["num_predict"], 470)
+        self.assertGreaterEqual(options_7b["num_predict"], 560)
+
+    def test_list_count_accepts_words_without_misreading_plain_statement(self):
+        self.assertEqual(requested_item_count("pode me dar cinco ideias de projetos?"), 5)
+        self.assertEqual(requested_item_count("tenho 5 projetos em andamento"), 0)
 
     def test_explicit_java_example_uses_standard_technical_path(self):
         question = "beleza, consegue me mandar um hello world em java?"
