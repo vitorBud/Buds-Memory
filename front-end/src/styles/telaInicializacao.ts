@@ -1,10 +1,10 @@
 export const bootScreenStyles = {
   overlay:
-    'fixed inset-0 z-[9999] flex items-center justify-center bg-[rgba(4,5,6,0.82)] transition-opacity duration-400 [backdrop-filter:blur(14px)_saturate(1.3)] [will-change:opacity,filter,transform] platform-windows:[backdrop-filter:none]',
+    'fixed inset-0 z-[9999] flex items-center justify-center overflow-x-hidden overflow-y-auto bg-[rgba(4,5,6,0.82)] px-4 py-[max(16px,env(safe-area-inset-top))] transition-opacity duration-400 [backdrop-filter:blur(14px)_saturate(1.3)] [will-change:opacity,filter,transform] platform-windows:[backdrop-filter:none] max-[480px]:items-start',
   closing:
     'pointer-events-none animate-[boot-out_0.4s_cubic-bezier(0.4,0,0.2,1)_both] platform-windows:animate-none platform-windows:opacity-0',
   modal:
-    'grid w-[calc(100vw-32px)] max-w-[440px] animate-[boot-in_0.38s_cubic-bezier(0.2,0.8,0.2,1)_both] gap-6 rounded-[28px] border border-white/10 p-7 shadow-[0_0_0_1px_rgba(99,102,241,0.15),0_32px_64px_rgba(0,0,0,0.55),0_0_80px_rgba(99,102,241,0.08)] [background:linear-gradient(135deg,rgba(255,255,255,0.045)_0%,transparent_60%),rgba(12,14,18,0.97)] platform-windows:animate-none platform-windows:shadow-none max-[480px]:gap-[18px] max-[480px]:p-5',
+    'my-auto grid w-full max-w-[440px] animate-[boot-in_0.38s_cubic-bezier(0.2,0.8,0.2,1)_both] gap-6 rounded-[28px] border border-white/10 p-7 shadow-[0_0_0_1px_rgba(99,102,241,0.15),0_32px_64px_rgba(0,0,0,0.55),0_0_80px_rgba(99,102,241,0.08)] [background:linear-gradient(135deg,rgba(255,255,255,0.045)_0%,transparent_60%),rgba(12,14,18,0.97)] platform-windows:animate-none platform-windows:shadow-none max-[480px]:my-0 max-[480px]:gap-[18px] max-[480px]:p-5',
   brand:
     'flex items-center gap-4',
   logo:
@@ -15,15 +15,15 @@ export const bootScreenStyles = {
     'mt-[5px] mb-0 text-[12.5px] text-white/40',
 
   authPanel:
-    'grid gap-2 rounded-2xl border border-white/10 bg-white/[0.055] p-2.5',
+    'grid gap-2 rounded-2xl border border-indigo-400/35 bg-indigo-400/[0.09] p-3.5 shadow-[0_0_30px_rgba(99,102,241,0.1)] platform-windows:shadow-none',
   authForm:
     'grid grid-cols-1 gap-2',
   authLabel:
-    'text-xs font-bold text-white/60',
+    'text-sm font-extrabold text-white',
   authCopy:
     'm-0 text-xs leading-[1.45] text-white/60',
   authInput:
-    'min-h-[42px] min-w-0 rounded-lg border border-white/12 bg-white/7 px-3 text-white outline-none transition-[border-color,box-shadow] duration-160 placeholder:text-white/30 focus:border-indigo-400/60 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.16)] platform-windows:transition-none',
+    'min-h-12 min-w-0 rounded-xl border border-white/20 bg-black/25 px-3.5 font-mono text-[16px] text-white outline-none transition-[border-color,box-shadow] duration-160 placeholder:font-sans placeholder:text-[13px] placeholder:text-white/35 focus:border-indigo-400/70 focus:shadow-[0_0_0_3px_rgba(99,102,241,0.18)] platform-windows:transition-none',
   authButton:
     'inline-flex min-h-[42px] cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-slate-200 px-3.5 font-extrabold text-slate-900 transition-[background,opacity] duration-160 hover:bg-white platform-windows:transition-none disabled:cursor-not-allowed disabled:opacity-45',
   authError:

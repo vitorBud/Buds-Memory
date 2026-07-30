@@ -178,14 +178,15 @@ cd Back-end
 ./start_backend.sh
 ```
 
-Frontend web:
+Frontend web e celular na mesma rede:
 
 ```bash
 cd front-end
 npm run dev
 ```
 
-Frontend acessivel no celular na mesma rede:
+O comando anuncia automaticamente a URL de rede. O alias antigo continua
+disponivel por compatibilidade:
 
 ```bash
 cd front-end

@@ -4,22 +4,64 @@ import tailwindcss from '@tailwindcss/vite'
 import http from 'node:http'
 
 const BACKEND_URL = 'http://127.0.0.1:5050'
-const mobileDev = process.env.AETHER_MOBILE_DEV === 'true'
 const backendProxyAgent = new http.Agent({
   keepAlive: false,
   maxSockets: 32,
 })
 
-function mobileApiGuard(): Plugin {
+function isLoopbackHost(hostHeader: string | undefined): boolean {
+  const host = (hostHeader || '').trim().toLowerCase()
+  return (
+    host === 'localhost'
+    || host.startsWith('localhost:')
+    || host === '127.0.0.1'
+    || host.startsWith('127.0.0.1:')
+    || host === '[::1]'
+    || host.startsWith('[::1]:')
+  )
+}
+
+function isLoopbackAddress(remoteAddress: string | undefined): boolean {
+  const address = (remoteAddress || '').trim().toLowerCase().split('%', 1)[0]
+  return (
+    address === '::1'
+    || address === '127.0.0.1'
+    || address === '::ffff:127.0.0.1'
+  )
+}
+
+function lanApiGuard(): Plugin {
   let lastRemoteCheck = 0
   let remoteModeEnabled = false
 
   return {
-    name: 'aether-mobile-api-guard',
+    name: 'aether-lan-api-guard',
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {
         const pathname = new URL(request.url || '/', 'http://127.0.0.1').pathname
-        if (!mobileDev || !pathname.startsWith('/api/')) {
+        if (!pathname.startsWith('/api/')) {
+          next()
+          return
+        }
+
+        if (pathname === '/api/auth/device-token') {
+          if (
+            isLoopbackHost(request.headers.host)
+            && isLoopbackAddress(request.socket.remoteAddress)
+          ) {
+            next()
+            return
+          }
+          response.statusCode = 403
+          response.setHeader('Content-Type', 'application/json; charset=utf-8')
+          response.setHeader('Cache-Control', 'no-store')
+          response.end(JSON.stringify({
+            error: 'O token só pode ser exibido no computador principal.',
+          }))
+          return
+        }
+
+        if (isLoopbackHost(request.headers.host)) {
           next()
           return
         }
@@ -56,7 +98,7 @@ function mobileApiGuard(): Plugin {
         response.statusCode = 503
         response.setHeader('Content-Type', 'application/json; charset=utf-8')
         response.end(JSON.stringify({
-          error: 'O modo mobile exige o backend com NEXUS_REMOTE_MODE=true.',
+          error: 'O acesso pela rede local exige o backend em modo remoto autenticado.',
           auth_required: true,
         }))
       })
@@ -70,10 +112,12 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    mobileApiGuard(),
+    lanApiGuard(),
   ],
   server: {
-    host: mobileDev ? '0.0.0.0' : '127.0.0.1',
+    // O Vite anuncia automaticamente a URL LAN. APIs acessadas pela rede
+    // continuam protegidas pelo token obrigatório do backend.
+    host: '0.0.0.0',
     port: 5174,
     strictPort: true,
     proxy: {

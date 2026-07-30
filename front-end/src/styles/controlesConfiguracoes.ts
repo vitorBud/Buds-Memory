@@ -83,27 +83,6 @@ export const settingsControlStyles = {
   statusOrbOffline:
     'border-[color-mix(in_srgb,var(--accent-hot),transparent_58%)] bg-[color-mix(in_srgb,var(--accent-hot),transparent_82%)] text-aether-accent-hot',
 
-  smartphoneCard:
-    'grid gap-2.5 rounded-[18px] border border-[var(--liquid-border)] p-3 shadow-[inset_0_1px_0_color-mix(in_srgb,white,transparent_70%),0_18px_48px_color-mix(in_srgb,black,transparent_88%)] [background:radial-gradient(circle_at_18%_0%,color-mix(in_srgb,var(--accent-hot),transparent_82%),transparent_38%),linear-gradient(135deg,var(--liquid-highlight),transparent_52%),var(--liquid-panel-soft)] platform-windows:shadow-none',
-  smartphoneHead:
-    'flex items-center justify-between gap-2.5',
-  smartphoneTitle:
-    'inline-flex min-w-0 items-center gap-2 text-aether-text [&>strong]:text-[13px] [&>strong]:tracking-normal',
-  smartphoneState:
-    'shrink-0 text-[11px] text-aether-muted',
-  smartphoneField:
-    'grid gap-[7px] rounded-[14px] border border-[color-mix(in_srgb,var(--liquid-border),transparent_18%)] bg-[color-mix(in_srgb,var(--surface),transparent_52%)] p-2.5',
-  smartphoneFieldLabel:
-    'text-[10px] font-extrabold uppercase tracking-[0.08em] text-aether-muted',
-  smartphoneCode:
-    'break-words font-mono text-[11px] leading-[1.35] text-aether-text',
-  smartphoneActions:
-    'flex flex-wrap gap-2',
-  smartphoneAction:
-    'inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--text),transparent_84%)] bg-[color-mix(in_srgb,var(--text),transparent_92%)] px-2.5 py-[7px] text-[11px] font-extrabold text-aether-text no-underline transition-[background,border-color] duration-160 hover:border-[var(--liquid-border-strong)] hover:bg-[rgba(var(--accent-hot-rgb)/0.11)] platform-windows:transition-none disabled:cursor-not-allowed disabled:opacity-55',
-  smartphoneHelp:
-    'm-0 text-[11px] leading-[1.45] text-aether-muted [&>strong]:text-aether-accent-hot',
-
   codebaseCard:
     'grid gap-[13px] rounded-[18px] border border-[var(--liquid-border)] p-3.5 [background:linear-gradient(135deg,var(--liquid-highlight),transparent_50%),var(--liquid-panel-soft)]',
   codebaseTitle:
@@ -130,7 +109,7 @@ export const settingsControlStyles = {
   primaryButton:
     'inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--accent-hot),transparent_40%)] px-3.5 text-xs font-bold tracking-normal text-[var(--accent-ink)] shadow-[0_16px_44px_color-mix(in_srgb,var(--accent-hot),transparent_80%)] transition-[opacity,transform,box-shadow] duration-160 [background:linear-gradient(135deg,color-mix(in_srgb,var(--accent-hot),white_20%),color-mix(in_srgb,var(--accent),black_10%))] hover:-translate-y-px hover:shadow-[0_20px_54px_color-mix(in_srgb,var(--accent-hot),transparent_74%)] platform-windows:shadow-none platform-windows:transition-none platform-windows:hover:translate-y-0 disabled:cursor-not-allowed disabled:opacity-48',
   secondaryButton:
-    'mt-2.5 !border-[color-mix(in_srgb,var(--accent),transparent_62%)] !bg-[color-mix(in_srgb,var(--accent),transparent_88%)] !text-aether-accent !shadow-none hover:!shadow-[0_14px_36px_color-mix(in_srgb,var(--accent),transparent_82%)] platform-windows:hover:!shadow-none',
+    'mt-2.5 !border-[color-mix(in_srgb,var(--accent-hot),transparent_62%)] !bg-[color-mix(in_srgb,var(--accent-hot),transparent_88%)] !text-aether-accent-hot !shadow-none hover:!shadow-[0_14px_36px_color-mix(in_srgb,var(--accent-hot),transparent_82%)] platform-windows:hover:!shadow-none',
 
   technicalGrid:
     'grid flex-1 grid-cols-2 gap-2 max-[760px]:grid-cols-1',

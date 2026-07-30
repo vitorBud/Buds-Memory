@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -21,6 +22,24 @@ def env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "sim", "on"}
+
+
+def is_loopback_address(value: Optional[str]) -> bool:
+    """Retorna True somente para conexões originadas no próprio computador."""
+    if not value:
+        return False
+    normalized = value.strip().split("%", 1)[0]
+    try:
+        address = ipaddress.ip_address(normalized)
+        if address.is_loopback:
+            return True
+        return bool(
+            isinstance(address, ipaddress.IPv6Address)
+            and address.ipv4_mapped
+            and address.ipv4_mapped.is_loopback
+        )
+    except ValueError:
+        return normalized.lower() == "localhost"
 
 
 _CONFIGURED_HOST = (os.getenv("NEXUS_HOST") or "").strip()

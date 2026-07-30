@@ -25,6 +25,9 @@
   --color-aether-faint: var(--faint);
   --color-aether-accent: var(--accent);
   --color-aether-accent-hot: var(--accent-hot);
+  --color-aether-action: var(--accent-hot);
+  --color-aether-action-ink: var(--accent-ink);
+  --color-aether-icon: var(--muted-strong);
   --color-aether-cyan: var(--cyan);
   --color-aether-teal: var(--teal);
   --color-aether-violet: var(--violet);
@@ -379,49 +382,7 @@
   to { transform: translate(-50%, -50%) rotate(360deg); }
 }
 
-@keyframes homeBrainScan {
-  0%, 100% { opacity: 0; transform: translateX(-40%); }
-  12%, 62% { opacity: 0.9; }
-  to { opacity: 0; transform: translateX(360%); }
-}
-
-@keyframes homeBrainParticlePulse {
-  0%, 100% { opacity: 0.34; transform: scale(0.72); }
-  50% { opacity: 1; transform: scale(1.36); }
-}
-
-@keyframes homeBrainBuildGrid {
-  to { background-position: 42px 42px, 42px 42px; }
-}
-
-@keyframes homeBrainBuildProgress {
-  0% { transform: scaleX(0.08); }
-  45% { transform: scaleX(0.68); }
-  72%, 100% { transform: scaleX(0.94); }
-}
-
-@keyframes homeBrainBuildMetric {
-  0% { transform: translateX(-100%); }
-  55%, 100% { transform: translateX(100%); }
-}
-
 @keyframes homeScrollDot {
   0%, 100% { opacity: 0.35; transform: translate(-50%, 0); }
   50% { opacity: 1; transform: translate(-50%, 10px); }
-}
-
-@keyframes homeOrbitBuild {
-  0% { opacity: 0.35; transform: rotate(0deg) scale(0.92); }
-  50% { opacity: 0.95; transform: rotate(180deg) scale(1.03); }
-  100% { opacity: 0.35; transform: rotate(360deg) scale(0.92); }
-}
-
-@keyframes homeCoreBreath {
-  0%, 100% { transform: scale(0.86); }
-  50% { transform: scale(1.08); }
-}
-
-@keyframes homeGridBuild {
-  from { background-position: 0 0, 0 0; }
-  to { background-position: 38px 38px, 38px 38px; }
 }

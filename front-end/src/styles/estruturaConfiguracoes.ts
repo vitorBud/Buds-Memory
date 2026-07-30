@@ -20,9 +20,9 @@ export const settingsLayoutStyles = {
   navButtonActive:
     '-translate-y-px border-[color-mix(in_srgb,var(--liquid-border),var(--accent)_36%)] bg-[color-mix(in_srgb,var(--liquid-panel),var(--accent)_10%)] text-aether-text platform-windows:translate-y-0',
   navIcon:
-    'size-[34px] rounded-[11px] border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--surface),transparent_12%)] p-2 text-aether-accent theme-black:border-white/16 theme-black:bg-white/9 theme-black:text-white group-hover:theme-black:border-white/28 group-hover:theme-black:bg-white/16 max-[860px]:size-7 max-[860px]:p-1.5',
+    'size-[34px] rounded-[11px] border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--surface),transparent_12%)] p-2 text-aether-icon group-hover:border-[var(--liquid-border-strong)] group-hover:text-aether-text max-[860px]:size-7 max-[860px]:p-1.5',
   navIconActive:
-    'theme-black:border-white/28 theme-black:bg-white/16 theme-black:text-white',
+    'border-transparent !bg-aether-action !text-aether-action-ink group-hover:!bg-aether-action group-hover:!text-aether-action-ink',
   navCopy:
     'grid min-w-0 gap-0.5',
   navLabel:

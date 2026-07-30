@@ -9,13 +9,13 @@ export const chatInputStyles = {
   prompts:
     'flex flex-wrap justify-center gap-[7px] max-[560px]:justify-start',
   prompt:
-    'inline-flex min-h-[30px] items-center gap-2 rounded-aether border border-[rgb(var(--accent-rgb)/0.22)] bg-[rgb(12_8_4/0.78)] px-2.5 text-xs text-[var(--jarvis-muted)] transition-[background,border-color,color] duration-160 hover:border-[rgb(var(--accent-hot-rgb)/0.52)] hover:bg-[rgb(var(--accent-rgb)/0.13)] hover:text-[var(--jarvis-hot)] disabled:cursor-not-allowed disabled:opacity-45',
+    'inline-flex min-h-[30px] items-center gap-2 rounded-aether border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-2.5 text-xs text-aether-icon transition-[background,border-color,color] duration-160 hover:border-[var(--liquid-border-strong)] hover:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:text-aether-text disabled:cursor-not-allowed disabled:opacity-45',
   composer:
-    'mx-auto flex min-h-[58px] w-full max-w-none items-end gap-2.5 rounded-[22px] border border-[var(--liquid-border)] px-2 py-2 pl-4 text-aether-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_42%),var(--liquid-panel)] [backdrop-filter:blur(28px)_saturate(1.45)] focus-within:border-[var(--liquid-border-strong)] focus-within:shadow-[0_18px_58px_rgba(var(--accent-hot-rgb)/0.12),inset_0_1px_0_rgba(255,255,255,0.16)] platform-windows:!min-h-[58px] platform-windows:!bg-[var(--liquid-panel-soft)] platform-windows:!shadow-none platform-windows:!filter-none max-[760px]:min-h-[50px] max-[760px]:gap-[7px] max-[760px]:!rounded-3xl max-[760px]:!border max-[760px]:!border-[var(--liquid-border)] max-[760px]:px-1.5 max-[760px]:py-1.5 max-[760px]:pl-3 max-[760px]:shadow-[0_10px_28px_rgba(0,0,0,0.14)] max-[760px]:![background:linear-gradient(135deg,rgba(255,255,255,0.12),transparent_42%),color-mix(in_srgb,var(--surface)_90%,transparent)] max-[760px]:![backdrop-filter:blur(22px)_saturate(1.25)] max-[560px]:flex-col max-[560px]:items-stretch',
+    'mx-auto flex min-h-[58px] min-w-0 w-full max-w-full items-end gap-2.5 overflow-hidden rounded-[22px] border border-[var(--liquid-border)] px-2 py-2 pl-4 text-aether-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_42%),var(--liquid-panel)] [backdrop-filter:blur(28px)_saturate(1.45)] focus-within:border-[var(--liquid-border-strong)] focus-within:shadow-[0_18px_58px_rgba(var(--accent-hot-rgb)/0.12),inset_0_1px_0_rgba(255,255,255,0.16)] platform-windows:!min-h-[58px] platform-windows:!bg-[var(--liquid-panel-soft)] platform-windows:!shadow-none platform-windows:!filter-none max-[760px]:min-h-[50px] max-[760px]:gap-[7px] max-[760px]:!rounded-3xl max-[760px]:!border max-[760px]:!border-[var(--liquid-border)] max-[760px]:px-1.5 max-[760px]:py-1.5 max-[760px]:pl-3 max-[760px]:shadow-[0_10px_28px_rgba(0,0,0,0.14)] max-[760px]:![background:linear-gradient(135deg,rgba(255,255,255,0.12),transparent_42%),color-mix(in_srgb,var(--surface)_90%,transparent)] max-[760px]:![backdrop-filter:blur(22px)_saturate(1.25)] max-[560px]:flex-col max-[560px]:items-stretch',
   recording:
     '!border-[color-mix(in_srgb,var(--rose)_65%,var(--line))]',
   textarea:
-    'min-h-[34px] flex-1 resize-none border-0 bg-transparent text-[15px] leading-[1.45] text-aether-text outline-0 placeholder:text-aether-faint max-[760px]:max-h-[118px] max-[760px]:px-0.5 max-[760px]:py-[7px] max-[760px]:text-base max-[760px]:leading-[1.35] platform-windows:!h-[42px] platform-windows:!max-h-[42px] platform-windows:overflow-y-auto platform-windows:resize-none',
+    'min-h-[34px] min-w-0 max-w-full flex-1 resize-none overflow-x-hidden border-0 bg-transparent text-[15px] leading-[1.45] text-aether-text outline-0 placeholder:text-aether-faint max-[760px]:max-h-[118px] max-[760px]:px-0.5 max-[760px]:py-[7px] max-[760px]:text-base max-[760px]:leading-[1.35] platform-windows:!h-[42px] platform-windows:!max-h-[42px] platform-windows:overflow-y-auto platform-windows:resize-none',
   actions:
     'flex items-center gap-[7px] max-[760px]:items-end max-[760px]:gap-[5px] max-[560px]:justify-end',
   modelSelect: 'relative max-[900px]:hidden',
@@ -30,11 +30,11 @@ export const chatInputStyles = {
   action:
     'inline-flex size-10 cursor-pointer items-center justify-center rounded-full border transition-[background,border-color,color,transform,box-shadow] duration-180 active:scale-95 disabled:cursor-not-allowed disabled:opacity-42 max-[760px]:size-[38px] max-[760px]:min-h-[38px] max-[760px]:min-w-[38px]',
   microphone:
-    'border-[rgba(245,158,11,0.22)] bg-[rgba(12,8,4,0.82)] text-[var(--jarvis-muted)] hover:-translate-y-px hover:border-[var(--liquid-border-strong)] hover:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:text-aether-text hover:shadow-[0_10px_34px_rgba(var(--accent-hot-rgb)/0.12)]',
+    'border-[var(--liquid-border)] bg-[var(--liquid-panel-strong)] text-aether-icon hover:-translate-y-px hover:border-[var(--liquid-border-strong)] hover:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:text-aether-text hover:shadow-[0_10px_34px_rgba(var(--accent-hot-rgb)/0.12)]',
   microphoneRecording:
     '!border-[color-mix(in_srgb,var(--rose)_55%,var(--line))] !bg-[color-mix(in_srgb,var(--rose)_16%,var(--surface))] !text-aether-rose',
   send:
-    'border-[rgb(var(--accent-hot-rgb)/0.5)] bg-aether-accent-hot text-aether-accent-hot hover:-translate-y-px hover:border-[var(--liquid-border-strong)] hover:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:text-aether-text hover:shadow-[0_10px_34px_rgba(var(--accent-hot-rgb)/0.12)]',
+    'border-transparent bg-aether-action text-aether-action-ink shadow-[0_10px_28px_rgba(var(--accent-hot-rgb)/0.2)] hover:-translate-y-px hover:border-transparent hover:bg-aether-action hover:text-aether-action-ink hover:shadow-[0_14px_34px_rgba(var(--accent-hot-rgb)/0.28)] disabled:shadow-none',
   stopping:
     '!border-[rgba(244,63,94,0.52)] !bg-[rgba(244,63,94,0.16)] !text-rose-400',
   meta:

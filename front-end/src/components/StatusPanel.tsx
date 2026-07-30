@@ -1,9 +1,9 @@
-import { Activity, BrainCircuit, Circle, CloudDownload, Code2, Copy, Cpu, ExternalLink, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Smartphone, Upload, UserRound, Volume2, X } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Activity, BrainCircuit, Circle, CloudDownload, Code2, Cpu, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Upload, UserRound, Volume2, X } from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
 import { indexCodebase } from '../services/api'
 import { settingsControlStyles, themeDotStyles } from '../styles/controlesConfiguracoes'
 import { settingsLayoutStyles, settingsSectionStyles } from '../styles/estruturaConfiguracoes'
-import type { AiState, BackendConfig, InterfaceSettings, LocalBackupStatus, ThemeMode } from '../types'
+import type { AiState, InterfaceSettings, LocalBackupStatus, ThemeMode } from '../types'
 
 interface StatusPanelProps {
   aiState: AiState
@@ -13,7 +13,6 @@ interface StatusPanelProps {
   model: string
   models: string[]
   googleSearchAvailable: boolean
-  backendConfig: BackendConfig | null
   backupStatus: LocalBackupStatus | null
   isBackupBusy: boolean
   authMode?: string
@@ -64,40 +63,6 @@ function StatusLine({ label, value }: { label: string; value: string }) {
   )
 }
 
-function buildSmartphoneUrl(config: BackendConfig | null) {
-  const remoteUrl = config?.remote?.recommended_url || ''
-  const fallback = window.location.href
-
-  try {
-    const current = new URL(window.location.href)
-    const currentIsShareable = !['localhost', '127.0.0.1', '0.0.0.0'].includes(current.hostname)
-    const base = currentIsShareable ? current.origin : remoteUrl || current.origin
-    const url = new URL(base)
-    if (current.pathname && current.pathname !== '/') url.pathname = current.pathname
-    url.search = current.search
-    url.hash = current.hash
-    return url.toString()
-  } catch {
-    return remoteUrl || fallback
-  }
-}
-
-function copyText(value: string) {
-  if (!value) return Promise.resolve()
-  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(value)
-
-  const textarea = document.createElement('textarea')
-  textarea.value = value
-  textarea.setAttribute('readonly', 'true')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  textarea.remove()
-  return Promise.resolve()
-}
-
 type PublicThemeMode = Extract<ThemeMode, 'black' | 'gold' | 'silver'>
 
 const THEME_OPTIONS: Array<{ value: PublicThemeMode; label: string; hint: string }> = [
@@ -135,7 +100,6 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: strin
 
 type AetherBridge = {
   pickFolder?: () => Promise<string | null>
-  getRemoteToken?: () => Promise<string>
   isDesktop?: boolean
 }
 
@@ -148,7 +112,6 @@ export function StatusPanel({
   model,
   models,
   googleSearchAvailable,
-  backendConfig,
   backupStatus,
   isBackupBusy,
   authMode,
@@ -165,32 +128,7 @@ export function StatusPanel({
   const [codebaseStatus, setCodebaseStatus] = useState('')
   const [isIndexingCodebase, setIsIndexingCodebase] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>('account')
-  const [mobileCopyLabel, setMobileCopyLabel] = useState('')
-  const [desktopRemoteToken, setDesktopRemoteToken] = useState('')
   const backupInputRef = useRef<HTMLInputElement>(null)
-  const smartphoneUrl = buildSmartphoneUrl(backendConfig)
-
-  useEffect(() => {
-    const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
-    if (!backendConfig?.remote?.remote_mode || !bridge?.getRemoteToken) {
-      return
-    }
-    let cancelled = false
-    void bridge.getRemoteToken().then(token => {
-      if (!cancelled) setDesktopRemoteToken(token)
-    }).catch(() => {
-      if (!cancelled) setDesktopRemoteToken('')
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [backendConfig?.remote?.remote_mode])
-
-  const handleMobileCopy = async (value: string, label: string) => {
-    await copyText(value)
-    setMobileCopyLabel(label)
-    window.setTimeout(() => setMobileCopyLabel(''), 1600)
-  }
 
   const pickCodebaseFolder = async () => {
     const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
@@ -321,71 +259,10 @@ export function StatusPanel({
             </strong>
             <span className={settingsControlStyles.statusCardHint}>
               {authMode === 'remote'
-                ? 'Acesso remoto protegido por token'
+                ? 'Sessão autenticada neste dispositivo'
                 : 'Dados salvos no SQLite local'}
             </span>
           </div>
-        </div>
-        <div className={settingsControlStyles.smartphoneCard}>
-          <div className={settingsControlStyles.smartphoneHead}>
-            <span className={settingsControlStyles.smartphoneTitle}>
-              <Smartphone size={16} />
-              <strong>Abra no seu smartphone</strong>
-            </span>
-            <small className={settingsControlStyles.smartphoneState}>
-              {backendConfig?.remote?.remote_mode
-                ? 'Acesso remoto ativo'
-                : 'Use com backend em modo mobile/remoto'}
-            </small>
-          </div>
-
-          <div className={settingsControlStyles.smartphoneField}>
-            <span className={settingsControlStyles.smartphoneFieldLabel}>Link atual</span>
-            <code className={settingsControlStyles.smartphoneCode}>{smartphoneUrl}</code>
-            <div className={settingsControlStyles.smartphoneActions}>
-              <button
-                type="button"
-                className={settingsControlStyles.smartphoneAction}
-                onClick={() => handleMobileCopy(smartphoneUrl, 'link')}
-              >
-                <Copy size={13} />
-                Copiar
-              </button>
-              <a
-                className={settingsControlStyles.smartphoneAction}
-                href={smartphoneUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <ExternalLink size={13} />
-                Abrir
-              </a>
-            </div>
-          </div>
-
-          {backendConfig?.remote?.remote_mode && desktopRemoteToken && (
-            <div className={settingsControlStyles.smartphoneField}>
-              <span className={settingsControlStyles.smartphoneFieldLabel}>Token local do app</span>
-              <code className={settingsControlStyles.smartphoneCode}>{desktopRemoteToken}</code>
-              <div className={settingsControlStyles.smartphoneActions}>
-                <button
-                  type="button"
-                  className={settingsControlStyles.smartphoneAction}
-                  onClick={() => handleMobileCopy(desktopRemoteToken, 'token')}
-                >
-                  <Copy size={13} />
-                  Copiar
-                </button>
-              </div>
-            </div>
-          )}
-
-          <p className={settingsControlStyles.smartphoneHelp}>
-            No celular, abra o link e cole o token configurado no backend quando a tela pedir acesso remoto.
-            {mobileCopyLabel && (
-              <strong> {mobileCopyLabel === 'token' ? 'Token copiado.' : 'Link copiado.'}</strong>
-            )}
-          </p>
         </div>
       </div>
 

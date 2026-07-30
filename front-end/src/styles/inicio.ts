@@ -48,7 +48,7 @@ export const homeStyles = {
   projectPoint:
     'grid grid-cols-[34px_minmax(0,1fr)] items-center gap-x-3 gap-y-[3px] rounded-[18px] border border-white/9 bg-white/[0.055] p-3 max-[760px]:rounded-[15px] max-[760px]:p-2.5',
   projectPointIcon:
-    'row-span-2 size-[34px] self-center rounded-xl border border-[rgb(var(--accent-rgb)/0.22)] bg-[rgb(var(--accent-rgb)/0.16)] p-[7px] text-[var(--accent)]',
+    'row-span-2 size-[34px] self-center rounded-xl border border-[rgba(var(--accent-hot-rgb)/0.22)] bg-[rgba(var(--accent-hot-rgb)/0.1)] p-[7px] text-[var(--accent-hot)]',
   projectPointTitle:
     'text-[13px] font-extrabold text-[var(--text)]',
   projectPointCopy:
@@ -71,75 +71,26 @@ export const homeBrainStyles = {
   canvasLoading: 'opacity-0',
   canvasReady: 'opacity-100',
   build:
-    'pointer-events-none absolute inset-0 z-[5] grid content-center items-center justify-items-center gap-4 overflow-visible before:absolute before:h-[min(34vw,320px)] before:w-[min(78vw,820px)] before:animate-[homeBrainBuildGrid_3s_linear_infinite] before:rounded-[34px] before:bg-[linear-gradient(90deg,rgb(var(--accent-hot-rgb)/0.1)_1px,transparent_1px),linear-gradient(rgb(var(--accent-rgb)/0.08)_1px,transparent_1px)] before:bg-[length:42px_42px] before:opacity-75 before:[filter:blur(0.2px)] before:[mask-image:radial-gradient(ellipse_at_center,black_0_48%,transparent_78%)] before:content-[""] after:absolute after:h-[min(36vw,340px)] after:w-[min(76vw,780px)] after:rounded-[34px] after:bg-[radial-gradient(ellipse_at_42%_48%,rgb(var(--accent-hot-rgb)/0.2),transparent_54%),radial-gradient(ellipse_at_60%_46%,rgb(var(--accent-rgb)/0.2),transparent_66%)] after:[filter:blur(18px)] after:content-[""] platform-windows:before:animate-none platform-windows:after:[filter:none]',
-  buildField:
-    'relative z-[1] block h-[min(28vw,260px)] w-[min(76vw,760px)] before:absolute before:inset-0 before:h-full before:w-[24%] before:animate-[homeBrainScan_2.2s_ease-in-out_infinite] before:bg-[linear-gradient(90deg,transparent,rgb(var(--accent-hot-rgb)/0.5),transparent)] before:[filter:blur(5px)] before:content-[""] after:absolute after:inset-0 after:bg-[linear-gradient(90deg,transparent_0_18%,rgb(var(--accent-rgb)/0.16)_18.4%_18.7%,transparent_19%_100%),linear-gradient(180deg,transparent_0_50%,rgb(var(--accent-hot-rgb)/0.14)_50.3%_50.7%,transparent_51%_100%)] after:opacity-70 after:content-[""] platform-windows:before:animate-none platform-windows:before:[filter:none]',
-  particle:
-    'absolute size-[5px] animate-[homeBrainParticlePulse_1.8s_ease-in-out_infinite] rounded-full bg-[var(--accent)] opacity-70 shadow-[0_0_22px_rgb(var(--accent-rgb)/0.46)] platform-windows:animate-none platform-windows:shadow-none',
-  buildCopy:
-    'relative z-[1] grid gap-[5px] rounded-[20px] border border-[color-mix(in_srgb,var(--accent-hot)_20%,var(--liquid-border))] bg-[color-mix(in_srgb,var(--glass-bg,var(--surface))_60%,transparent)] px-[18px] py-3.5 text-center shadow-[0_20px_70px_rgba(0,0,0,0.22)] platform-windows:shadow-none',
+    'pointer-events-none absolute inset-0 z-[5] grid place-items-center',
+  indicator:
+    'grid min-w-[210px] justify-items-center gap-2.5 rounded-2xl border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--liquid-panel)_78%,transparent)] px-5 py-4 text-center shadow-[0_12px_32px_rgba(0,0,0,0.1)] [backdrop-filter:blur(12px)] platform-windows:shadow-none platform-windows:[backdrop-filter:none]',
+  pulse:
+    'relative size-5 rounded-full border border-[color-mix(in_srgb,var(--accent-hot)_28%,transparent)] after:absolute after:inset-[5px] after:animate-pulse after:rounded-full after:bg-[var(--accent-hot)] after:content-[""] platform-windows:after:animate-none',
   buildTitle:
-    'text-[13px] font-[850] tracking-[0.08em] text-[var(--text)] uppercase',
+    'text-xs font-bold tracking-[0.03em] text-[var(--text)]',
   buildCopyText:
-    'text-xs text-[var(--muted)]',
-  progress:
-    'relative z-[1] h-2.5 w-[min(460px,76vw)] overflow-hidden rounded-full border border-[color-mix(in_srgb,var(--accent)_22%,transparent)] shadow-[inset_0_0_18px_rgb(var(--accent-rgb)/0.08),0_0_34px_rgb(var(--accent-hot-rgb)/0.12)] [background:linear-gradient(180deg,rgb(var(--accent-hot-rgb)/0.1),transparent),color-mix(in_srgb,var(--surface-2)_82%,transparent)] platform-windows:shadow-none',
-  progressFill:
-    'block h-full w-full origin-left animate-[homeBrainBuildProgress_2.4s_cubic-bezier(0.16,1,0.3,1)_infinite] rounded-[inherit] bg-[linear-gradient(90deg,var(--accent),var(--accent-hot),var(--accent))] shadow-[0_0_28px_rgb(var(--accent-hot-rgb)/0.5)] platform-windows:animate-none platform-windows:shadow-none',
-  metrics:
-    'relative z-[1] grid w-[min(360px,76vw)] grid-cols-3 gap-2',
-  metric:
-    'relative h-[3px] overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--accent)_18%,transparent)] after:absolute after:inset-0 after:-translate-x-full after:animate-[homeBrainBuildMetric_1.55s_ease-in-out_infinite] after:bg-[linear-gradient(90deg,transparent,var(--accent-hot),transparent)] after:content-[""] platform-windows:after:animate-none',
-  metricSecond: 'after:[animation-delay:0.22s]',
-  metricThird: 'after:[animation-delay:0.44s]',
+    'text-[11px] text-[var(--muted)]',
 } as const
 
 export const homeLoaderStyles = {
   root:
-    'relative grid h-full min-h-[clamp(420px,62vh,720px)] w-[min(100%,980px)] items-center justify-items-center gap-[22px] overflow-visible before:pointer-events-none before:absolute before:size-[min(68vw,620px)] before:rounded-full before:bg-[radial-gradient(circle,rgb(var(--accent-hot-rgb)/0.16),transparent_62%),radial-gradient(circle,rgb(var(--accent-rgb)/0.13),transparent_54%)] before:[filter:blur(10px)] before:content-[""] after:pointer-events-none after:absolute after:inset-[8%] after:animate-[homeGridBuild_2.8s_linear_infinite] after:rounded-full after:bg-[linear-gradient(90deg,rgb(var(--accent-hot-rgb)/0.11)_1px,transparent_1px),linear-gradient(rgb(var(--accent-rgb)/0.095)_1px,transparent_1px)] after:bg-[length:38px_38px] after:opacity-70 after:[mask-image:radial-gradient(circle,black_0_42%,transparent_72%)] after:content-[""] max-[760px]:min-h-[260px] max-[760px]:w-full platform-windows:before:[filter:none] platform-windows:after:animate-none',
-  orbit:
-    'relative z-[1] grid aspect-square w-[min(56vw,430px)] place-items-center max-[760px]:w-[min(72vw,280px)]',
-  ring:
-    'col-start-1 row-start-1 size-full animate-[homeOrbitBuild_2.6s_linear_infinite] rounded-full border border-[rgb(var(--accent-hot-rgb)/0.34)] shadow-[inset_0_0_28px_rgb(var(--accent-rgb)/0.12),0_0_32px_rgb(var(--accent-hot-rgb)/0.16)] platform-windows:animate-none platform-windows:shadow-none',
-  ringSecond:
-    'size-[76%] [animation-duration:3.4s] rotate-[38deg]',
-  ringThird:
-    'size-[54%] [animation-duration:4.1s] -rotate-[22deg]',
-  core:
-    'col-start-1 row-start-1 size-[26%] animate-[homeCoreBreath_1.7s_ease-in-out_infinite] rounded-full bg-[radial-gradient(circle_at_45%_42%,var(--accent-hot),transparent_28%),radial-gradient(circle,rgb(var(--accent-rgb)/0.46),transparent_66%)] shadow-[0_0_44px_rgb(var(--accent-hot-rgb)/0.42),0_0_110px_rgb(var(--accent-rgb)/0.25)] platform-windows:animate-none platform-windows:shadow-none',
-  copy:
-    'relative z-[1] grid gap-1 rounded-[18px] border border-[color-mix(in_srgb,var(--accent-hot)_18%,var(--liquid-border))] bg-[color-mix(in_srgb,var(--glass-bg,var(--surface))_58%,transparent)] px-[18px] py-3.5 text-center shadow-[0_18px_60px_rgba(0,0,0,0.18)] max-[760px]:px-3.5 max-[760px]:py-3 platform-windows:shadow-none',
-  title: 'text-[13px] font-[850] text-[var(--text)]',
-  subtitle: 'text-xs text-[var(--muted)]',
+    'grid h-full min-h-[clamp(420px,62vh,720px)] w-full place-items-center max-[760px]:min-h-[260px]',
+  indicator:
+    'grid min-w-[210px] justify-items-center gap-2.5 rounded-2xl border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--liquid-panel)_78%,transparent)] px-5 py-4 text-center shadow-[0_12px_32px_rgba(0,0,0,0.1)] [backdrop-filter:blur(12px)] platform-windows:shadow-none platform-windows:[backdrop-filter:none]',
+  pulse:
+    'relative size-5 rounded-full border border-[color-mix(in_srgb,var(--accent-hot)_28%,transparent)] after:absolute after:inset-[5px] after:animate-pulse after:rounded-full after:bg-[var(--accent-hot)] after:content-[""] platform-windows:after:animate-none',
+  title:
+    'text-xs font-bold tracking-[0.03em] text-[var(--text)]',
+  subtitle:
+    'text-[11px] text-[var(--muted)]',
 } as const
-
-export const homeParticlePositions = [
-  'left-[8%] top-[56%] [animation-delay:0.04s]',
-  'left-[12%] top-[46%] [animation-delay:0.08s]',
-  'left-[16%] top-[62%] [animation-delay:0.12s]',
-  'left-[20%] top-[38%] [animation-delay:0.16s]',
-  'left-[24%] top-[50%] [animation-delay:0.20s]',
-  'left-[28%] top-[69%] [animation-delay:0.24s]',
-  'left-[32%] top-[42%] [animation-delay:0.28s]',
-  'left-[36%] top-[58%] [animation-delay:0.32s]',
-  'left-[40%] top-[34%] [animation-delay:0.36s]',
-  'left-[44%] top-[52%] [animation-delay:0.40s]',
-  'left-[48%] top-[72%] [animation-delay:0.44s]',
-  'left-[52%] top-[45%] [animation-delay:0.48s]',
-  'left-[56%] top-[61%] [animation-delay:0.52s]',
-  'left-[60%] top-[37%] [animation-delay:0.56s]',
-  'left-[64%] top-[54%] [animation-delay:0.60s]',
-  'left-[68%] top-[70%] [animation-delay:0.64s]',
-  'left-[72%] top-[43%] [animation-delay:0.68s]',
-  'left-[76%] top-[59%] [animation-delay:0.72s]',
-  'left-[80%] top-[35%] [animation-delay:0.76s]',
-  'left-[84%] top-[51%] [animation-delay:0.80s]',
-  'left-[88%] top-[64%] [animation-delay:0.84s]',
-  'left-[92%] top-[46%] [animation-delay:0.88s]',
-  'left-[18%] top-[76%] [animation-delay:0.92s]',
-  'left-[30%] top-[25%] [animation-delay:0.96s]',
-  'left-[43%] top-[82%] [animation-delay:1s]',
-  'left-[58%] top-[22%] [animation-delay:1.04s]',
-  'left-[70%] top-[82%] [animation-delay:1.08s]',
-  'left-[86%] top-[26%] [animation-delay:1.12s]',
-] as const

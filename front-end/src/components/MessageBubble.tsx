@@ -164,12 +164,12 @@ function CodeBlock({ language, code }: CodeBlockProps) {
   const highlightedHtml = highlightCode(code, language)
 
   return (
-    <div className="my-3.5 flex flex-col overflow-hidden rounded-xl border border-white/8 bg-[rgba(15,15,20,0.65)] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] backdrop-blur-lg">
-      <div className="flex items-center justify-between border-b border-white/5 bg-[rgba(10,10,12,0.5)] px-4 py-2 font-[-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
-        <span className="text-[11px] font-semibold tracking-[0.5px] text-white/50">{displayLang}</span>
+    <div className="my-3.5 flex min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-white/8 bg-[rgba(15,15,20,0.65)] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] backdrop-blur-lg">
+      <div className="flex min-w-0 items-center justify-between gap-2 border-b border-white/5 bg-[rgba(10,10,12,0.5)] px-4 py-2 font-[-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
+        <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-semibold tracking-[0.5px] text-white/50">{displayLang}</span>
         <button
           type="button"
-          className="flex cursor-pointer items-center gap-1.5 rounded-sm border-0 bg-transparent px-2 py-1 text-[11px] font-medium text-white/50 transition-all duration-200 hover:bg-white/5 hover:text-white/85 active:scale-96"
+          className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-sm border-0 bg-transparent px-2 py-1 text-[11px] font-medium text-white/50 transition-all duration-200 hover:bg-white/5 hover:text-white/85 active:scale-96"
           onClick={handleCopy}
         >
           {copied ? (
@@ -185,9 +185,9 @@ function CodeBlock({ language, code }: CodeBlockProps) {
           )}
         </button>
       </div>
-      <pre className="m-0 overflow-x-auto bg-transparent p-4">
+      <pre className="m-0 min-w-0 max-w-full overflow-x-auto bg-transparent p-4 max-[760px]:overflow-x-hidden max-[760px]:p-3">
         <code
-          className="block whitespace-pre text-left font-['SFMono-Regular',Consolas,'Liberation_Mono',Menlo,Courier,monospace] text-[13.5px] leading-[1.6] text-slate-200"
+          className="block max-w-full whitespace-pre text-left font-['SFMono-Regular',Consolas,'Liberation_Mono',Menlo,Courier,monospace] text-[13.5px] leading-[1.6] text-slate-200 max-[760px]:whitespace-pre-wrap max-[760px]:break-words max-[760px]:[overflow-wrap:anywhere]"
           dangerouslySetInnerHTML={{ __html: highlightedHtml }}
         />
       </pre>
@@ -219,7 +219,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   return (
     <article
-      className={`message-row flex max-w-[min(820px,88%)] gap-2.5 animate-[msg-enter_220ms_ease_both] platform-windows:![animation:none] max-[760px]:gap-[7px] max-[560px]:max-w-full ${
+      className={`message-row flex min-w-0 max-w-[min(820px,88%)] gap-2.5 animate-[msg-enter_220ms_ease_both] platform-windows:![animation:none] max-[760px]:w-full max-[760px]:max-w-full max-[760px]:gap-[7px] ${
         isUser
           ? 'is-user self-end flex-row-reverse max-[760px]:justify-end'
           : 'is-ai max-[760px]:justify-start'
@@ -236,12 +236,12 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </div>
 
       <div
-        className={`message-stack grid min-w-0 gap-[5px] max-[760px]:max-w-[min(86vw,560px)] ${
+        className={`message-stack grid min-w-0 gap-[5px] max-[760px]:max-w-[min(calc(100vw-40px),560px)] ${
           isUser ? 'justify-items-end' : ''
         }`}
       >
         <div
-          className={`message-bubble max-w-[min(760px,78vw)] rounded-3xl border px-[15px] py-[13px] text-sm leading-[1.62] text-aether-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] ![backdrop-filter:none] [transform:translateZ(0)] max-[760px]:max-w-full max-[760px]:[overflow-wrap:anywhere] max-[760px]:rounded-[18px] max-[760px]:px-[13px] max-[760px]:py-2.5 max-[760px]:text-[15px] max-[760px]:leading-[1.45] ${
+          className={`message-bubble min-w-0 max-w-[min(760px,78vw)] overflow-hidden rounded-3xl border px-[15px] py-[13px] text-sm leading-[1.62] text-aether-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] ![backdrop-filter:none] [transform:translateZ(0)] max-[760px]:max-w-full max-[760px]:break-words max-[760px]:[overflow-wrap:anywhere] max-[760px]:rounded-[18px] max-[760px]:px-[13px] max-[760px]:py-2.5 max-[760px]:text-[15px] max-[760px]:leading-[1.45] ${
             isUser
               ? 'border-[rgba(var(--accent-hot-rgb)/0.16)] [background:linear-gradient(135deg,rgba(var(--accent-hot-rgb)/0.18),transparent_52%),rgba(var(--accent-hot-rgb)/0.09)] max-[760px]:rounded-br-md max-[760px]:border-[#0a84ff] max-[760px]:bg-[#0a84ff] max-[760px]:text-white'
               : 'border-[var(--liquid-border)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_42%),var(--liquid-panel-soft)] max-[760px]:rounded-bl-md max-[760px]:border-[var(--line)] max-[760px]:[background:color-mix(in_srgb,var(--surface-3)_86%,white_6%)]'
@@ -270,7 +270,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
                   )
                 } else {
                   return (
-                    <span key={index} style={{ whiteSpace: 'pre-wrap' }}>
+                    <span key={index} className="block max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                       {part.content}
                     </span>
                   )

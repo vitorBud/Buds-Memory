@@ -69,7 +69,7 @@ else
   echo "Depois defina NEXUS_PUBLIC_FRONTEND_URL e NEXUS_PUBLIC_URL, se nao usar Tailscale."
 fi
 echo ""
-echo "No iPhone, abra sempre a URL do Front se estiver usando npm run dev:mobile."
+echo "No celular, abra sempre a URL do Front mostrada pelo npm run dev."
 echo "Use o Backend/API apenas para testar /api/health ou acessar o build servido pelo Flask."
 echo "Token: $NEXUS_AUTH_TOKEN"
 echo ""

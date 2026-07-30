@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import type { AiState, ThemeMode } from '../types'
 import { getWindowsVisualProfile, isWindowsRuntime } from '../utils/runtime'
-import { homeBrainStyles as styles, homeParticlePositions } from '../styles/inicio'
+import { homeBrainStyles as styles } from '../styles/inicio'
 
 interface HomeBrainProps {
   theme: ThemeMode
@@ -850,22 +850,10 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
     <div className={styles.stage}>
       {loading && (
         <div className={styles.build} role="status" aria-live="polite">
-          <div className={styles.buildField} aria-hidden="true">
-            {Array.from({ length: 28 }).map((_, index) => (
-              <span key={index} className={`${styles.particle} ${homeParticlePositions[index]}`} />
-            ))}
-          </div>
-          <div className={styles.buildCopy}>
-            <strong className={styles.buildTitle}>Montando rede neural</strong>
-            <small className={styles.buildCopyText}>Sinapses, partículas e memória visual sendo conectadas</small>
-          </div>
-          <div className={styles.progress} aria-hidden="true">
-            <span className={styles.progressFill} />
-          </div>
-          <div className={styles.metrics} aria-hidden="true">
-            <i className={styles.metric} />
-            <i className={`${styles.metric} ${styles.metricSecond}`} />
-            <i className={`${styles.metric} ${styles.metricThird}`} />
+          <div className={styles.indicator}>
+            <span className={styles.pulse} aria-hidden="true" />
+            <strong className={styles.buildTitle}>Preparando memória visual</strong>
+            <small className={styles.buildCopyText}>Só um instante</small>
           </div>
         </div>
       )}

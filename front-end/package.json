@@ -6,7 +6,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "dev:mobile": "AETHER_MOBILE_DEV=true vite --host 0.0.0.0 --port 5174",
+    "dev:mobile": "vite",
     "build": "tsc -b && vite build",
     "build:backend:mac": "bash scripts/build-backend-mac.sh",
     "desktop": "npm run build && env -u ELECTRON_RUN_AS_NODE electron .",

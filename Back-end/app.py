@@ -22,6 +22,13 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+# Ao executar app.py diretamente, o desenvolvimento web fica disponível na
+# rede local com autenticação. Importações (testes/WSGI) preservam o padrão
+# loopback, e o Electron define explicitamente seu próprio modo local.
+if __name__ == "__main__":
+    os.environ.setdefault("NEXUS_HOST", "0.0.0.0")
+    os.environ.setdefault("NEXUS_REMOTE_MODE", "true")
+
 # Importações de agenty.py (reaproveitando lógica já existente)
 from agenty import (
     stt_local,
@@ -119,6 +126,7 @@ def enforce_api_security():
         return None
     if request.path in {
         "/api/health",
+        "/api/auth/device-token",
         "/api/auth/login",
         "/api/auth/status",
     }:
@@ -645,6 +653,27 @@ def auth_status():
         "user_id": session.get("user_id"),
         "email": session.get("email"),
     }), 200
+
+
+@app.route('/api/auth/device-token', methods=['GET'])
+def auth_device_token():
+    """
+    Exibe o token mestre somente para a interface aberta no próprio computador.
+
+    O celular recebe 403 mesmo estando na mesma rede. No desenvolvimento, o
+    Vite reforça a mesma regra antes de encaminhar a requisição ao Flask.
+    """
+    if not remote_access.is_loopback_address(request.remote_addr):
+        return jsonify({
+            "error": "O token de acesso só pode ser consultado no computador principal.",
+        }), 403
+
+    response = jsonify({
+        "token": remote_access.AUTH_TOKEN if remote_access.REMOTE_MODE else "",
+        "remote_mode": remote_access.REMOTE_MODE,
+    })
+    response.headers["Cache-Control"] = "no-store"
+    return response, 200
 
 
 @app.route('/api/auth/login', methods=['POST'])
@@ -1289,7 +1318,6 @@ def get_audio(filename):
 
 
 if __name__ == "__main__":
-    # Local por padrão; em NEXUS_REMOTE_MODE=true escuta em 0.0.0.0 para LAN/VPN/Tailscale.
     config = remote_access.get_remote_config()
     mobile_token = (
         remote_access.get_or_create_mobile_token()
@@ -1311,16 +1339,14 @@ if __name__ == "__main__":
         if config.get("public_url"):
             print(f"Wi-Fi diferente / internet - Backend/API: {config['public_url']}")
         print("")
-        print("No iPhone, abra a URL do Front se estiver usando npm run dev:mobile.")
+        print("No celular, abra a URL do Front mostrada pelo npm run dev.")
         print("Use a URL do Backend/API apenas para testar /api/health ou acessar o build servido pelo Flask.")
         print(f"Token: {mobile_token}")
     else:
         print("Aether Memory em modo local")
         print(f"Mac/local: http://127.0.0.1:{config['port']}")
         print("")
-        print("Para abrir no iPhone, reinicie assim:")
-        print("NEXUS_REMOTE_MODE=true python app.py")
-        print("")
+        print("O modo local foi solicitado explicitamente por variáveis de ambiente.")
         print(f"Front no iPhone em desenvolvimento: {config['frontend_dev_url']}")
         print(f"Backend/API no iPhone: {config['local_url']}")
         print("Para Wi-Fi diferente, use Tailscale ou defina NEXUS_PUBLIC_URL/NEXUS_PUBLIC_FRONTEND_URL.")

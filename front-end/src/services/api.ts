@@ -14,7 +14,11 @@ import type {
   LocalBackupStatus,
 } from '../types'
 
-type AetherBridge = { apiBase?: string; isDesktop?: boolean }
+type AetherBridge = {
+  apiBase?: string
+  isDesktop?: boolean
+  getRemoteToken?: () => Promise<string>
+}
 const REMOTE_SESSION_KEY = 'nexus-remote-session-token'
 
 /**
@@ -147,6 +151,43 @@ export async function loginLocal(): Promise<{ access_token?: string; success: bo
   if (!res.ok) throw new Error(data.error || `loginLocal: ${res.status}`)
   if (data.access_token) setRemoteSessionToken(data.access_token)
   return data
+}
+
+export async function getLocalDeviceToken(): Promise<string> {
+  const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
+  if (bridge?.getRemoteToken) {
+    return bridge.getRemoteToken()
+  }
+
+  const isMobileBrowser = (
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+    || (/Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+  )
+  const candidates = isMobileBrowser
+    ? [`${getBase()}/auth/device-token`]
+    : [
+        `${getBase()}/auth/device-token`,
+        'http://127.0.0.1:5050/api/auth/device-token',
+      ]
+  let lastError: unknown
+
+  for (const url of [...new Set(candidates)]) {
+    try {
+      const res = await fetch(url, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(3500),
+      })
+      const data = await res.json().catch(() => ({})) as { token?: string; error?: string }
+      if (res.ok) return String(data.token || '')
+      lastError = new Error(data.error || `getLocalDeviceToken: ${res.status}`)
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Não foi possível consultar o token local.')
 }
 
 // ── Local Memory Backup ────────────────────────────────────────────────────

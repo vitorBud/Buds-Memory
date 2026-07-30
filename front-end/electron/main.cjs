@@ -287,6 +287,10 @@ async function startBackend() {
       env: {
         ...process.env,
         NEXUS_DATA_DIR: resolveDataDir(),
+        // O app desktop só conversa pelo loopback. O modo LAN autenticado é
+        // habilitado automaticamente apenas ao executar python app.py.
+        NEXUS_HOST: '127.0.0.1',
+        NEXUS_REMOTE_MODE: 'false',
         PYTHONUNBUFFERED: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],

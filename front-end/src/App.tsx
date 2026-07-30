@@ -8,10 +8,12 @@ import {
   MessageSquare,
   Mic2,
   Pencil,
+  PanelLeftOpen,
   Settings as SettingsIcon,
   Upload,
   X,
   House,
+  Smartphone,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Transition } from 'framer-motion'
@@ -42,6 +44,7 @@ import { obsidianSceneStyles } from './styles/mapaObsidian'
 const HomeBrain = lazy(() => import('./components/HomeBrain').then(module => ({ default: module.HomeBrain })))
 const VoiceMode = lazy(() => import('./components/VoiceMode').then(module => ({ default: module.VoiceMode })))
 const BrainMap = lazy(() => import('./components/BrainMap').then(module => ({ default: module.BrainMap })))
+const AcessoCelular = lazy(() => import('./components/AcessoCelular').then(module => ({ default: module.AcessoCelular })))
 const StatusPanel = lazy(() => import('./components/StatusPanel').then(module => ({ default: module.StatusPanel })))
 const KnowledgeImportPanel = lazy(() => import('./components/panels/KnowledgeImportPanel').then(module => ({ default: module.KnowledgeImportPanel })))
 const MemoryPanel = lazy(() => import('./components/panels/MemoryPanel').then(module => ({ default: module.MemoryPanel })))
@@ -77,7 +80,7 @@ const VOICE_SILENCE_MODE_KEY = 'aether-voice-silence-mode-v1'
 const FALLBACK_MODEL = 'qwen2.5-coder:3b'
 const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
-type AppView = 'home' | 'chat' | 'voice' | 'obsidian'
+type AppView = 'home' | 'chat' | 'voice' | 'obsidian' | 'mobile'
 
 function DeferredSurface({ label = 'Carregando...' }: { label?: string }) {
   return (
@@ -91,15 +94,10 @@ function DeferredSurface({ label = 'Carregando...' }: { label?: string }) {
 function HomeBrainLoader() {
   return (
     <div className={homeLoaderStyles.root} role="status" aria-live="polite">
-      <div className={homeLoaderStyles.orbit}>
-        <i className={homeLoaderStyles.ring} />
-        <i className={`${homeLoaderStyles.ring} ${homeLoaderStyles.ringSecond}`} />
-        <i className={`${homeLoaderStyles.ring} ${homeLoaderStyles.ringThird}`} />
-        <span className={homeLoaderStyles.core} />
-      </div>
-      <div className={homeLoaderStyles.copy}>
-        <strong className={homeLoaderStyles.title}>Construindo núcleo cognitivo</strong>
-        <small className={homeLoaderStyles.subtitle}>Montando partículas, conexões e memória visual</small>
+      <div className={homeLoaderStyles.indicator}>
+        <span className={homeLoaderStyles.pulse} aria-hidden="true" />
+        <strong className={homeLoaderStyles.title}>Preparando memória visual</strong>
+        <small className={homeLoaderStyles.subtitle}>Só um instante</small>
       </div>
     </div>
   )
@@ -214,6 +212,7 @@ export default function App() {
     if (window.location.hash === '#chat') return 'chat'
     if (window.location.hash === '#voice') return 'voice'
     if (window.location.hash === '#obsidian') return 'obsidian'
+    if (window.location.hash === '#mobile') return 'mobile'
     return 'home'
   })
   const isWindowsUi = isWindowsRuntime()
@@ -235,7 +234,7 @@ export default function App() {
   const handleBootDone = useCallback((h: SystemHealth) => {
     setSystemHealth(h)
     setBootDone(true)
-    if (!['#chat', '#voice', '#obsidian'].includes(window.location.hash)) {
+    if (!['#chat', '#voice', '#obsidian', '#mobile'].includes(window.location.hash)) {
       setActiveView('home')
     }
   }, [])
@@ -459,6 +458,7 @@ export default function App() {
       if (target === '#chat') setActiveView('chat')
       if (target === '#voice') setActiveView('voice')
       if (target === '#obsidian') setActiveView('obsidian')
+      if (target === '#mobile') setActiveView('mobile')
     })
   }, [])
 
@@ -667,6 +667,12 @@ export default function App() {
     window.scrollTo({ top: 0 })
   }
 
+  const handleOpenMobile = () => {
+    setActiveView('mobile')
+    window.history.replaceState(null, '', '#mobile')
+    window.scrollTo({ top: 0 })
+  }
+
   const hasMessages = messages.length > 0
   const railTabs: Array<{ id: RailTab; label: string; icon: typeof Database }> = [
     { id: 'memory', label: 'Memória', icon: Database },
@@ -691,6 +697,14 @@ export default function App() {
       <button type="button" className={`${navigationStyles.button} ${activeView === 'obsidian' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenObsidian}>
         <BrainCircuit size={14} />
         <span>Obsidian</span>
+      </button>
+      <button
+        type="button"
+        className={`${navigationStyles.button} ${navigationStyles.desktopOnly} ${activeView === 'mobile' ? `is-active ${navigationStyles.active}` : ''}`}
+        onClick={handleOpenMobile}
+      >
+        <Smartphone size={14} />
+        <span>Celular</span>
       </button>
       <button type="button" className={navigationStyles.button} onClick={() => setSettingsOpen(true)}>
         <SettingsIcon size={14} />
@@ -852,6 +866,16 @@ export default function App() {
               <main className={`workspace ${chatShellStyles.workspace}`}>
                 <section className={`content-grid ${chatShellStyles.content}`}>
                   <div className={`chat-session-bar ${chatSessionStyles.bar}`}>
+                    <button
+                      type="button"
+                      className={`${chatSessionStyles.action} ${chatSessionStyles.sidebarTrigger}`}
+                      onClick={() => setFocusMode(false)}
+                      aria-label="Abrir histórico de conversas"
+                      title="Abrir histórico"
+                    >
+                      <PanelLeftOpen size={17} />
+                    </button>
+
                     <div className={`chat-title-editor ${chatSessionStyles.title}`}>
                       {isEditingTitle ? (
                         <input
@@ -1049,6 +1073,14 @@ export default function App() {
             </div>
           </motion.section>
         )}
+
+        {activeView === 'mobile' && (
+          <motion.div key="mobile" {...viewMotionProps}>
+            <Suspense fallback={<DeferredSurface label="Carregando acesso pelo celular..." />}>
+              <AcessoCelular config={backendConfig} />
+            </Suspense>
+          </motion.div>
+        )}
       </AnimatePresence>
 
       {settingsOpen && (
@@ -1065,7 +1097,6 @@ export default function App() {
               model={selectedModel}
               models={availableModels}
               googleSearchAvailable={googleSearchAvailable}
-              backendConfig={backendConfig}
               backupStatus={backupStatus}
               isBackupBusy={isBackupBusy}
               authMode={systemHealth?.authMode}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { AlertCircle, Bot, CheckCircle2, KeyRound, Loader2, Server, Wifi } from 'lucide-react'
-import { authFetch, getBase, getRemoteSessionToken, loginLocal, loginRemote } from '../services/api'
+import { authFetch, getBase, getLocalDeviceToken, getRemoteSessionToken, loginLocal, loginRemote } from '../services/api'
 import { bootBadgeStyles, bootScreenStyles, bootStepStyles } from '../styles/telaInicializacao'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -177,9 +177,21 @@ export function BootScreen({ onDone }: BootScreenProps) {
         })
         updatedHealth.database = true
         if (healthPayload.remote?.auth_required && !healthPayload.authenticated) {
-          setNeedsAuth(true)
-          setHealth(updatedHealth)
-          return
+          const deviceToken = await getLocalDeviceToken().catch(() => '')
+          if (deviceToken) {
+            try {
+              await loginRemote(deviceToken)
+              updatedHealth.authMode = 'remote'
+            } catch {
+              setNeedsAuth(true)
+              setHealth(updatedHealth)
+              return
+            }
+          } else {
+            setNeedsAuth(true)
+            setHealth(updatedHealth)
+            return
+          }
         }
         if (!getRemoteSessionToken()) {
           await loginLocal().catch(() => undefined)
@@ -269,19 +281,23 @@ export function BootScreen({ onDone }: BootScreenProps) {
           <div className={bootScreenStyles.authPanel}>
             <form className={bootScreenStyles.authForm} onSubmit={handleRemoteLogin}>
               <label className={bootScreenStyles.authLabel} htmlFor="nexus-remote-token">
-                Token técnico remoto
+                Código de acesso
               </label>
               <p className={bootScreenStyles.authCopy}>
-                Este acesso está protegido porque o Aether Memory foi aberto fora do dispositivo local.
+                No computador, copie o token exibido em “Acesso pelo celular” e cole abaixo.
               </p>
               <input
                 className={bootScreenStyles.authInput}
                 id="nexus-remote-token"
                 value={authToken}
                 onChange={(event) => setAuthToken(event.target.value)}
-                type="password"
-                autoComplete="current-password"
-                placeholder="NEXUS_AUTH_TOKEN"
+                type="text"
+                autoCapitalize="none"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="go"
+                placeholder="Cole aqui o token mostrado no computador"
               />
               <button
                 className={bootScreenStyles.authButton}
@@ -289,7 +305,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
                 disabled={authBusy || !authToken.trim()}
               >
                 {authBusy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
-                Entrar com token
+                Conectar ao Aether
               </button>
             </form>
             {authError && <p className={bootScreenStyles.authError}>{authError}</p>}

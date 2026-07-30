@@ -111,6 +111,26 @@ class ApiOriginSecurityTests(unittest.TestCase):
         self.assertNotIn("mobile_token", payload)
         self.assertNotIn("master-secret-token", response.get_data(as_text=True))
 
+    def test_device_token_is_visible_only_from_loopback(self):
+        with (
+            patch.object(remote_access, "REMOTE_MODE", True),
+            patch.object(remote_access, "AUTH_TOKEN", "master-secret-token"),
+        ):
+            local_response = self.client.get(
+                "/api/auth/device-token",
+                environ_base={"REMOTE_ADDR": "127.0.0.1"},
+            )
+            lan_response = self.client.get(
+                "/api/auth/device-token",
+                environ_base={"REMOTE_ADDR": "192.168.1.45"},
+            )
+
+        self.assertEqual(local_response.status_code, 200)
+        self.assertEqual(local_response.get_json()["token"], "master-secret-token")
+        self.assertEqual(local_response.headers.get("Cache-Control"), "no-store")
+        self.assertEqual(lan_response.status_code, 403)
+        self.assertNotIn("master-secret-token", lan_response.get_data(as_text=True))
+
 
 class RemoteTokenPersistenceTests(unittest.TestCase):
     def test_non_loopback_host_automatically_enables_remote_auth(self):
