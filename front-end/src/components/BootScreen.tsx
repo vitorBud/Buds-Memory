@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { AlertCircle, Bot, CheckCircle2, KeyRound, Loader2, Server, Wifi } from 'lucide-react'
 import { authFetch, getBase, getRemoteSessionToken, loginLocal, loginRemote } from '../services/api'
+import { bootBadgeStyles, bootScreenStyles, bootStepStyles } from '../styles/telaInicializacao'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
         setStep('backend', {
           state: 'error',
           detail: 'Não foi possível conectar',
-          errorMsg: 'Execute start_backend.sh para iniciar o servidor.',
+          errorMsg: 'Inicie o backend local do Aether Memory.',
         })
         setStep('ollama', { state: 'error', detail: 'Não verificado (backend offline)', errorMsg: '' })
         setHealth(updatedHealth)
@@ -243,28 +244,38 @@ export function BootScreen({ onDone }: BootScreenProps) {
   const allDone = steps.every(s => s.state === 'ok' || s.state === 'error')
 
   return (
-    <div className={`boot-overlay ${closing ? 'is-closing' : ''}`} role="dialog" aria-modal="true" aria-label="Inicializando Aether Memory">
-      <div className="boot-modal">
+    <div
+      className={`${bootScreenStyles.overlay} ${closing ? bootScreenStyles.closing : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Inicializando Aether Memory"
+    >
+      <div className={bootScreenStyles.modal}>
 
         {/* Logo / brand */}
-        <div className="boot-brand">
-          <div className="boot-logo" aria-hidden="true">
+        <div className={bootScreenStyles.brand}>
+          <div className={bootScreenStyles.logo} aria-hidden="true">
             <Wifi size={26} />
           </div>
           <div>
-            <h2 className="boot-title">Aether Memory</h2>
-            <p className="boot-subtitle">
+            <h2 className={bootScreenStyles.title}>Aether Memory</h2>
+            <p className={bootScreenStyles.subtitle}>
               {allOk ? 'Tudo pronto!' : hasError ? 'Alguns serviços não responderam' : 'Inicializando serviços…'}
             </p>
           </div>
         </div>
 
         {needsAuth && (
-          <div className="boot-auth-form boot-account-panel">
-            <form className="boot-auth-stack" onSubmit={handleRemoteLogin}>
-              <label htmlFor="nexus-remote-token">Token técnico remoto</label>
-              <p>Este acesso está protegido porque o Aether Memory foi aberto fora do Mac local.</p>
+          <div className={bootScreenStyles.authPanel}>
+            <form className={bootScreenStyles.authForm} onSubmit={handleRemoteLogin}>
+              <label className={bootScreenStyles.authLabel} htmlFor="nexus-remote-token">
+                Token técnico remoto
+              </label>
+              <p className={bootScreenStyles.authCopy}>
+                Este acesso está protegido porque o Aether Memory foi aberto fora do dispositivo local.
+              </p>
               <input
+                className={bootScreenStyles.authInput}
                 id="nexus-remote-token"
                 value={authToken}
                 onChange={(event) => setAuthToken(event.target.value)}
@@ -272,36 +283,51 @@ export function BootScreen({ onDone }: BootScreenProps) {
                 autoComplete="current-password"
                 placeholder="NEXUS_AUTH_TOKEN"
               />
-              <button type="submit" disabled={authBusy || !authToken.trim()}>
-                {authBusy ? <Loader2 size={15} className="spin" /> : <KeyRound size={15} />}
+              <button
+                className={bootScreenStyles.authButton}
+                type="submit"
+                disabled={authBusy || !authToken.trim()}
+              >
+                {authBusy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
                 Entrar com token
               </button>
             </form>
-            {authError && <p>{authError}</p>}
+            {authError && <p className={bootScreenStyles.authError}>{authError}</p>}
           </div>
         )}
 
         {/* Steps */}
-        <div className="boot-steps" role="list">
+        <div className={bootScreenStyles.steps} role="list">
           {steps.map(step => {
             const Icon = step.icon
+            const stateStyles = bootStepStyles[step.state]
             return (
-              <div key={step.id} className={`boot-step boot-step--${step.state}`} role="listitem">
-                <div className="boot-step-icon" aria-hidden="true">
+              <div
+                key={step.id}
+                className={`${bootScreenStyles.step} ${stateStyles.row}`}
+                role="listitem"
+              >
+                <div className={`${bootScreenStyles.stepIcon} ${stateStyles.icon}`} aria-hidden="true">
                   <Icon size={16} />
                 </div>
 
-                <div className="boot-step-body">
-                  <div className="boot-step-head">
-                    <span className="boot-step-label">{step.label}</span>
+                <div className={bootScreenStyles.stepBody}>
+                  <div className={bootScreenStyles.stepHead}>
+                    <span className={bootScreenStyles.stepLabel}>{step.label}</span>
                     <StepBadge state={step.state} />
                   </div>
-                  <p className="boot-step-detail">{step.detail}</p>
-                  {step.errorMsg && <p className="boot-step-error">{step.errorMsg}</p>}
+                  <p className={bootScreenStyles.stepDetail}>{step.detail}</p>
+                  {step.errorMsg && <p className={bootScreenStyles.stepError}>{step.errorMsg}</p>}
 
                   {/* Barra de progresso */}
-                  <div className="boot-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100}>
-                    <div className={`boot-bar-fill boot-bar-fill--${step.state}`} />
+                  <div
+                    className={bootScreenStyles.bar}
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuetext={step.detail}
+                  >
+                    <div className={`${bootScreenStyles.barFill} ${stateStyles.bar}`} />
                   </div>
                 </div>
               </div>
@@ -311,11 +337,11 @@ export function BootScreen({ onDone }: BootScreenProps) {
 
         {/* Ações */}
         {allDone && (
-          <div className="boot-actions">
+          <div className={bootScreenStyles.actions}>
             {hasError && !allOk && (
               <button
                 type="button"
-                className="boot-btn boot-btn--secondary"
+                className={`${bootScreenStyles.button} ${bootScreenStyles.secondaryButton}`}
                 onClick={() => closeAndReport(health)}
               >
                 Entrar assim mesmo
@@ -323,7 +349,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
             )}
             <button
               type="button"
-              className="boot-btn boot-btn--primary"
+              className={`${bootScreenStyles.button} ${bootScreenStyles.primaryButton}`}
               onClick={() => closeAndReport(health)}
             >
               {allOk ? 'Entrar' : 'Continuar'}
@@ -338,21 +364,27 @@ export function BootScreen({ onDone }: BootScreenProps) {
 // ── Badge de estado ────────────────────────────────────────────────────────────
 
 function StepBadge({ state }: { state: StepState }) {
-  if (state === 'pending') return <span className="boot-badge boot-badge--pending">Aguardando</span>
+  if (state === 'pending') {
+    return (
+      <span className={`${bootScreenStyles.badge} ${bootBadgeStyles.pending}`}>
+        Aguardando
+      </span>
+    )
+  }
   if (state === 'loading') return (
-    <span className="boot-badge boot-badge--loading">
-      <Loader2 size={11} className="spin" />
+    <span className={`${bootScreenStyles.badge} ${bootBadgeStyles.loading}`}>
+      <Loader2 size={11} className="animate-spin" />
       Verificando
     </span>
   )
   if (state === 'ok') return (
-    <span className="boot-badge boot-badge--ok">
+    <span className={`${bootScreenStyles.badge} ${bootBadgeStyles.ok}`}>
       <CheckCircle2 size={11} />
       Online
     </span>
   )
   return (
-    <span className="boot-badge boot-badge--error">
+    <span className={`${bootScreenStyles.badge} ${bootBadgeStyles.error}`}>
       <AlertCircle size={11} />
       Erro
     </span>

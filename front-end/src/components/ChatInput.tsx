@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react'
 import { Bot, ChevronDown, Compass, Mic, MicOff, Send, ShieldCheck, Square, Zap } from 'lucide-react'
 import type { DensityMode } from '../types'
 import { isWindowsRuntime } from '../utils/runtime'
+import { chatInputStyles } from '../styles/entradaChat'
 
 interface ChatInputProps {
   onSend: (text: string) => void
@@ -80,16 +81,16 @@ export function ChatInput({
   }
 
   return (
-    <div className={`chat-input-shell density-${density}`}>
+    <div className={`chat-input-shell density-${density} ${chatInputStyles.shell} ${density === 'comfortable' ? 'gap-2.5' : ''}`}>
       {showQuickPrompts && (
-        <div className="quick-prompts">
+        <div className={`quick-prompts ${chatInputStyles.prompts}`}>
           {QUICK_PROMPTS.map(({ icon: Icon, label, prompt }) => (
             <button
               key={label}
               type="button"
               onClick={() => onSend(prompt)}
               disabled={isProcessing}
-              className="quick-prompt"
+              className={`quick-prompt ${chatInputStyles.prompt}`}
             >
               <Icon size={13} />
               <span>{label}</span>
@@ -98,7 +99,7 @@ export function ChatInput({
         </div>
       )}
 
-      <div className={`composer ${isRecording ? 'is-recording' : ''}`}>
+      <div className={`composer ${chatInputStyles.composer} ${isRecording ? `is-recording ${chatInputStyles.recording}` : ''}`}>
         <textarea
           ref={textareaRef}
           value={isRecording ? `Gravando... ${recSeconds}s` : text}
@@ -107,15 +108,16 @@ export function ChatInput({
           placeholder="Digite um comando ou mensagem"
           disabled={isRecording}
           rows={1}
+          className={chatInputStyles.textarea}
         />
 
-        <div className="composer-actions">
+        <div className={`composer-actions ${chatInputStyles.actions}`}>
           {showModelSelect && (
-          <div className="model-select">
+          <div className={`model-select ${chatInputStyles.modelSelect}`}>
             <button
               type="button"
               onClick={() => setShowModelPicker(!showModelPicker)}
-              className="model-button"
+              className={`model-button ${chatInputStyles.modelButton}`}
             >
               <span />
               {MODEL_LABELS[selectedModel]?.label ?? selectedModel}
@@ -123,7 +125,7 @@ export function ChatInput({
             </button>
 
             {showModelPicker && (
-              <div className="model-menu">
+              <div className={`model-menu ${chatInputStyles.modelMenu}`}>
                 {models.map(m => (
                   <button
                     key={m}
@@ -132,7 +134,7 @@ export function ChatInput({
                       onModelChange?.(m)
                       setShowModelPicker(false)
                     }}
-                    className={m === selectedModel ? 'is-active' : ''}
+                    className={`${chatInputStyles.modelOption} ${m === selectedModel ? `is-active ${chatInputStyles.modelOptionActive}` : ''}`}
                   >
                     <span>{MODEL_LABELS[m]?.label ?? m}</span>
                     <small>{MODEL_LABELS[m]?.hint ?? m}</small>
@@ -147,7 +149,7 @@ export function ChatInput({
             type="button"
             onClick={onMicToggle}
             disabled={isProcessing && !isRecording}
-            className={`round-action ${isRecording ? 'is-recording' : ''}`}
+            className={`round-action ${chatInputStyles.action} ${chatInputStyles.microphone} ${isRecording ? `is-recording ${chatInputStyles.microphoneRecording}` : ''}`}
             aria-label={isRecording ? 'Parar gravacao' : 'Gravar audio'}
             title={isRecording ? 'Parar gravacao' : 'Gravar audio'}
           >
@@ -158,7 +160,7 @@ export function ChatInput({
             type="button"
             onClick={handleSend}
             disabled={isRecording || (!isProcessing && !text.trim())}
-            className={`send-action ${isProcessing ? 'is-stopping' : ''}`}
+            className={`send-action ${chatInputStyles.action} ${chatInputStyles.send} ${isProcessing ? `is-stopping ${chatInputStyles.stopping}` : ''}`}
             aria-label={isProcessing ? 'Parar resposta' : 'Enviar mensagem'}
             title={isProcessing ? 'Parar resposta' : 'Enviar'}
           >
@@ -168,7 +170,7 @@ export function ChatInput({
       </div>
 
       {showMeta && (
-      <div className="composer-meta">
+      <div className={`composer-meta ${chatInputStyles.meta}`}>
         <span>{text.length} / 4000</span>
         <span>Enter envia</span>
       </div>

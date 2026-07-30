@@ -40,19 +40,19 @@ function highlightCode(code: string, lang: string): string {
   }
 
   // 1. Comments (multi-line)
-  html = html.replace(/\/\*[\s\S]*?\*\//g, (m) => pushPlaceholder(m, 'token-comment'))
+  html = html.replace(/\/\*[\s\S]*?\*\//g, (m) => pushPlaceholder(m, 'text-[#6e7681] italic'))
 
   // 2. Comments (single line)
   if (language === 'python' || language === 'bash' || language === 'shell' || language === 'yaml' || language === 'yml') {
-    html = html.replace(/#.*/g, (m) => pushPlaceholder(m, 'token-comment'))
+    html = html.replace(/#.*/g, (m) => pushPlaceholder(m, 'text-[#6e7681] italic'))
   } else {
-    html = html.replace(/\/\/.*/g, (m) => pushPlaceholder(m, 'token-comment'))
+    html = html.replace(/\/\/.*/g, (m) => pushPlaceholder(m, 'text-[#6e7681] italic'))
   }
 
   // 3. Strings
-  html = html.replace(/"(\\.|[^"\\])*"/g, (m) => pushPlaceholder(m, 'token-string'))
-  html = html.replace(/'(\\.|[^'\\])*'/g, (m) => pushPlaceholder(m, 'token-string'))
-  html = html.replace(/`(\\.|[^`\\])*`/g, (m) => pushPlaceholder(m, 'token-string'))
+  html = html.replace(/"(\\.|[^"\\])*"/g, (m) => pushPlaceholder(m, 'text-[#a5d6ff]'))
+  html = html.replace(/'(\\.|[^'\\])*'/g, (m) => pushPlaceholder(m, 'text-[#a5d6ff]'))
+  html = html.replace(/`(\\.|[^`\\])*`/g, (m) => pushPlaceholder(m, 'text-[#a5d6ff]'))
 
   // 4. Keywords
   const keywords = [
@@ -65,7 +65,7 @@ function highlightCode(code: string, lang: string): string {
     'and', 'or', 'not', 'is', 'pass', 'yield', 'final'
   ]
   const keywordsRegex = new RegExp(`\\b(${keywords.join('|')})\\b`, 'g')
-  html = html.replace(keywordsRegex, '<span class="token-keyword">$1</span>')
+  html = html.replace(keywordsRegex, '<span class="font-semibold text-[#ff7b72]">$1</span>')
 
   // 5. Types & Built-ins
   const types = [
@@ -75,13 +75,13 @@ function highlightCode(code: string, lang: string): string {
     'console', 'log', 'error', 'warn', 'info', 'window', 'document', 'process', 'require'
   ]
   const typesRegex = new RegExp(`\\b(${types.join('|')})\\b`, 'g')
-  html = html.replace(typesRegex, '<span class="token-type">$1</span>')
+  html = html.replace(typesRegex, '<span class="text-[#79c0ff]">$1</span>')
 
   // 6. Numbers
-  html = html.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="token-number">$1</span>')
+  html = html.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="text-[#d2a8ff]">$1</span>')
 
   // 7. Annotations
-  html = html.replace(/(@\w+)/g, '<span class="token-annotation">$1</span>')
+  html = html.replace(/(@\w+)/g, '<span class="text-[#ff9b50]">$1</span>')
 
   // Restore placeholders in reverse order
   for (let i = placeholders.length - 1; i >= 0; i--) {
@@ -164,17 +164,17 @@ function CodeBlock({ language, code }: CodeBlockProps) {
   const highlightedHtml = highlightCode(code, language)
 
   return (
-    <div className="code-block-container">
-      <div className="code-block-header">
-        <span className="code-block-lang">{displayLang}</span>
+    <div className="my-3.5 flex flex-col overflow-hidden rounded-xl border border-white/8 bg-[rgba(15,15,20,0.65)] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] backdrop-blur-lg">
+      <div className="flex items-center justify-between border-b border-white/5 bg-[rgba(10,10,12,0.5)] px-4 py-2 font-[-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
+        <span className="text-[11px] font-semibold tracking-[0.5px] text-white/50">{displayLang}</span>
         <button
           type="button"
-          className="code-block-copy-btn"
+          className="flex cursor-pointer items-center gap-1.5 rounded-sm border-0 bg-transparent px-2 py-1 text-[11px] font-medium text-white/50 transition-all duration-200 hover:bg-white/5 hover:text-white/85 active:scale-96"
           onClick={handleCopy}
         >
           {copied ? (
             <>
-              <Check size={13} className="text-emerald" />
+              <Check size={13} className="!text-emerald-400" />
               <span>Copiado!</span>
             </>
           ) : (
@@ -185,9 +185,9 @@ function CodeBlock({ language, code }: CodeBlockProps) {
           )}
         </button>
       </div>
-      <pre className="code-block-pre">
+      <pre className="m-0 overflow-x-auto bg-transparent p-4">
         <code
-          className="code-block-code"
+          className="block whitespace-pre text-left font-['SFMono-Regular',Consolas,'Liberation_Mono',Menlo,Courier,monospace] text-[13.5px] leading-[1.6] text-slate-200"
           dangerouslySetInnerHTML={{ __html: highlightedHtml }}
         />
       </pre>
@@ -218,16 +218,44 @@ export function MessageBubble({ message }: MessageBubbleProps) {
   }
 
   return (
-    <article className={`message-row ${isUser ? 'is-user' : 'is-ai'}`}>
-      <div className="message-avatar">{isUser ? 'VG' : 'AM'}</div>
+    <article
+      className={`message-row flex max-w-[min(820px,88%)] gap-2.5 animate-[msg-enter_220ms_ease_both] platform-windows:![animation:none] max-[760px]:gap-[7px] max-[560px]:max-w-full ${
+        isUser
+          ? 'is-user self-end flex-row-reverse max-[760px]:justify-end'
+          : 'is-ai max-[760px]:justify-start'
+      }`}
+    >
+      <div
+        className={`message-avatar mt-0.5 flex size-[30px] shrink-0 items-center justify-center rounded-[7px] border bg-[rgba(var(--accent-hot-rgb)/0.1)] font-mono text-[10px] font-bold max-[760px]:hidden ${
+          isUser
+            ? 'border-[var(--liquid-border)] text-aether-text'
+            : 'border-[rgba(255,209,102,0.42)] text-[var(--jarvis-hot)]'
+        }`}
+      >
+        {isUser ? 'VG' : 'AM'}
+      </div>
 
-      <div className="message-stack">
-        <div className={`message-bubble ${message.streaming && !isThinking ? 'streaming-cursor' : ''}`}>
+      <div
+        className={`message-stack grid min-w-0 gap-[5px] max-[760px]:max-w-[min(86vw,560px)] ${
+          isUser ? 'justify-items-end' : ''
+        }`}
+      >
+        <div
+          className={`message-bubble max-w-[min(760px,78vw)] rounded-3xl border px-[15px] py-[13px] text-sm leading-[1.62] text-aether-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] ![backdrop-filter:none] [transform:translateZ(0)] max-[760px]:max-w-full max-[760px]:[overflow-wrap:anywhere] max-[760px]:rounded-[18px] max-[760px]:px-[13px] max-[760px]:py-2.5 max-[760px]:text-[15px] max-[760px]:leading-[1.45] ${
+            isUser
+              ? 'border-[rgba(var(--accent-hot-rgb)/0.16)] [background:linear-gradient(135deg,rgba(var(--accent-hot-rgb)/0.18),transparent_52%),rgba(var(--accent-hot-rgb)/0.09)] max-[760px]:rounded-br-md max-[760px]:border-[#0a84ff] max-[760px]:bg-[#0a84ff] max-[760px]:text-white'
+              : 'border-[var(--liquid-border)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_42%),var(--liquid-panel-soft)] max-[760px]:rounded-bl-md max-[760px]:border-[var(--line)] max-[760px]:[background:color-mix(in_srgb,var(--surface-3)_86%,white_6%)]'
+          } ${
+            message.streaming && !isThinking
+              ? "streaming-cursor after:ml-0.5 after:animate-[blink_0.7s_ease_infinite] after:text-aether-cyan after:content-['▌'] platform-windows:after:![animation:none]"
+              : ''
+          }`}
+        >
           {isThinking ? (
-            <div className="thinking-dots">
-              <span />
-              <span />
-              <span />
+            <div className="thinking-dots flex min-h-5 items-center gap-[5px]">
+              <span className="size-[7px] animate-[thinking_1.1s_ease_infinite] rounded-full bg-aether-cyan platform-windows:![animation:none]" />
+              <span className="size-[7px] animate-[thinking_1.1s_ease_0.16s_infinite] rounded-full bg-aether-violet platform-windows:![animation:none]" />
+              <span className="size-[7px] animate-[thinking_1.1s_ease_0.32s_infinite] rounded-full bg-aether-teal platform-windows:![animation:none]" />
             </div>
           ) : (
             <>
@@ -252,12 +280,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
 
-        <div className="message-meta">
+        <div className="message-meta flex items-center gap-2 text-[11px] text-aether-muted max-[760px]:opacity-[.72]">
           {time && <span>{time}</span>}
           {!isUser && !isThinking && message.text.trim() && (
             <button
               type="button"
               onClick={speakMessage}
+              className="inline-flex items-center gap-[5px] rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-2 py-[3px] text-aether-text hover:border-[rgba(255,209,102,0.46)] hover:bg-[rgba(245,158,11,0.12)] hover:text-[var(--jarvis-hot)]"
             >
               <Volume2 size={11} />
               Ouvir

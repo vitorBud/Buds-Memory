@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import type { AiState, ThemeMode } from '../types'
 import { getWindowsVisualProfile, isWindowsRuntime } from '../utils/runtime'
+import { homeBrainStyles as styles, homeParticlePositions } from '../styles/inicio'
 
 interface HomeBrainProps {
   theme: ThemeMode
@@ -846,31 +847,31 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
   }, [])
 
   return (
-    <div className="home-brain-stage">
+    <div className={styles.stage}>
       {loading && (
-        <div className="home-brain-build" role="status" aria-live="polite">
-          <div className="home-brain-build-field" aria-hidden="true">
+        <div className={styles.build} role="status" aria-live="polite">
+          <div className={styles.buildField} aria-hidden="true">
             {Array.from({ length: 28 }).map((_, index) => (
-              <span key={index} />
+              <span key={index} className={`${styles.particle} ${homeParticlePositions[index]}`} />
             ))}
           </div>
-          <div className="home-brain-build-copy">
-            <strong>Montando rede neural</strong>
-            <small>Sinapses, partículas e memória visual sendo conectadas</small>
+          <div className={styles.buildCopy}>
+            <strong className={styles.buildTitle}>Montando rede neural</strong>
+            <small className={styles.buildCopyText}>Sinapses, partículas e memória visual sendo conectadas</small>
           </div>
-          <div className="home-brain-build-progress" aria-hidden="true">
-            <span />
+          <div className={styles.progress} aria-hidden="true">
+            <span className={styles.progressFill} />
           </div>
-          <div className="home-brain-build-metrics" aria-hidden="true">
-            <i />
-            <i />
-            <i />
+          <div className={styles.metrics} aria-hidden="true">
+            <i className={styles.metric} />
+            <i className={`${styles.metric} ${styles.metricSecond}`} />
+            <i className={`${styles.metric} ${styles.metricThird}`} />
           </div>
         </div>
       )}
       <div
         ref={containerRef}
-        className={`home-brain-canvas-container ${loading ? 'is-loading' : 'is-ready'}`}
+        className={`${styles.canvas} ${loading ? styles.canvasLoading : styles.canvasReady}`}
       />
     </div>
   )

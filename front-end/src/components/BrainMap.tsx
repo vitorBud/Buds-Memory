@@ -23,6 +23,7 @@ import type {
   Message,
 } from '../types'
 import { isWindowsRuntime } from '../utils/runtime'
+import { brainMapStyles } from '../styles/mapaObsidian'
 
 interface BrainMapProps {
   messages: Message[]
@@ -966,7 +967,7 @@ export function BrainMap({
   }
 
   return (
-    <div className="obsidian-graph-page">
+    <div className={brainMapStyles.page}>
       <header className="obsidian-graph-topbar">
         <div>
           <span className="eyebrow">Visualização em gráfico</span>

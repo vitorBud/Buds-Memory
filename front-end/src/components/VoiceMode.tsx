@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import { Mic, MicOff, PhoneOff, Square, Volume2 } from 'lucide-react'
 import type { AiState, ThemeMode } from '../types'
+import { voiceHaloStateStyles, voiceModeStyles, voiceRingStateStyles } from '../styles/modoVoz'
 
 export type VoiceSilenceMode = 'fast' | 'balanced' | 'patient'
 
@@ -63,6 +64,9 @@ export function VoiceMode({
   onExit,
 }: VoiceModeProps) {
   const tone = useMemo(() => getVoiceTone(theme), [theme])
+  const effectiveTone = aiState === 'error'
+    ? { a: '#f43f5e', b: '#fb7185', c: tone.c }
+    : tone
   const volume = Math.max(0.04, Math.min(1, micVolume))
   const status = STATUS_LABEL[aiState]
   const canInterrupt = isProcessing || aiState === 'speaking' || aiState === 'thinking'
@@ -95,48 +99,49 @@ export function VoiceMode({
 
   return (
     <section
-      className={`voice-mode voice-mode-${theme} voice-state-${aiState}`}
+      className={`voice-mode voice-mode-${theme} voice-state-${aiState} ${voiceModeStyles.root}`}
       style={{
-        '--voice-a': tone.a,
-        '--voice-b': tone.b,
-        '--voice-c': tone.c,
+        '--voice-a': effectiveTone.a,
+        '--voice-b': effectiveTone.b,
+        '--voice-c': effectiveTone.c,
         '--voice-volume': volume.toFixed(3),
       } as CSSProperties}
       aria-label="Modo Conversacao"
     >
-      <div className="voice-ambient" aria-hidden="true" />
+      <div className={`voice-ambient ${voiceModeStyles.ambient}`} aria-hidden="true" />
 
       <button
         type="button"
-        className="voice-core"
+        className={`voice-core ${voiceModeStyles.core}`}
         onClick={handleCoreClick}
         aria-label={isRecording ? 'Enviar fala' : canInterrupt ? 'Interromper e falar' : 'Ativar microfone'}
         title={isRecording ? 'Enviar fala' : canInterrupt ? 'Interromper e falar' : 'Ativar microfone'}
       >
-        <span className="voice-core-halo" />
-        <span className="voice-core-orb">
-          <i />
-          <i />
-          <i />
-          <b />
+        <span className={`voice-core-halo ${voiceModeStyles.coreLayer} ${voiceModeStyles.halo} ${voiceHaloStateStyles[aiState] ?? ''}`} />
+        <span className={`voice-core-orb ${voiceModeStyles.coreLayer} ${voiceModeStyles.orb}`}>
+          <i className={`${voiceModeStyles.orbLayer} ${voiceModeStyles.ringOne} ${voiceRingStateStyles[aiState] ?? ''}`} />
+          <i className={`${voiceModeStyles.orbLayer} ${voiceModeStyles.ringTwo} ${voiceRingStateStyles[aiState] ?? ''}`} />
+          <i className={`${voiceModeStyles.orbLayer} ${voiceModeStyles.flow}`} />
+          <b className={`${voiceModeStyles.orbLayer} ${voiceModeStyles.glow}`} />
         </span>
-        <span className="voice-core-grid" />
-        <span className="voice-core-particles">
+        <span className={`voice-core-grid ${voiceModeStyles.coreLayer} ${voiceModeStyles.grid}`} />
+        <span className={`voice-core-particles ${voiceModeStyles.coreLayer} ${voiceModeStyles.particles}`}>
           {Array.from({ length: 18 }).map((_, index) => (
-            <em key={index} style={{ '--p': index } as CSSProperties} />
+            <em className={voiceModeStyles.particle} key={index} style={{ '--p': index } as CSSProperties} />
           ))}
         </span>
       </button>
 
-      <div className="voice-status" aria-live="polite">
+      <div className={`voice-status ${voiceModeStyles.status}`} aria-live="polite">
         <strong>{status}</strong>
         <span>{statusHint}</span>
       </div>
 
-      <div className="voice-controls" aria-label="Controles do modo conversa">
-        <label className="voice-select-wrap">
+      <div className={`voice-controls ${voiceModeStyles.controls}`} aria-label="Controles do modo conversa">
+        <label className={`voice-select-wrap ${voiceModeStyles.selectWrap}`}>
           <Volume2 size={15} />
           <select
+            className={voiceModeStyles.select}
             value={selectedVoiceURI}
             onChange={(event) => onVoiceChange(event.target.value)}
             aria-label="Selecionar voz"
@@ -150,7 +155,7 @@ export function VoiceMode({
           </select>
         </label>
 
-        <div className="voice-sensitivity" aria-label="Tempo de resposta">
+        <div className={`voice-sensitivity ${voiceModeStyles.sensitivity}`} aria-label="Tempo de resposta">
           {[
             ['fast', 'Rápida'],
             ['balanced', 'Normal'],
@@ -159,7 +164,7 @@ export function VoiceMode({
             <button
               key={mode}
               type="button"
-              className={silenceMode === mode ? 'is-active' : ''}
+              className={`${voiceModeStyles.sensitivityButton} ${silenceMode === mode ? `is-active ${voiceModeStyles.sensitivityActive}` : ''}`}
               onClick={() => onSilenceModeChange(mode as VoiceSilenceMode)}
             >
               {label}
@@ -168,19 +173,19 @@ export function VoiceMode({
         </div>
 
         {canInterrupt && (
-          <button type="button" className="voice-interrupt-button" onClick={onStopOutput}>
+          <button type="button" className={`voice-interrupt-button ${voiceModeStyles.interrupt}`} onClick={onStopOutput}>
             <Square size={13} />
             <span>Interromper</span>
           </button>
         )}
       </div>
 
-      <button type="button" className="voice-end-button" onClick={onExit}>
+      <button type="button" className={`voice-end-button ${voiceModeStyles.end}`} onClick={onExit}>
         <PhoneOff size={17} />
         <span>Encerrar conversa</span>
       </button>
 
-      <div className="voice-mic-indicator" aria-hidden="true">
+      <div className={`voice-mic-indicator ${voiceModeStyles.micIndicator}`} aria-hidden="true">
         {isRecording ? <Mic size={16} /> : <MicOff size={16} />}
       </div>
     </section>

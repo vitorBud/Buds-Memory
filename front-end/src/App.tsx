@@ -29,6 +29,15 @@ import { getSessions, createSession, deleteSession, getSessionMessages, getBacke
 import type { AiState, BackendConfig, Session, InterfaceSettings, LocalBackupStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
 import { isWindowsRuntime } from './utils/runtime'
+import { toastStyles } from './styles/notificacoes'
+import { sidebarStyles } from './styles/barraLateral'
+import { chatSessionStyles } from './styles/sessaoChat'
+import { chatSceneStyles, chatShellStyles } from './styles/estruturaChat'
+import { navigationStyles } from './styles/navegacao'
+import { settingsControlStyles } from './styles/controlesConfiguracoes'
+import { settingsLayoutStyles } from './styles/estruturaConfiguracoes'
+import { deferredSurfaceStyles, homeLoaderStyles, homeStyles } from './styles/inicio'
+import { obsidianSceneStyles } from './styles/mapaObsidian'
 
 const HomeBrain = lazy(() => import('./components/HomeBrain').then(module => ({ default: module.HomeBrain })))
 const VoiceMode = lazy(() => import('./components/VoiceMode').then(module => ({ default: module.VoiceMode })))
@@ -72,25 +81,25 @@ type AppView = 'home' | 'chat' | 'voice' | 'obsidian'
 
 function DeferredSurface({ label = 'Carregando...' }: { label?: string }) {
   return (
-    <div className="deferred-surface" role="status" aria-live="polite">
-      <span />
-      <p>{label}</p>
+    <div className={deferredSurfaceStyles.root} role="status" aria-live="polite">
+      <span className={deferredSurfaceStyles.pulse} />
+      <p className={deferredSurfaceStyles.copy}>{label}</p>
     </div>
   )
 }
 
 function HomeBrainLoader() {
   return (
-    <div className="home-brain-loader" role="status" aria-live="polite">
-      <div className="home-loader-orbit">
-        <i />
-        <i />
-        <i />
-        <span />
+    <div className={homeLoaderStyles.root} role="status" aria-live="polite">
+      <div className={homeLoaderStyles.orbit}>
+        <i className={homeLoaderStyles.ring} />
+        <i className={`${homeLoaderStyles.ring} ${homeLoaderStyles.ringSecond}`} />
+        <i className={`${homeLoaderStyles.ring} ${homeLoaderStyles.ringThird}`} />
+        <span className={homeLoaderStyles.core} />
       </div>
-      <div className="home-loader-copy">
-        <strong>Construindo núcleo cognitivo</strong>
-        <small>Montando partículas, conexões e memória visual</small>
+      <div className={homeLoaderStyles.copy}>
+        <strong className={homeLoaderStyles.title}>Construindo núcleo cognitivo</strong>
+        <small className={homeLoaderStyles.subtitle}>Montando partículas, conexões e memória visual</small>
       </div>
     </div>
   )
@@ -164,8 +173,6 @@ function getInitialVoiceSilenceMode(): VoiceSilenceMode {
 
 
 export default function App() {
-  const pageRef = useRef<HTMLDivElement>(null)
-  const chatSceneRef = useRef<HTMLElement>(null)
   const obsidianSceneRef = useRef<HTMLElement>(null)
   const obsidianFileInputRef = useRef<HTMLInputElement>(null)
   const didAutoLoadSessionRef = useRef(false)
@@ -456,19 +463,15 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (activeView !== 'obsidian') return
+
     const clamp = (value: number) => Math.min(1, Math.max(0, value))
     let frame = 0
 
     const updateScrollProgress = () => {
       frame = 0
       const viewport = window.innerHeight || 1
-      const chatRect = chatSceneRef.current?.getBoundingClientRect()
       const obsidianRect = obsidianSceneRef.current?.getBoundingClientRect()
-
-      if (chatRect && pageRef.current) {
-        const progress = clamp((viewport - chatRect.top) / (viewport + chatRect.height))
-        pageRef.current.style.setProperty('--chat-scroll', progress.toFixed(4))
-      }
 
       if (obsidianRect && obsidianSceneRef.current) {
         const progress = clamp((viewport - obsidianRect.top) / (viewport + obsidianRect.height))
@@ -671,25 +674,25 @@ export default function App() {
     { id: 'summary', label: 'Resumo', icon: ListChecks },
   ]
 
-  const renderViewNav = (variant: 'floating' | 'inline') => (
-    <nav className={`view-nav view-nav-${variant}`} aria-label="Trocar seção">
-      <button type="button" className={activeView === 'home' ? 'is-active' : ''} onClick={handleOpenHome}>
+  const renderViewNav = () => (
+    <nav className={`view-nav view-nav-floating ${navigationStyles.nav} ${navigationStyles.floating}`} aria-label="Trocar seção">
+      <button type="button" className={`${navigationStyles.button} ${activeView === 'home' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenHome}>
         <House size={14} />
         <span>Início</span>
       </button>
-      <button type="button" className={activeView === 'chat' ? 'is-active' : ''} onClick={handleSmoothScrollToChat}>
+      <button type="button" className={`${navigationStyles.button} ${activeView === 'chat' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleSmoothScrollToChat}>
         <MessageSquare size={14} />
         <span>Chat</span>
       </button>
-      <button type="button" className={activeView === 'voice' ? 'is-active' : ''} onClick={handleOpenVoice}>
+      <button type="button" className={`${navigationStyles.button} ${activeView === 'voice' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenVoice}>
         <Mic2 size={14} />
         <span>Voz</span>
       </button>
-      <button type="button" className={activeView === 'obsidian' ? 'is-active' : ''} onClick={handleOpenObsidian}>
+      <button type="button" className={`${navigationStyles.button} ${activeView === 'obsidian' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenObsidian}>
         <BrainCircuit size={14} />
         <span>Obsidian</span>
       </button>
-      <button type="button" onClick={() => setSettingsOpen(true)}>
+      <button type="button" className={navigationStyles.button} onClick={() => setSettingsOpen(true)}>
         <SettingsIcon size={14} />
         <span>Config</span>
       </button>
@@ -697,10 +700,10 @@ export default function App() {
   )
 
   return (
-    <div className="scroll-experience" ref={pageRef}>
+    <div className={`scroll-experience ${navigationStyles.experience}`}>
       <NetworkStatus />
 
-      <div className="network-status-container">
+      <div className={`network-status-container ${toastStyles.container}`}>
         <AnimatePresence>
           {toast && (
             <motion.div
@@ -708,12 +711,12 @@ export default function App() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -20, scale: 0.95 }}
               transition={{ duration: 0.2, ease: 'easeOut' }}
-              className="network-status-toast online model-change-toast"
+              className={`network-status-toast online model-change-toast ${toastStyles.base} ${toastStyles.model}`}
             >
-              <div className="network-status-icon" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6' }}>
+              <div className={`network-status-icon ${toastStyles.icon} ${toastStyles.modelIcon}`}>
                 <BrainCircuit size={18} />
               </div>
-              <div className="network-status-text">
+              <div className={`network-status-text ${toastStyles.text}`}>
                 <strong>Modelo Alterado</strong>
                 <span>{toast.message}</span>
               </div>
@@ -725,30 +728,30 @@ export default function App() {
       {/* Tela de boot — aparece até todos os serviços serem verificados */}
       {!bootDone && <BootScreen onDone={handleBootDone} />}
 
-      {renderViewNav('floating')}
+      {renderViewNav()}
 
 
       <AnimatePresence mode={isWindowsUi ? 'sync' : 'wait'} initial={false}>
         {activeView === 'home' && (
           <motion.section
             key="home"
-            className="home-landing"
+            className={homeStyles.landing}
             id="inicio"
             aria-label="Tela inicial Aether Memory"
             {...viewMotionProps}
           >
-            <div className="home-content-column">
-              <div className="home-hero-zone">
-                <div className="home-brand-copy">
-                  <span>Assistente local inteligente</span>
-                  <h1>Aether Memory</h1>
+            <div className={homeStyles.content}>
+              <div className={homeStyles.hero}>
+                <div className={homeStyles.brandCopy}>
+                  <span className={homeStyles.eyebrow}>Assistente local inteligente</span>
+                  <h1 className={homeStyles.title}>Aether Memory</h1>
                 </div>
 
-                <div className="home-brand-copy home-hero-subcopy">
-                  <p>Chat, memória Obsidian e configurações em uma experiência compacta e local.</p>
+                <div className={`${homeStyles.brandCopy} ${homeStyles.subcopy}`}>
+                  <p className={homeStyles.subtitle}>Chat, memória Obsidian e configurações em uma experiência compacta e local.</p>
                 </div>
 
-                <div className="home-brand-mark">
+                <div className={homeStyles.brandMark}>
                   <Suspense fallback={<HomeBrainLoader />}>
                     <HomeBrain
                       theme={settings.theme}
@@ -758,54 +761,54 @@ export default function App() {
                   </Suspense>
                 </div>
 
-                <div className="home-scroll-indicator" aria-hidden="true">
-                  <span />
-                  <small>role para baixo</small>
+                <div className={homeStyles.scrollIndicator} aria-hidden="true">
+                  <span className={homeStyles.scrollGlyph} />
+                  <small className={homeStyles.scrollCopy}>role para baixo</small>
                 </div>
               </div>
 
-              <div className="home-info-reveal">
-                <div className="home-project-card" aria-label="O que é o Aether Memory">
-                  <div className="home-project-copy">
-                    <span>Por que ele existe</span>
-                    <h2>Uma IA local com memória própria, não apenas um modelo rodando.</h2>
-                    <p>
+              <div className={homeStyles.info}>
+                <div className={homeStyles.projectCard} aria-label="O que é o Aether Memory">
+                  <div className={homeStyles.projectCopy}>
+                    <span className={homeStyles.projectEyebrow}>Por que ele existe</span>
+                    <h2 className={homeStyles.projectTitle}>Uma IA local com memória própria, não apenas um modelo rodando.</h2>
+                    <p className={homeStyles.projectDescription}>
                       O Aether Memory usa o Ollama como motor de inteligência, mas adiciona uma camada
                       pessoal em volta dele: histórico, memórias, PDFs, busca, codebase, Obsidian visual
                       e backup portátil. O modelo responde; o Aether lembra, organiza e conecta.
                     </p>
                   </div>
-                  <div className="home-project-points">
-                    <div>
-                      <BrainCircuit size={18} />
-                      <strong>Cérebro persistente</strong>
-                      <small>Transforma conversas e arquivos em memórias consultáveis.</small>
+                  <div className={homeStyles.projectPoints}>
+                    <div className={homeStyles.projectPoint}>
+                      <BrainCircuit className={homeStyles.projectPointIcon} />
+                      <strong className={homeStyles.projectPointTitle}>Cérebro persistente</strong>
+                      <small className={homeStyles.projectPointCopy}>Transforma conversas e arquivos em memórias consultáveis.</small>
                     </div>
-                    <div>
-                      <Database size={18} />
-                      <strong>Local-first</strong>
-                      <small>Funciona no seu Mac, salva em SQLite e exporta a memória quando você quiser.</small>
+                    <div className={homeStyles.projectPoint}>
+                      <Database className={homeStyles.projectPointIcon} />
+                      <strong className={homeStyles.projectPointTitle}>Local-first</strong>
+                      <small className={homeStyles.projectPointCopy}>Funciona no seu computador, salva em SQLite e exporta a memória quando você quiser.</small>
                     </div>
-                    <div>
-                      <Check size={18} />
-                      <strong>Contexto real</strong>
-                      <small>Usa RAG, perfil e documentos para responder sobre o que você ensinou.</small>
+                    <div className={homeStyles.projectPoint}>
+                      <Check className={homeStyles.projectPointIcon} />
+                      <strong className={homeStyles.projectPointTitle}>Contexto real</strong>
+                      <small className={homeStyles.projectPointCopy}>Usa RAG, perfil e documentos para responder sobre o que você ensinou.</small>
                     </div>
                   </div>
                 </div>
 
-                <div className="home-status-grid" aria-label="Estado do sistema">
-                  <div>
-                    <small>Modelo</small>
-                    <strong>{selectedModel}</strong>
+                <div className={homeStyles.statusGrid} aria-label="Estado do sistema">
+                  <div className={homeStyles.statusCard}>
+                    <small className={homeStyles.statusLabel}>Modelo</small>
+                    <strong className={homeStyles.statusValue}>{selectedModel}</strong>
                   </div>
-                  <div>
-                    <small>Busca</small>
-                    <strong>{googleSearchAvailable ? 'Google pronto' : 'Offline'}</strong>
+                  <div className={homeStyles.statusCard}>
+                    <small className={homeStyles.statusLabel}>Busca</small>
+                    <strong className={homeStyles.statusValue}>{googleSearchAvailable ? 'Google pronto' : 'Offline'}</strong>
                   </div>
-                  <div>
-                    <small>Memórias</small>
-                    <strong>{cognitiveMemories.length}</strong>
+                  <div className={homeStyles.statusCard}>
+                    <small className={homeStyles.statusLabel}>Memórias</small>
+                    <strong className={homeStyles.statusValue}>{cognitiveMemories.length}</strong>
                   </div>
                 </div>
               </div>
@@ -816,18 +819,17 @@ export default function App() {
         {activeView === 'chat' && (
           <motion.section
             key="chat"
-            className={`chat-scroll-scene ${chatRevealActive ? 'is-revealing' : ''}`}
+            className={`chat-scroll-scene ${chatSceneStyles.scene} ${chatRevealActive ? `is-revealing ${chatSceneStyles.revealing}` : ''}`}
             id="chat"
-            ref={chatSceneRef}
             {...viewMotionProps}
           >
-            <div className={`app-layout theme-${settings.theme} density-${settings.density}`}>
-              <div className={`app-shell ${focusMode ? 'is-focus-mode' : ''}`}>
+            <div className={`app-layout theme-${settings.theme} density-${settings.density} ${chatSceneStyles.layout}`}>
+              <div className={`app-shell ${chatSceneStyles.shell} ${focusMode ? `is-focus-mode ${chatSceneStyles.shellFocus}` : ''} ${chatRevealActive ? chatSceneStyles.shellRevealing : ''}`}>
               {!focusMode && (
                 <>
                   <button
                     type="button"
-                    className="mobile-sidebar-scrim"
+                    className={`mobile-sidebar-scrim ${sidebarStyles.scrim}`}
                     aria-label="Fechar histórico"
                     onClick={() => setFocusMode(true)}
                   />
@@ -847,10 +849,10 @@ export default function App() {
                 </>
               )}
 
-              <main className="workspace">
-                <section className="content-grid">
-                  <div className="chat-session-bar">
-                    <div className="chat-title-editor">
+              <main className={`workspace ${chatShellStyles.workspace}`}>
+                <section className={`content-grid ${chatShellStyles.content}`}>
+                  <div className={`chat-session-bar ${chatSessionStyles.bar}`}>
+                    <div className={`chat-title-editor ${chatSessionStyles.title}`}>
                       {isEditingTitle ? (
                         <input
                           value={draftTitle}
@@ -872,25 +874,25 @@ export default function App() {
                       </span>
                     </div>
 
-                    <div className="chat-session-actions">
+                    <div className={`chat-session-actions ${chatSessionStyles.actions}`}>
                       {isEditingTitle ? (
                         <>
-                          <button type="button" onClick={handleSaveCurrentTitle} disabled={!draftTitle.trim()} title="Salvar título">
+                          <button className={chatSessionStyles.action} type="button" onClick={handleSaveCurrentTitle} disabled={!draftTitle.trim()} title="Salvar título">
                             <Check size={15} />
                           </button>
-                          <button type="button" onClick={() => setIsEditingTitle(false)} title="Cancelar edição">
+                          <button className={chatSessionStyles.action} type="button" onClick={() => setIsEditingTitle(false)} title="Cancelar edição">
                             <X size={15} />
                           </button>
                         </>
                       ) : (
-                        <button type="button" onClick={handleEditCurrentTitle} disabled={!currentSessionId} title="Editar título">
+                        <button className={chatSessionStyles.action} type="button" onClick={handleEditCurrentTitle} disabled={!currentSessionId} title="Editar título">
                           <Pencil size={15} />
                         </button>
                       )}
                       <button
                         type="button"
                         onClick={() => setKnowledgePanelOpen(value => !value)}
-                        className={knowledgePanelOpen ? 'is-active' : ''}
+                        className={`${chatSessionStyles.action} ${chatSessionStyles.destructiveAction} ${knowledgePanelOpen ? 'is-active' : ''}`}
                         title="Importar conhecimento"
                       >
                         <Upload size={15} />
@@ -912,7 +914,7 @@ export default function App() {
                   )}
 
                   {!hasMessages ? (
-                    <div className="empty-state">
+                    <div className={`empty-state ${chatShellStyles.empty}`}>
                       <div>
                         <span className="eyebrow">Pronto para operar</span>
                         <h2>Como posso ajudar hoje?</h2>
@@ -975,17 +977,17 @@ export default function App() {
         {activeView === 'obsidian' && (
           <motion.section
             key="obsidian"
-            className="obsidian-scroll-scene"
+            className={obsidianSceneStyles.scene}
             id="obsidian"
             ref={obsidianSceneRef}
             {...viewMotionProps}
           >
-            <div className="obsidian-sticky-stage">
-              <div className="obsidian-stage-graph">
-                <div className="obsidian-learn-toolbar" aria-label="Ensinar e fazer backup da Obsidian">
+            <div className={obsidianSceneStyles.stage}>
+              <div className={obsidianSceneStyles.graph}>
+                <div className={obsidianSceneStyles.toolbar} aria-label="Ensinar e fazer backup da Obsidian">
                   <button
                     type="button"
-                    className="obsidian-learn-file"
+                    className={`${obsidianSceneStyles.toolbarButton} ${obsidianSceneStyles.fileButton}`}
                     onClick={() => obsidianFileInputRef.current?.click()}
                     disabled={isImportingKnowledge}
                     title="Importar PDF, TXT, Markdown, CSV ou JSON"
@@ -994,6 +996,7 @@ export default function App() {
                     <span>{isImportingKnowledge ? 'Lendo...' : 'Importar PDF'}</span>
                   </button>
                   <input
+                    className={obsidianSceneStyles.toolbarInput}
                     ref={obsidianFileInputRef}
                     type="file"
                     accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,application/pdf"
@@ -1015,6 +1018,7 @@ export default function App() {
                   />
                   <button
                     type="button"
+                    className={obsidianSceneStyles.toolbarButton}
                     onClick={() => void handleImportKnowledgeText()}
                     disabled={isImportingKnowledge || !knowledgeInput.trim()}
                   >
@@ -1022,7 +1026,7 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    className="obsidian-sync-button"
+                    className={`${obsidianSceneStyles.toolbarButton} ${obsidianSceneStyles.syncButton}`}
                     onClick={() => void handleExportMemoryBackup()}
                     disabled={isBackupBusy}
                     title="Baixar um backup completo da memória local"
@@ -1048,13 +1052,10 @@ export default function App() {
       </AnimatePresence>
 
       {settingsOpen && (
-        <section className="settings-page-shell" aria-label="Configurações do Aether Memory">
-          <button
-            className="settings-backdrop"
-            type="button"
-            aria-label="Fechar configurações"
-            onClick={() => setSettingsOpen(false)}
-          />
+        <section
+          className={settingsLayoutStyles.shell}
+          aria-label="Configurações do Aether Memory"
+        >
           <Suspense fallback={<DeferredSurface label="Carregando configurações..." />}>
             <StatusPanel
               aiState={aiState}
@@ -1075,19 +1076,22 @@ export default function App() {
               onImportBackup={handleImportMemoryBackup}
               onSettingChange={updateSetting}
               onClose={() => setSettingsOpen(false)}
-              presentation="page"
             >
-              <div className="panel-block settings-insights-block">
-                <div className="panel-heading">
+              <div className={`settings-section settings-insights-block ${settingsControlStyles.memoryPanel}`}>
+                <div className={settingsControlStyles.panelHeading}>
                   <span>Contexto da conversa</span>
                   <ListChecks size={15} />
                 </div>
-                <div className="rail-tabs settings-rail-tabs" role="tablist" aria-label="Contexto da conversa">
+                <div
+                  className={settingsControlStyles.memoryTabs}
+                  role="tablist"
+                  aria-label="Contexto da conversa"
+                >
                   {railTabs.map(({ id, label, icon: Icon }) => (
                     <button
                       key={id}
                       type="button"
-                      className={railTab === id ? 'is-active' : ''}
+                      className={`${settingsControlStyles.memoryTab} ${railTab === id ? settingsControlStyles.memoryTabActive : ''}`}
                       onClick={() => setRailTab(id)}
                     >
                       <Icon size={14} />

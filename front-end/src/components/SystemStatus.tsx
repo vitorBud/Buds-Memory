@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Bot, Database, Server } from 'lucide-react'
 import type { SystemHealth } from './BootScreen'
+import {
+  systemBadgeStyles,
+  systemDotStyles,
+  systemLabelStyles,
+  systemStatusStyles as styles,
+} from '../styles/statusSistema'
 
 interface SystemStatusProps {
   health: SystemHealth | null
@@ -48,46 +54,50 @@ export function SystemStatus({ health, selectedModel }: SystemStatusProps) {
     },
   ]
 
-  function dotClass(ok: boolean | null) {
-    if (ok === null) return 'sys-dot sys-dot--unknown'
-    return ok ? 'sys-dot sys-dot--ok' : 'sys-dot sys-dot--error'
+  function stateKey(ok: boolean | null) {
+    if (ok === null) return 'unknown'
+    return ok ? 'ok' : 'error'
   }
 
   const allOk = health != null && health.backend && health.ollama && health.database
   const anyError = health != null && (!health.backend || !health.ollama || !health.database)
 
   return (
-    <div className="sys-status-wrap" ref={wrapRef}>
+    <div className={styles.wrap} ref={wrapRef}>
       <button
         type="button"
-        className={`sys-status-btn ${open ? 'is-open' : ''}`}
+        className={`${styles.button} ${open ? styles.buttonOpen : ''}`}
         onClick={() => setOpen(v => !v)}
         title="Status dos serviços"
         aria-label="Status dos serviços"
         aria-expanded={open}
       >
         {dots.map(d => (
-          <span key={d.id} className={dotClass(d.ok)} aria-hidden="true" />
+          <span
+            key={d.id}
+            className={`${styles.dot} ${systemDotStyles[stateKey(d.ok)]}`}
+            aria-hidden="true"
+          />
         ))}
-        <span className={`sys-status-label ${allOk ? 'tone-ok' : anyError ? 'tone-err' : ''}`}>
+        <span className={`${styles.label} ${systemLabelStyles[allOk ? 'ok' : anyError ? 'error' : 'neutral']}`}>
           {health == null ? 'Verificando…' : allOk ? 'Online' : anyError ? 'Degradado' : 'Online'}
         </span>
-        {selectedModel && <span className="sys-status-model">{selectedModel.replace('qwen2.5-coder:', '')}</span>}
+        {selectedModel && <span className={styles.model}>{selectedModel.replace('qwen2.5-coder:', '')}</span>}
       </button>
 
       {open && (
-        <div className="sys-popover" role="tooltip" aria-label="Detalhes dos serviços">
-          <p className="sys-popover-title">Status do sistema</p>
+        <div className={styles.popover} role="tooltip" aria-label="Detalhes dos serviços">
+          <p className={styles.popoverTitle}>Status do sistema</p>
           {dots.map(d => {
             const Icon = d.icon
             return (
-              <div key={d.id} className="sys-popover-row">
+              <div key={d.id} className={styles.popoverRow}>
                 <Icon size={13} />
-                <span className="sys-popover-name">{d.label}</span>
-                <span className={`sys-popover-badge ${d.ok === null ? 'sys-badge--unknown' : d.ok ? 'sys-badge--ok' : 'sys-badge--error'}`}>
+                <span className={styles.popoverName}>{d.label}</span>
+                <span className={`${styles.popoverBadge} ${systemBadgeStyles[stateKey(d.ok)]}`}>
                   {d.ok === null ? '…' : d.ok ? 'Online' : 'Offline'}
                 </span>
-                {d.detail && <span className="sys-popover-detail">{d.detail}</span>}
+                {d.detail && <span className={styles.popoverDetail}>{d.detail}</span>}
               </div>
             )
           })}

@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import http from 'node:http'
 
 const BACKEND_URL = 'http://127.0.0.1:5050'
@@ -68,6 +69,7 @@ export default defineConfig({
   base: './',
   plugins: [
     react(),
+    tailwindcss(),
     mobileApiGuard(),
   ],
   server: {
