@@ -27,10 +27,10 @@ import type { VoiceSilenceMode } from './components/VoiceMode'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { useHealthPolling } from './hooks/useHealthPolling'
-import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, exportLocalMemoryBackup, importLocalMemoryBackup, getCognitiveMemories, getKnowledgeGraph } from './services/api'
+import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, exportLocalMemoryBackup, importLocalMemoryBackup, clearLocalStorage, getCognitiveMemories, getKnowledgeGraph, isNativeIOSRuntime } from './services/api'
 import type { AiState, BackendConfig, Session, InterfaceSettings, LocalBackupStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
-import { isWindowsRuntime } from './utils/runtime'
+import { getRuntimePlatform, isIOSRuntime, isWindowsRuntime } from './utils/runtime'
 import { toastStyles } from './styles/notificacoes'
 import { sidebarStyles } from './styles/barraLateral'
 import { chatSessionStyles } from './styles/sessaoChat'
@@ -55,6 +55,8 @@ const SETTINGS_KEY = 'aether-interface-settings'
 const DESKTOP_THEME_BOOT_KEY = 'aether-desktop-theme-boot-v1'
 const VOICE_URI_KEY = 'aether-voice-uri-v1'
 const VOICE_SILENCE_MODE_KEY = 'aether-voice-silence-mode-v1'
+const AUDIO_DEFAULT_DISABLED_KEY = 'aether-audio-default-disabled-v1'
+const MOBILE_CHAT_INTRO_KEY = 'aether-mobile-chat-intro-seen-v1'
 
 // Migração transparente: lê chaves legadas nexus-* e move para aether-* uma única vez
 ;(function migrateStorageKeys() {
@@ -107,9 +109,7 @@ const DEFAULT_SETTINGS: InterfaceSettings = {
   theme: 'silver',
   density: 'compact',
   showInsights: true,
-  showBrainMap: true,
-  showQuickPrompts: true,
-  autoPlayAudio: true,
+  autoPlayAudio: false,
   voiceProvider: 'browser',
   webSearchEnabled: false,
   accentColor: 'silver',
@@ -158,6 +158,12 @@ function getInitialSettings(): InterfaceSettings {
     if (isWindowsRuntime() && parsed.voiceProvider === 'piper') {
       parsed.voiceProvider = 'browser'
     }
+    // Migra instalações antigas, cujo padrão era reproduzir toda resposta.
+    // A marca impede que escolhas futuras do usuário sejam sobrescritas.
+    if (!localStorage.getItem(AUDIO_DEFAULT_DISABLED_KEY)) {
+      parsed.autoPlayAudio = false
+      localStorage.setItem(AUDIO_DEFAULT_DISABLED_KEY, '1')
+    }
     return parsed
   } catch {
     return DEFAULT_SETTINGS
@@ -173,6 +179,8 @@ function getInitialVoiceSilenceMode(): VoiceSilenceMode {
 export default function App() {
   const obsidianSceneRef = useRef<HTMLElement>(null)
   const obsidianFileInputRef = useRef<HTMLInputElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  const sidebarCloseTimerRef = useRef<number | null>(null)
   const didAutoLoadSessionRef = useRef(false)
   const sessionLoadRequestRef = useRef(0)
   const [aiState, setAiState] = useState<AiState>('idle')
@@ -193,6 +201,7 @@ export default function App() {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [draftTitle, setDraftTitle] = useState('')
   const [focusMode, setFocusMode] = useState(() => isMobileViewport())
+  const [sidebarClosing, setSidebarClosing] = useState(false)
   const [railTab, setRailTab] = useState<RailTab>('memory')
   const [chatRevealActive, setChatRevealActive] = useState(false)
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([])
@@ -201,6 +210,7 @@ export default function App() {
   const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false)
   const [backupStatus, setLocalBackupStatus] = useState<LocalBackupStatus | null>(null)
   const [isBackupBusy, setIsBackupBusy] = useState(false)
+  const [isStorageBusy, setIsStorageBusy] = useState(false)
   const [cognitiveMemories, setCognitiveMemories] = useState<CognitiveMemory[]>([])
   const [knowledgeGraph, setKnowledgeGraph] = useState<KnowledgeGraph | null>(null)
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
@@ -216,7 +226,14 @@ export default function App() {
     return 'home'
   })
   const isWindowsUi = isWindowsRuntime()
-  const viewTransition: Transition = isWindowsUi ? { duration: 0 } : { duration: 0.28, ease: 'easeOut' }
+  const isIOSUi = isIOSRuntime()
+  const isNativeIOS = isNativeIOSRuntime()
+  const lowCostUi = isWindowsUi || isIOSUi
+  const viewTransition: Transition = isWindowsUi
+    ? { duration: 0 }
+    : isIOSUi
+      ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
+      : { duration: 0.28, ease: 'easeOut' }
   const viewMotionProps = isWindowsUi
     ? {
         initial: { opacity: 1, scale: 1 },
@@ -224,7 +241,14 @@ export default function App() {
         exit: { opacity: 1, scale: 1 },
         transition: viewTransition,
       }
-    : {
+    : isIOSUi
+      ? {
+          initial: { opacity: 0, x: 10 },
+          animate: { opacity: 1, x: 0 },
+          exit: { opacity: 0, x: -8 },
+          transition: viewTransition,
+        }
+      : {
         initial: { opacity: 0, scale: 0.96 },
         animate: { opacity: 1, scale: 1 },
         exit: { opacity: 0, scale: 1.02 },
@@ -240,15 +264,45 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (activeView !== 'chat' || focusMode) return
     const t = setInterval(() => setUptimeSeconds(s => s + 1), 1000)
     return () => clearInterval(t)
+  }, [activeView, focusMode])
+
+  useEffect(() => () => {
+    if (sidebarCloseTimerRef.current !== null) {
+      window.clearTimeout(sidebarCloseTimerRef.current)
+    }
   }, [])
+
+  const openSidebar = useCallback(() => {
+    if (sidebarCloseTimerRef.current !== null) {
+      window.clearTimeout(sidebarCloseTimerRef.current)
+      sidebarCloseTimerRef.current = null
+    }
+    setSidebarClosing(false)
+    setFocusMode(false)
+  }, [])
+
+  const closeSidebar = useCallback(() => {
+    if (!isMobileViewport()) {
+      setFocusMode(true)
+      return
+    }
+    if (focusMode || sidebarClosing) return
+    setSidebarClosing(true)
+    sidebarCloseTimerRef.current = window.setTimeout(() => {
+      setFocusMode(true)
+      setSidebarClosing(false)
+      sidebarCloseTimerRef.current = null
+    }, 220)
+  }, [focusMode, sidebarClosing])
 
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme
     document.documentElement.dataset.accent = settings.theme
     document.documentElement.dataset.density = 'compact'
-    document.documentElement.dataset.platform = isWindowsRuntime() ? 'windows' : 'default'
+    document.documentElement.dataset.platform = getRuntimePlatform()
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
   }, [settings])
 
@@ -347,7 +401,7 @@ export default function App() {
     onLatency: (ms) => setLatency(ms + 'ms'),
     onMsgCountChange: setMsgCount,
     onSessionUpdate: handleSessionUpdate,
-    autoPlayAudio: settings.autoPlayAudio,
+    autoPlayAudio: activeView === 'voice' || settings.autoPlayAudio,
   })
 
   const voiceRecorderConfig = VOICE_SILENCE_CONFIG[voiceSilenceMode]
@@ -355,6 +409,9 @@ export default function App() {
   const { isRecording, seconds, volume: micVolume, toggle: toggleMic, cancel: cancelRecording } = useRecorder({
     onStop: async (blob) => {
       await sendAudio(blob)
+    },
+    onTranscript: (text) => {
+      void sendText(text)
     },
     onStateChange: setAiState,
     autoStopOnSilence: activeView === 'voice',
@@ -511,13 +568,13 @@ export default function App() {
     setMsgCount(0)
     setLatency('')
     setSessions(prev => [session, ...prev])
-    if (isMobileViewport()) setFocusMode(true)
+    if (isMobileViewport()) closeSidebar()
   }
 
   const handleSelectSession = async (session: Session) => {
     try {
       const loaded = await loadSessionData(session)
-      if (loaded && isMobileViewport()) setFocusMode(true)
+      if (loaded && isMobileViewport()) closeSidebar()
     } catch (err) {
       console.error(err)
     }
@@ -558,6 +615,7 @@ export default function App() {
     const title = draftTitle.trim()
     if (!title) return
 
+    titleInputRef.current?.blur()
     const updated = await updateSessionTitle(currentSessionId, title)
     setCurrentSessionTitle(updated.title)
     setCurrentSessionCreatedAt(updated.created_at)
@@ -567,12 +625,18 @@ export default function App() {
     setIsEditingTitle(false)
   }
 
+  const handleCancelTitleEdit = () => {
+    titleInputRef.current?.blur()
+    setDraftTitle(currentSessionTitle || '')
+    setIsEditingTitle(false)
+  }
+
   const handleImportKnowledgeFile = async (file: File) => {
     setIsImportingKnowledge(true)
     try {
       const sessionId = await ensureSession()
       const source = await importKnowledge(sessionId, { file })
-      setKnowledgeSources(prev => [source, ...prev])
+      if (!isNativeIOS) setKnowledgeSources(prev => [source, ...prev])
       void refreshCognitiveBrain()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao importar conhecimento.')
@@ -594,7 +658,7 @@ export default function App() {
           ? { text: value }
           : { query: value }
       const source = await importKnowledge(sessionId, payload)
-      setKnowledgeSources(prev => [source, ...prev])
+      if (!isNativeIOS) setKnowledgeSources(prev => [source, ...prev])
       setKnowledgeInput('')
       void refreshCognitiveBrain()
     } catch (err) {
@@ -630,23 +694,47 @@ export default function App() {
     }
   }, [refreshCognitiveBrain, refreshLocalBackupStatus])
 
+  const handleClearLocalStorage = useCallback(async (confirmation: string) => {
+    setIsStorageBusy(true)
+    try {
+      cancelRecording()
+      stopOutput()
+      await clearLocalStorage(confirmation)
+      window.location.reload()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Falha ao apagar os dados locais.')
+      setIsStorageBusy(false)
+    }
+  }, [cancelRecording, stopOutput])
+
   const handleOpenHome = () => {
+    setSettingsOpen(false)
     setActiveView('home')
     window.history.replaceState(null, '', window.location.pathname)
     window.scrollTo({ top: 0 })
   }
 
   const handleSmoothScrollToChat = () => {
+    setSettingsOpen(false)
     setActiveView('chat')
-    if (isMobileViewport()) setFocusMode(true)
-    setChatRevealActive(true)
+    if (isMobileViewport()) {
+      try {
+        const hasSeenMobileChat = localStorage.getItem(MOBILE_CHAT_INTRO_KEY) === '1'
+        setFocusMode(hasSeenMobileChat)
+        if (!hasSeenMobileChat) localStorage.setItem(MOBILE_CHAT_INTRO_KEY, '1')
+      } catch {
+        // Sem localStorage, prioriza descobrir a criação de chats nesta entrada.
+        setFocusMode(false)
+      }
+    }
+    setChatRevealActive(!isIOSUi)
     window.history.replaceState(null, '', '#chat')
     window.scrollTo({ top: 0 })
-    window.setTimeout(() => setChatRevealActive(false), 1900)
+    if (!isIOSUi) window.setTimeout(() => setChatRevealActive(false), 1900)
   }
 
   const handleOpenVoice = () => {
-    setSettings(prev => prev.autoPlayAudio ? prev : { ...prev, autoPlayAudio: true })
+    setSettingsOpen(false)
     setActiveView('voice')
     window.history.replaceState(null, '', '#voice')
     window.scrollTo({ top: 0 })
@@ -662,12 +750,14 @@ export default function App() {
   }
 
   const handleOpenObsidian = () => {
+    setSettingsOpen(false)
     setActiveView('obsidian')
     window.history.replaceState(null, '', '#obsidian')
     window.scrollTo({ top: 0 })
   }
 
   const handleOpenMobile = () => {
+    setSettingsOpen(false)
     setActiveView('mobile')
     window.history.replaceState(null, '', '#mobile')
     window.scrollTo({ top: 0 })
@@ -682,31 +772,37 @@ export default function App() {
 
   const renderViewNav = () => (
     <nav className={`view-nav view-nav-floating ${navigationStyles.nav} ${navigationStyles.floating}`} aria-label="Trocar seção">
-      <button type="button" className={`${navigationStyles.button} ${activeView === 'home' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenHome}>
+      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'home' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenHome} aria-current={!settingsOpen && activeView === 'home' ? 'page' : undefined}>
         <House size={14} />
         <span>Início</span>
       </button>
-      <button type="button" className={`${navigationStyles.button} ${activeView === 'chat' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleSmoothScrollToChat}>
+      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'chat' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleSmoothScrollToChat} aria-current={!settingsOpen && activeView === 'chat' ? 'page' : undefined}>
         <MessageSquare size={14} />
         <span>Chat</span>
       </button>
-      <button type="button" className={`${navigationStyles.button} ${activeView === 'voice' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenVoice}>
+      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'voice' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenVoice} aria-current={!settingsOpen && activeView === 'voice' ? 'page' : undefined}>
         <Mic2 size={14} />
         <span>Voz</span>
       </button>
-      <button type="button" className={`${navigationStyles.button} ${activeView === 'obsidian' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenObsidian}>
+      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'obsidian' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenObsidian} aria-current={!settingsOpen && activeView === 'obsidian' ? 'page' : undefined}>
         <BrainCircuit size={14} />
         <span>Obsidian</span>
       </button>
       <button
         type="button"
-        className={`${navigationStyles.button} ${navigationStyles.desktopOnly} ${activeView === 'mobile' ? `is-active ${navigationStyles.active}` : ''}`}
+        className={`${navigationStyles.button} ${navigationStyles.desktopOnly} ${!settingsOpen && activeView === 'mobile' ? `is-active ${navigationStyles.active}` : ''}`}
         onClick={handleOpenMobile}
+        aria-current={!settingsOpen && activeView === 'mobile' ? 'page' : undefined}
       >
         <Smartphone size={14} />
         <span>Celular</span>
       </button>
-      <button type="button" className={navigationStyles.button} onClick={() => setSettingsOpen(true)}>
+      <button
+        type="button"
+        className={`${navigationStyles.button} ${settingsOpen ? `is-active ${navigationStyles.active}` : ''}`}
+        onClick={() => setSettingsOpen(true)}
+        aria-current={settingsOpen ? 'page' : undefined}
+      >
         <SettingsIcon size={14} />
         <span>Config</span>
       </button>
@@ -718,13 +814,13 @@ export default function App() {
       <NetworkStatus />
 
       <div className={`network-status-container ${toastStyles.container}`}>
-        <AnimatePresence>
+          <AnimatePresence initial={false}>
           {toast && (
             <motion.div
-              initial={{ opacity: 0, y: -20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -20, scale: 0.95 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
+              initial={isIOSUi ? { opacity: 0, y: -8 } : { opacity: 0, y: -20, scale: 0.95 }}
+              animate={isIOSUi ? { opacity: 1, y: 0 } : { opacity: 1, y: 0, scale: 1 }}
+              exit={isIOSUi ? { opacity: 0, y: -8 } : { opacity: 0, y: -20, scale: 0.95 }}
+              transition={{ duration: isIOSUi ? 0.16 : 0.2, ease: 'easeOut' }}
               className={`network-status-toast online model-change-toast ${toastStyles.base} ${toastStyles.model}`}
             >
               <div className={`network-status-icon ${toastStyles.icon} ${toastStyles.modelIcon}`}>
@@ -745,11 +841,11 @@ export default function App() {
       {renderViewNav()}
 
 
-      <AnimatePresence mode={isWindowsUi ? 'sync' : 'wait'} initial={false}>
+      <AnimatePresence mode={lowCostUi ? 'sync' : 'wait'} initial={false}>
         {activeView === 'home' && (
           <motion.section
             key="home"
-            className={homeStyles.landing}
+            className={`home-landing ${homeStyles.landing}`}
             id="inicio"
             aria-label="Tela inicial Aether Memory"
             {...viewMotionProps}
@@ -843,11 +939,12 @@ export default function App() {
                 <>
                   <button
                     type="button"
-                    className={`mobile-sidebar-scrim ${sidebarStyles.scrim}`}
+                    className={`mobile-sidebar-scrim ${sidebarClosing ? 'is-closing' : ''} ${sidebarStyles.scrim}`}
                     aria-label="Fechar histórico"
-                    onClick={() => setFocusMode(true)}
+                    onClick={closeSidebar}
                   />
                   <Sidebar
+                    isClosing={sidebarClosing}
                     sessions={sessions}
                     currentSessionId={currentSessionId}
                     searchQuery={searchQuery}
@@ -869,7 +966,7 @@ export default function App() {
                     <button
                       type="button"
                       className={`${chatSessionStyles.action} ${chatSessionStyles.sidebarTrigger}`}
-                      onClick={() => setFocusMode(false)}
+                      onClick={openSidebar}
                       aria-label="Abrir histórico de conversas"
                       title="Abrir histórico"
                     >
@@ -879,13 +976,26 @@ export default function App() {
                     <div className={`chat-title-editor ${chatSessionStyles.title}`}>
                       {isEditingTitle ? (
                         <input
+                          ref={titleInputRef}
                           value={draftTitle}
                           onChange={(event) => setDraftTitle(event.target.value)}
                           onKeyDown={(event) => {
-                            if (event.key === 'Enter') handleSaveCurrentTitle()
-                            if (event.key === 'Escape') setIsEditingTitle(false)
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              void handleSaveCurrentTitle()
+                            }
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              handleCancelTitleEdit()
+                            }
                           }}
                           autoFocus
+                          autoComplete="off"
+                          autoCorrect="off"
+                          enterKeyHint="done"
+                          maxLength={80}
+                          spellCheck={false}
+                          aria-label="Editar título da conversa"
                           placeholder="Título da conversa"
                         />
                       ) : (
@@ -901,10 +1011,23 @@ export default function App() {
                     <div className={`chat-session-actions ${chatSessionStyles.actions}`}>
                       {isEditingTitle ? (
                         <>
-                          <button className={chatSessionStyles.action} type="button" onClick={handleSaveCurrentTitle} disabled={!draftTitle.trim()} title="Salvar título">
+                          <button
+                            className={`${chatSessionStyles.action} ${chatSessionStyles.saveAction}`}
+                            type="button"
+                            onClick={() => void handleSaveCurrentTitle()}
+                            disabled={!draftTitle.trim()}
+                            aria-label="Salvar título"
+                            title="Salvar título"
+                          >
                             <Check size={15} />
                           </button>
-                          <button className={chatSessionStyles.action} type="button" onClick={() => setIsEditingTitle(false)} title="Cancelar edição">
+                          <button
+                            className={`${chatSessionStyles.action} ${chatSessionStyles.cancelAction}`}
+                            type="button"
+                            onClick={handleCancelTitleEdit}
+                            aria-label="Cancelar edição"
+                            title="Cancelar edição"
+                          >
                             <X size={15} />
                           </button>
                         </>
@@ -959,7 +1082,6 @@ export default function App() {
                     selectedModel={selectedModel}
                     models={availableModels}
                     onModelChange={handleModelChange}
-                    showQuickPrompts={false}
                     showModelSelect={false}
                     showMeta={false}
                     density="compact"
@@ -975,7 +1097,7 @@ export default function App() {
           <motion.div
             key="voice"
             {...viewMotionProps}
-            style={{ minHeight: '100vh' }}
+            style={{ minHeight: '100dvh' }}
           >
             <Suspense fallback={<DeferredSurface label="Carregando conversa..." />}>
               <VoiceMode
@@ -1009,18 +1131,19 @@ export default function App() {
             <div className={obsidianSceneStyles.stage}>
               <div className={obsidianSceneStyles.graph}>
                 <div className={obsidianSceneStyles.toolbar} aria-label="Ensinar e fazer backup da Obsidian">
-                  <button
-                    type="button"
-                    className={`${obsidianSceneStyles.toolbarButton} ${obsidianSceneStyles.fileButton}`}
-                    onClick={() => obsidianFileInputRef.current?.click()}
-                    disabled={isImportingKnowledge}
-                    title="Importar PDF, TXT, Markdown, CSV ou JSON"
-                  >
-                    <Upload size={15} />
-                    <span>{isImportingKnowledge ? 'Lendo...' : 'Importar PDF'}</span>
-                  </button>
+                  {!isNativeIOS && (
+                    <button
+                      type="button"
+                      className={`${obsidianSceneStyles.toolbarButton} ${obsidianSceneStyles.fileButton}`}
+                      onClick={() => obsidianFileInputRef.current?.click()}
+                      disabled={isImportingKnowledge}
+                      title="Importar PDF, TXT, Markdown, CSV ou JSON"
+                    >
+                      <Upload size={15} />
+                      <span>{isImportingKnowledge ? 'Lendo...' : 'Importar PDF'}</span>
+                    </button>
+                  )}
                   <input
-                    className={obsidianSceneStyles.toolbarInput}
                     ref={obsidianFileInputRef}
                     type="file"
                     accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,application/pdf"
@@ -1032,12 +1155,13 @@ export default function App() {
                     }}
                   />
                   <input
+                    className={obsidianSceneStyles.toolbarInput}
                     value={knowledgeInput}
                     onChange={(event) => setKnowledgeInput(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') void handleImportKnowledgeText()
                     }}
-                    placeholder="Cole texto, URL ou pesquisa para criar novas memórias..."
+                    placeholder={isNativeIOS ? 'Digite algo importante para salvar na memória...' : 'Cole texto, URL ou pesquisa para criar novas memórias...'}
                     disabled={isImportingKnowledge}
                   />
                   <button
@@ -1046,18 +1170,20 @@ export default function App() {
                     onClick={() => void handleImportKnowledgeText()}
                     disabled={isImportingKnowledge || !knowledgeInput.trim()}
                   >
-                    Aprender
+                    {isNativeIOS ? 'Salvar' : 'Aprender'}
                   </button>
-                  <button
-                    type="button"
-                    className={`${obsidianSceneStyles.toolbarButton} ${obsidianSceneStyles.syncButton}`}
-                    onClick={() => void handleExportMemoryBackup()}
-                    disabled={isBackupBusy}
-                    title="Baixar um backup completo da memória local"
-                  >
-                    <Database size={15} />
-                    <span>{isBackupBusy ? 'Preparando...' : 'Backup'}</span>
-                  </button>
+                  {!isNativeIOS && (
+                    <button
+                      type="button"
+                      className={`${obsidianSceneStyles.toolbarButton} ${obsidianSceneStyles.syncButton}`}
+                      onClick={() => void handleExportMemoryBackup()}
+                      disabled={isBackupBusy}
+                      title="Baixar um backup completo da memória local"
+                    >
+                      <Database size={15} />
+                      <span>{isBackupBusy ? 'Preparando...' : 'Backup'}</span>
+                    </button>
+                  )}
                 </div>
                 <Suspense fallback={<DeferredSurface label="Carregando Obsidian..." />}>
                   <BrainMap
@@ -1099,12 +1225,14 @@ export default function App() {
               googleSearchAvailable={googleSearchAvailable}
               backupStatus={backupStatus}
               isBackupBusy={isBackupBusy}
+              isStorageBusy={isStorageBusy}
               authMode={systemHealth?.authMode}
               authEmail={systemHealth?.userEmail}
               settings={settings}
               onModelChange={handleModelChange}
               onExportBackup={handleExportMemoryBackup}
               onImportBackup={handleImportMemoryBackup}
+              onClearStorage={handleClearLocalStorage}
               onSettingChange={updateSetting}
               onClose={() => setSettingsOpen(false)}
             >

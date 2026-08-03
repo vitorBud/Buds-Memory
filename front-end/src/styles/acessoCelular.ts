@@ -20,7 +20,7 @@ export const mobileAccessStyles = {
   stateOffline:
     '[&>span]:bg-aether-rose',
   accessGrid:
-    'grid grid-cols-2 gap-3 max-[760px]:grid-cols-1',
+    'grid grid-cols-3 gap-3 max-[980px]:grid-cols-1',
   field:
     'grid min-w-0 gap-2.5 rounded-[20px] border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--surface),transparent_32%)] p-4',
   fieldHead:

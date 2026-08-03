@@ -121,7 +121,7 @@ export function useChat({
   onLatency,
   onMsgCountChange,
   onSessionUpdate,
-  autoPlayAudio = true,
+  autoPlayAudio = false,
 }: UseChatOptions) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
@@ -456,7 +456,7 @@ export function useChat({
     flushOfflineQueue()
     return () => window.removeEventListener('online', flushOfflineQueue)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProcessing, sessionId, selectedModel, voiceProvider, webSearchEnabled])
+  }, [autoPlayAudio, isProcessing, selectedModel, selectedVoiceURI, sessionId, voiceProvider, webSearchEnabled])
 
   // ── Send audio ─────────────────────────────────────────────────────────────
   async function sendAudio(blob: Blob) {

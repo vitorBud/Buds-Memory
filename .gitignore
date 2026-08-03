@@ -23,6 +23,8 @@ Back-end/config.json
 Back-end/.nexus_remote_token
 front-end/release/
 front-end/dist/
+front-end/ios/App/AetherNativeRuntime/Vendor/
+front-end/ios/App/AetherNativeRuntime/.build/
 
 # ====== Modelos baixados pelo Whisper (cache) ======
 ~/.cache/huggingface/

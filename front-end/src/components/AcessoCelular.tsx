@@ -7,6 +7,7 @@ import {
   Laptop,
   RefreshCw,
   Router,
+  Server,
   ShieldCheck,
   Smartphone,
   Wifi,
@@ -37,9 +38,10 @@ export function AcessoCelular({ config }: AcessoCelularProps) {
   const [token, setToken] = useState('')
   const [loadingToken, setLoadingToken] = useState(false)
   const [tokenError, setTokenError] = useState('')
-  const [copied, setCopied] = useState<'link' | 'token' | ''>('')
+  const [copied, setCopied] = useState<'link' | 'api' | 'token' | ''>('')
   const remote = config?.remote
   const mobileUrl = remote?.recommended_url || remote?.frontend_dev_url || ''
+  const nativeApiUrl = remote?.recommended_api_url || remote?.local_url || ''
   const remoteEnabled = Boolean(remote?.remote_mode && remote?.auth_required)
 
   const loadToken = useCallback(async () => {
@@ -76,7 +78,7 @@ export function AcessoCelular({ config }: AcessoCelularProps) {
     }
   }, [loadToken])
 
-  async function handleCopy(value: string, kind: 'link' | 'token') {
+  async function handleCopy(value: string, kind: 'link' | 'api' | 'token') {
     if (!value) return
     await copyText(value)
     setCopied(kind)
@@ -148,6 +150,30 @@ export function AcessoCelular({ config }: AcessoCelularProps) {
             <div className={mobileAccessStyles.field}>
               <div className={mobileAccessStyles.fieldHead}>
                 <span className={mobileAccessStyles.fieldLabel}>
+                  <Server size={15} />
+                  Backend/API do app iPhone
+                </span>
+                {copied === 'api' && <small className={mobileAccessStyles.feedback}>Copiado</small>}
+              </div>
+              <code className={mobileAccessStyles.code}>
+                {nativeApiUrl || 'Aguardando o backend informar o endereço da rede…'}
+              </code>
+              <div className={mobileAccessStyles.actionRow}>
+                <button
+                  type="button"
+                  className={`${mobileAccessStyles.action} ${mobileAccessStyles.primaryAction}`}
+                  onClick={() => void handleCopy(nativeApiUrl, 'api')}
+                  disabled={!nativeApiUrl}
+                >
+                  {copied === 'api' ? <Check size={14} /> : <Copy size={14} />}
+                  Copiar para o app iPhone
+                </button>
+              </div>
+            </div>
+
+            <div className={mobileAccessStyles.field}>
+              <div className={mobileAccessStyles.fieldHead}>
+                <span className={mobileAccessStyles.fieldLabel}>
                   <KeyRound size={15} />
                   Token de acesso
                 </span>
@@ -198,8 +224,8 @@ export function AcessoCelular({ config }: AcessoCelularProps) {
               </div>
               <div className={mobileAccessStyles.step}>
                 <span className={mobileAccessStyles.stepNumber}>2</span>
-                <strong className={mobileAccessStyles.stepTitle}>Abra o link</strong>
-                <small className={mobileAccessStyles.stepCopy}>Copie o endereço acima e abra no Safari ou Chrome do celular.</small>
+                <strong className={mobileAccessStyles.stepTitle}>Escolha o endereço correto</strong>
+                <small className={mobileAccessStyles.stepCopy}>No app instalado, use “Backend/API”. No Safari, abra “Link do celular”.</small>
               </div>
               <div className={mobileAccessStyles.step}>
                 <span className={mobileAccessStyles.stepNumber}>3</span>
@@ -225,7 +251,7 @@ export function AcessoCelular({ config }: AcessoCelularProps) {
               </div>
               <div className={mobileAccessStyles.securityItem}>
                 <Wifi size={18} />
-                <span>O celular acessa o frontend pela porta 5174 e a API protegida pelo token.</span>
+                <span>O app iOS acessa diretamente a API protegida na porta 5050; o acesso pelo navegador usa o frontend na porta 5174.</span>
               </div>
             </div>
             <div className={mobileAccessStyles.command}>

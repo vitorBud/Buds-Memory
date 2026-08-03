@@ -6,6 +6,7 @@ import type { SystemHealth } from './BootScreen'
 import { sidebarStyles, sidebarToneStyles } from '../styles/barraLateral'
 
 interface SidebarProps {
+  isClosing?: boolean
   sessions: Session[]
   currentSessionId: string | null
   searchQuery: string
@@ -30,6 +31,7 @@ const STATE_MAP: Record<AiState, { label: string; tone: string }> = {
 
 // Barra lateral de conversas, responsável por listar sessões e criar/remover chats.
 export function Sidebar({
+  isClosing = false,
   sessions,
   currentSessionId,
   searchQuery,
@@ -49,7 +51,7 @@ export function Sidebar({
     : sessions
 
   return (
-    <aside className={`sidebar ${sidebarStyles.root}`}>
+    <aside className={`sidebar ${isClosing ? 'is-closing' : ''} ${sidebarStyles.root}`}>
       <div className={`sidebar-head ${sidebarStyles.head}`}>
         <div className={`sidebar-mobile-brand ${sidebarStyles.mobileBrand}`}>
           <div className={`nexus-glyph ${sidebarStyles.glyph}`}>

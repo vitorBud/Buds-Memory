@@ -13,14 +13,18 @@ import contextlib
 import datetime
 import hashlib
 import json
+import shutil
 import uuid
+from pathlib import Path
 from typing import Any
 
 from database_v2 import get_db_connection, now_iso
+from storage import get_data_dir, get_database_path, get_output_dir
 
 
 BACKUP_FORMAT = "aether_memory_backup"
 BACKUP_VERSION = 2
+CLEAR_CONFIRMATION = "APAGAR TUDO"
 
 BACKUP_TABLES = [
     "sessions",
@@ -63,6 +67,28 @@ IMPORT_ORDER = [
 ]
 
 IMPORT_MAP_TABLE = "aether_backup_import_map"
+
+# Apaga primeiro as tabelas dependentes e deixa sessões por último. A lista é
+# explícita para não apagar configurações técnicas ou tabelas futuras por engano.
+CLEAR_ORDER = [
+    IMPORT_MAP_TABLE,
+    "embeddings",
+    "ingestion_cache",
+    "codebase_index",
+    "insights",
+    "timeline_events",
+    "project_documents",
+    "project_sessions",
+    "conversation_summaries",
+    "kg_relations",
+    "memories",
+    "user_profile_facts",
+    "knowledge_sources",
+    "messages",
+    "projects",
+    "kg_entities",
+    "sessions",
+]
 
 # Referências diretas. Referências polimórficas são tratadas separadamente em
 # _remap_row para que source_table/source_id continuem apontando para o registro
@@ -147,7 +173,76 @@ def get_status() -> dict:
         "device_id": "local",
         "last_backup_error": None,
         "local_records": counts,
+        "storage": _storage_usage(),
     }
+
+
+def clear_local_data(confirmation: str) -> dict:
+    """Apaga somente dados gerados pelo Aether após confirmação explícita."""
+    if confirmation != CLEAR_CONFIRMATION:
+        raise ValueError(f'Digite exatamente "{CLEAR_CONFIRMATION}" para confirmar.')
+
+    with contextlib.closing(get_db_connection()) as conn:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for table in CLEAR_ORDER:
+                if _table_exists(conn, table):
+                    conn.execute(f"DELETE FROM {_quote_identifier(table)}")
+            if _table_exists(conn, "sqlite_sequence"):
+                conn.execute("DELETE FROM sqlite_sequence")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+        # São otimizações de espaço: os dados já foram apagados mesmo que uma
+        # conexão concorrente impeça temporariamente o checkpoint ou o VACUUM.
+        with contextlib.suppress(Exception):
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+        with contextlib.suppress(Exception):
+            conn.execute("VACUUM")
+
+    output_dir = get_output_dir()
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    return get_status()
+
+
+def _storage_usage() -> dict[str, int]:
+    database_path = get_database_path()
+    database_bytes = sum(
+        _path_size(Path(f"{database_path}{suffix}"))
+        for suffix in ("", "-wal", "-shm")
+    )
+    audio_bytes = _path_size(get_output_dir())
+    try:
+        available_bytes = int(shutil.disk_usage(get_data_dir()).free)
+    except OSError:
+        available_bytes = 0
+    return {
+        "used_bytes": database_bytes + audio_bytes,
+        "database_bytes": database_bytes,
+        "model_bytes": 0,
+        "audio_bytes": audio_bytes,
+        "available_bytes": available_bytes,
+    }
+
+
+def _path_size(path: Path) -> int:
+    try:
+        if path.is_file():
+            return int(path.stat().st_size)
+        if not path.is_dir():
+            return 0
+        return sum(
+            int(child.stat().st_size)
+            for child in path.rglob("*")
+            if child.is_file()
+        )
+    except OSError:
+        return 0
 
 
 def import_backup(payload: dict) -> dict:

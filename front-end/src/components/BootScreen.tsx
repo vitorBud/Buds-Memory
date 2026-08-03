@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { AlertCircle, Bot, CheckCircle2, KeyRound, Loader2, Server, Wifi } from 'lucide-react'
-import { authFetch, getBase, getLocalDeviceToken, getRemoteSessionToken, loginLocal, loginRemote } from '../services/api'
+import { AlertCircle, Bot, CheckCircle2, Database, Download, KeyRound, Loader2, Server, Smartphone, Wifi } from 'lucide-react'
+import {
+  authFetch,
+  getBase,
+  getLocalDeviceToken,
+  getRemoteSessionToken,
+  isNativeIOSRuntime,
+  loginLocal,
+  loginRemote,
+} from '../services/api'
+import { downloadIOSLocalModel, getIOSLocalStatus } from '../services/iosLocal'
+import type { IOSLocalStatus } from '../services/iosLocal'
 import { bootBadgeStyles, bootScreenStyles, bootStepStyles } from '../styles/telaInicializacao'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -51,6 +61,7 @@ async function timedFetch(url: string, options?: RequestInit): Promise<{ ok: boo
 // ── Componente principal ───────────────────────────────────────────────────────
 
 export function BootScreen({ onDone }: BootScreenProps) {
+  const nativeIOS = isNativeIOSRuntime()
   const [visible, setVisible] = useState(true)
   const [closing, setClosing] = useState(false)
   const [health, setHealth] = useState<SystemHealth>({
@@ -69,20 +80,24 @@ export function BootScreen({ onDone }: BootScreenProps) {
   const [authError, setAuthError] = useState('')
   const [authBusy, setAuthBusy] = useState(false)
   const [authVersion, setAuthVersion] = useState(0)
+  const [nativeLocalStatus, setNativeLocalStatus] = useState<IOSLocalStatus | null>(null)
+  const [modelDownloadProgress, setModelDownloadProgress] = useState<number | null>(null)
+  const [modelDownloadBusy, setModelDownloadBusy] = useState(false)
+  const [modelDownloadError, setModelDownloadError] = useState('')
 
   const [steps, setSteps] = useState<BootStep[]>([
     {
       id: 'backend',
-      icon: Server,
-      label: 'Servidor backend',
-      detail: 'Conectando ao Flask na porta 5050…',
+      icon: nativeIOS ? Database : Server,
+      label: nativeIOS ? 'Memória local do iPhone' : 'Servidor backend',
+      detail: nativeIOS ? 'Verificando espaço e banco SQLite…' : 'Conectando ao Flask na porta 5050…',
       state: 'pending',
     },
     {
       id: 'ollama',
-      icon: Bot,
-      label: 'Motor de IA (Ollama)',
-      detail: 'Verificando modelo de linguagem…',
+      icon: nativeIOS ? Smartphone : Bot,
+      label: nativeIOS ? 'Motor local 7B' : 'Motor de IA (Ollama)',
+      detail: nativeIOS ? 'Verificando Qwen2.5-Coder 7B…' : 'Verificando modelo de linguagem…',
       state: 'pending',
     },
   ])
@@ -127,6 +142,29 @@ export function BootScreen({ onDone }: BootScreenProps) {
     )
   }
 
+  async function handleNativeModelDownload() {
+    setModelDownloadError('')
+    setModelDownloadBusy(true)
+    setModelDownloadProgress(0)
+    setStep('ollama', { state: 'loading', detail: 'Baixando Qwen2.5-Coder 7B…', errorMsg: '' })
+    try {
+      await downloadIOSLocalModel(progress => {
+        setModelDownloadProgress(Math.round(progress * 100))
+        setStep('ollama', {
+          state: 'loading',
+          detail: `Baixando e verificando o modelo… ${Math.round(progress * 100)}%`,
+        })
+      })
+      setAuthVersion(value => value + 1)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Falha ao baixar o modelo local.'
+      setModelDownloadError(message)
+      setStep('ollama', { state: 'error', detail: 'Download interrompido', errorMsg: message })
+    } finally {
+      setModelDownloadBusy(false)
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
@@ -142,6 +180,76 @@ export function BootScreen({ onDone }: BootScreenProps) {
         authMode: 'local',
         model: '',
         backendLatency: null,
+      }
+
+      if (nativeIOS) {
+        setStep('backend', { state: 'loading', detail: 'Verificando espaço e banco SQLite…', errorMsg: '' })
+        setStep('ollama', { state: 'loading', detail: 'Verificando Qwen2.5-Coder 7B…', errorMsg: '' })
+        try {
+          const status = await getIOSLocalStatus()
+          if (cancelled) return
+          setNativeLocalStatus(status)
+          updatedHealth.backend = status.databaseReady
+          updatedHealth.database = status.databaseReady
+          updatedHealth.ollama = status.modelInstalled
+          updatedHealth.model = status.modelName
+          updatedHealth.authMode = 'local'
+          updatedHealth.backendLatency = 0
+
+          if (status.storage.databaseBlocked) {
+            const freeGB = (status.storage.availableBytes / 1_073_741_824).toFixed(1)
+            setStep('backend', {
+              state: 'error',
+              detail: 'Banco protegido e mantido fechado',
+              errorMsg: `O iPhone possui apenas ${freeGB} GB livres. Libere espaço até ter pelo menos 1,5 GB.`,
+            })
+          } else if (status.databaseReady) {
+            setStep('backend', {
+              state: 'ok',
+              detail: status.storage.warning
+                ? 'SQLite pronto — pouco espaço disponível'
+                : 'SQLite local pronto e protegido',
+              errorMsg: status.storage.warning ? 'Recomendamos manter pelo menos 3 GB livres.' : '',
+            })
+          } else {
+            setStep('backend', {
+              state: 'error',
+              detail: 'Banco local indisponível',
+              errorMsg: 'Não foi possível inicializar a memória local.',
+            })
+          }
+
+          if (status.modelInstalled) {
+            setStep('ollama', {
+              state: 'ok',
+              detail: `${status.modelName} no próprio iPhone`,
+              errorMsg: status.thermalState === 'serious' || status.thermalState === 'critical'
+                ? 'O aparelho está quente; as respostas serão pausadas até esfriar.'
+                : '',
+            })
+          } else {
+            setStep('ollama', {
+              state: status.storage.modelDownloadAllowed ? 'pending' : 'error',
+              detail: 'Modelo 7B ainda não instalado',
+              errorMsg: status.storage.modelDownloadAllowed
+                ? 'Baixe 4,68 GB uma vez para usar o Aether totalmente offline.'
+                : 'Libere cerca de 6,7 GB para baixar e instalar o modelo com segurança.',
+            })
+          }
+
+          setHealth(updatedHealth)
+          if (status.databaseReady && status.modelInstalled) {
+            await new Promise(resolve => setTimeout(resolve, 700))
+            if (!cancelled) closeAndReport(updatedHealth)
+          }
+        } catch (err) {
+          if (cancelled) return
+          const message = err instanceof Error ? err.message : 'Falha ao inicializar o runtime local.'
+          setStep('backend', { state: 'error', detail: 'Runtime local indisponível', errorMsg: message })
+          setStep('ollama', { state: 'error', detail: 'Modelo não verificado', errorMsg: '' })
+          setHealth(updatedHealth)
+        }
+        return
       }
 
       // ── Passo 1: Backend ──────────────────────────────────────────────────
@@ -312,6 +420,41 @@ export function BootScreen({ onDone }: BootScreenProps) {
           </div>
         )}
 
+        {nativeIOS && nativeLocalStatus && !nativeLocalStatus.modelInstalled && (
+          <div className={bootScreenStyles.authPanel}>
+            <div className={bootScreenStyles.authForm}>
+              <strong className={bootScreenStyles.authLabel}>Instalar inteligência local 7B</strong>
+              <p className={bootScreenStyles.authCopy}>
+                O download oficial tem 4,68 GB. Depois de instalado, chat, histórico e memória
+                funcionam sem Mac, servidor, token ou internet.
+              </p>
+              {modelDownloadProgress !== null && (
+                <p className={bootScreenStyles.authCopy} aria-live="polite">
+                  Progresso: <strong>{modelDownloadProgress}%</strong>
+                </p>
+              )}
+              <button
+                className={bootScreenStyles.authButton}
+                type="button"
+                disabled={modelDownloadBusy || !nativeLocalStatus.storage.modelDownloadAllowed}
+                onClick={() => void handleNativeModelDownload()}
+              >
+                {modelDownloadBusy ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                {modelDownloadBusy ? 'Baixando modelo…' : 'Baixar Qwen 7B no iPhone'}
+              </button>
+              <button
+                className={`${bootScreenStyles.button} ${bootScreenStyles.secondaryButton}`}
+                type="button"
+                disabled={modelDownloadBusy}
+                onClick={() => setAuthVersion(value => value + 1)}
+              >
+                Verificar novamente
+              </button>
+            </div>
+            {modelDownloadError && <p className={bootScreenStyles.authError}>{modelDownloadError}</p>}
+          </div>
+        )}
+
         {/* Steps */}
         <div className={bootScreenStyles.steps} role="list">
           {steps.map(step => {
@@ -352,7 +495,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
         </div>
 
         {/* Ações */}
-        {allDone && (
+        {allDone && (!nativeIOS || allOk) && (
           <div className={bootScreenStyles.actions}>
             {hasError && !allOk && (
               <button

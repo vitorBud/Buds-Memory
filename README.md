@@ -17,6 +17,7 @@ O projeto roda com Ollama local, salva dados em SQLite e foi adaptado para macOS
 - STT com faster-whisper.
 - Backup local em JSON para migrar memoria entre computadores.
 - Acesso remoto opcional por LAN/VPN/Tailscale/ngrok/Cloudflare Tunnel.
+- Aplicativo iOS via Capacitor, instalavel e atualizavel pelo Xcode/cabo.
 
 ## Estrutura
 
@@ -39,7 +40,14 @@ Nexus-Assistent-v1/
     src/components/           UI principal
     src/utils/runtime.ts      deteccao de plataforma
     electron/                 app desktop
+    ios/                      projeto nativo do iPhone
 ```
+
+## Aplicativo para iPhone
+
+O projeto iOS reaproveita a interface React e conecta com seguranca ao modelo,
+memorias e documentos mantidos no Mac. Consulte o passo a passo em
+[INSTALACAO_IPHONE.md](INSTALACAO_IPHONE.md).
 
 ## Requisitos
 

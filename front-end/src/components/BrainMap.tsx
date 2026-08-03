@@ -22,7 +22,7 @@ import type {
   KnowledgeSource,
   Message,
 } from '../types'
-import { isWindowsRuntime } from '../utils/runtime'
+import { getIOSVisualProfile, isIOSRuntime, isWindowsRuntime } from '../utils/runtime'
 import { brainMapStyles } from '../styles/mapaObsidian'
 
 interface BrainMapProps {
@@ -108,6 +108,7 @@ const MEMORY_TYPE_LABEL: Record<string, string> = {
 
 const MAX_GRAPH_NODES = 260
 const MAX_GRAPH_NODES_WINDOWS = 190
+const MAX_GRAPH_NODES_IOS = getIOSVisualProfile().maxGraphNodes
 const MIN_ZOOM = 0.65
 const MAX_ZOOM = 3.2
 const GRAPH_WIDTH = 1000
@@ -183,7 +184,7 @@ function sharedSemanticScore(left: Set<string>, right: Set<string>) {
 
 function selectGraphNodes(
   nodes: Omit<MemoryNode, 'x' | 'y'>[],
-  limit = isWindowsRuntime() ? MAX_GRAPH_NODES_WINDOWS : MAX_GRAPH_NODES,
+  limit = isIOSRuntime() ? MAX_GRAPH_NODES_IOS : isWindowsRuntime() ? MAX_GRAPH_NODES_WINDOWS : MAX_GRAPH_NODES,
 ) {
   if (nodes.length <= limit) return nodes
   return nodes
@@ -234,7 +235,7 @@ function positionNodes(
     }
   })
 
-  const iterations = nodes.length > 180 ? 90 : 135
+  const iterations = isIOSRuntime() ? (nodes.length > 100 ? 56 : 72) : nodes.length > 180 ? 90 : 135
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const cooling = 1 - iteration / iterations
 
@@ -600,6 +601,7 @@ function ObsidianMemoryGraph({
   onSelect: (id: string) => void
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
+  const graphContentRef = useRef<SVGGElement>(null)
   const dragRef = useRef<{
     pointerId: number
     startX: number
@@ -609,7 +611,7 @@ function ObsidianMemoryGraph({
     moved: boolean
   } | null>(null)
   const suppressClickUntilRef = useRef(0)
-  const [view, setView] = useState({ x: 0, y: 0, scale: 1 })
+  const viewRef = useRef({ x: 0, y: 0, scale: 1 })
   const nodeById = useMemo(() => new Map(nodes.map(node => [node.id, node])), [nodes])
   const visibleLinks = useMemo(
     () => links
@@ -624,18 +626,25 @@ function ObsidianMemoryGraph({
     [links, nodeById],
   )
 
-  const zoomAtCenter = useCallback((factor: number) => {
-    setView(current => {
-      const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current.scale * factor))
-      return {
-        scale,
-        x: GRAPH_CENTER_X - ((GRAPH_CENTER_X - current.x) / current.scale) * scale,
-        y: GRAPH_CENTER_Y - ((GRAPH_CENTER_Y - current.y) / current.scale) * scale,
-      }
-    })
+  const applyView = useCallback((next: { x: number; y: number; scale: number }) => {
+    viewRef.current = next
+    graphContentRef.current?.setAttribute(
+      'transform',
+      `translate(${next.x} ${next.y}) scale(${next.scale})`,
+    )
   }, [])
 
-  const resetView = useCallback(() => setView({ x: 0, y: 0, scale: 1 }), [])
+  const zoomAtCenter = useCallback((factor: number) => {
+    const current = viewRef.current
+    const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current.scale * factor))
+    applyView({
+      scale,
+      x: GRAPH_CENTER_X - ((GRAPH_CENTER_X - current.x) / current.scale) * scale,
+      y: GRAPH_CENTER_Y - ((GRAPH_CENTER_Y - current.y) / current.scale) * scale,
+    })
+  }, [applyView])
+
+  const resetView = useCallback(() => applyView({ x: 0, y: 0, scale: 1 }), [applyView])
 
   const handleWheel = useCallback((event: React.WheelEvent<SVGSVGElement>) => {
     event.preventDefault()
@@ -643,17 +652,16 @@ function ObsidianMemoryGraph({
     const cursorX = ((event.clientX - rect.left) / Math.max(rect.width, 1)) * GRAPH_WIDTH
     const cursorY = ((event.clientY - rect.top) / Math.max(rect.height, 1)) * GRAPH_HEIGHT
     const factor = event.deltaY < 0 ? 1.12 : 0.89
-    setView(current => {
-      const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current.scale * factor))
-      const contentX = (cursorX - current.x) / current.scale
-      const contentY = (cursorY - current.y) / current.scale
-      return {
-        scale,
-        x: cursorX - contentX * scale,
-        y: cursorY - contentY * scale,
-      }
+    const current = viewRef.current
+    const scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current.scale * factor))
+    const contentX = (cursorX - current.x) / current.scale
+    const contentY = (cursorY - current.y) / current.scale
+    applyView({
+      scale,
+      x: cursorX - contentX * scale,
+      y: cursorY - contentY * scale,
     })
-  }, [])
+  }, [applyView])
 
   const handlePointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (event.button !== 0) return
@@ -662,12 +670,12 @@ function ObsidianMemoryGraph({
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      originX: view.x,
-      originY: view.y,
+      originX: viewRef.current.x,
+      originY: viewRef.current.y,
       moved: false,
     }
     event.currentTarget.setPointerCapture(event.pointerId)
-  }, [view.x, view.y])
+  }, [])
 
   const handlePointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     const drag = dragRef.current
@@ -676,12 +684,12 @@ function ObsidianMemoryGraph({
     const dx = event.clientX - drag.startX
     const dy = event.clientY - drag.startY
     if (Math.abs(dx) + Math.abs(dy) > 5) drag.moved = true
-    setView(current => ({
-      ...current,
+    applyView({
+      ...viewRef.current,
       x: drag.originX + (dx / Math.max(rect.width, 1)) * GRAPH_WIDTH,
       y: drag.originY + (dy / Math.max(rect.height, 1)) * GRAPH_HEIGHT,
-    }))
-  }, [])
+    })
+  }, [applyView])
 
   const handlePointerEnd = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     const drag = dragRef.current
@@ -722,7 +730,7 @@ function ObsidianMemoryGraph({
         onPointerUp={handlePointerEnd}
         onPointerCancel={handlePointerEnd}
       >
-        <g transform={`translate(${view.x} ${view.y}) scale(${view.scale})`}>
+        <g ref={graphContentRef} transform="translate(0 0) scale(1)">
           <circle
             className="obsidian-graph-boundary"
             cx={GRAPH_CENTER_X}
@@ -883,9 +891,8 @@ export function BrainMap({
   }, [cognitiveMemories, knowledgeGraph, knowledgeSources])
 
   useEffect(() => {
-    if (!visibleNodes.some(node => node.id === selectedId)) {
-      const nextId = visibleNodes[0]?.id ?? ''
-      window.queueMicrotask(() => setSelectedId(nextId))
+    if (selectedId && !visibleNodes.some(node => node.id === selectedId)) {
+      window.queueMicrotask(() => setSelectedId(''))
     }
   }, [selectedId, visibleNodes])
 
@@ -1006,7 +1013,17 @@ export function BrainMap({
 
         {selectedNode && (
           <aside className="obsidian-memory-card">
-            <span>{KIND_LABEL[selectedNode.kind]}</span>
+            <div className="obsidian-memory-card-head">
+              <span>{KIND_LABEL[selectedNode.kind]}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedId('')}
+                aria-label="Fechar detalhes da memória"
+                title="Fechar detalhes"
+              >
+                <X size={15} />
+              </button>
+            </div>
             <strong>{selectedNode.label}</strong>
             <p>{selectedNode.summary}</p>
             <div className="obsidian-memory-meta">

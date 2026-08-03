@@ -61,6 +61,28 @@ class ApiOriginSecurityTests(unittest.TestCase):
         )
         self.assertEqual(response.headers.get("Vary"), "Origin")
 
+    def test_capacitor_ios_origin_receives_scoped_cors(self):
+        with patch.object(remote_access, "REMOTE_MODE", False):
+            response = self.client.get(
+                "/api/auth/status",
+                headers={"Origin": "capacitor://localhost"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("Access-Control-Allow-Origin"),
+            "capacitor://localhost",
+        )
+
+    def test_untrusted_capacitor_origin_is_rejected(self):
+        with patch.object(remote_access, "REMOTE_MODE", False):
+            response = self.client.get(
+                "/api/auth/status",
+                headers={"Origin": "capacitor://attacker"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+
     def test_electron_null_origin_remains_supported(self):
         with patch.object(remote_access, "REMOTE_MODE", False):
             response = self.client.get(

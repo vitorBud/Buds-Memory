@@ -1,8 +1,16 @@
 import { useState, useRef, useCallback } from 'react'
+import { Capacitor } from '@capacitor/core'
+import type { PluginListenerHandle } from '@capacitor/core'
 import type { AiState } from '../types'
+import {
+  cancelIOSSpeechRecognition,
+  startIOSSpeechRecognition,
+  stopIOSSpeechRecognition,
+} from '../services/iosLocal'
 
 interface UseRecorderOptions {
   onStop: (blob: Blob) => void
+  onTranscript?: (text: string) => void
   onStateChange: (s: AiState) => void
   autoStopOnSilence?: boolean
   silenceSeconds?: number
@@ -29,6 +37,7 @@ function getSupportedAudioMimeType() {
 // Hook de gravação do microfone usado para capturar áudio e enviar ao backend.
 export function useRecorder({
   onStop,
+  onTranscript,
   onStateChange,
   autoStopOnSilence = false,
   silenceSeconds = 1.25,
@@ -48,8 +57,47 @@ export function useRecorder({
   const silenceStartedAtRef = useRef<number | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const nativeListenerRef = useRef<PluginListenerHandle | null>(null)
+  const nativeStoppingRef = useRef(false)
+  const nativeTranscriptRef = useRef('')
+  const nativeLastSpeechAtRef = useRef<number | null>(null)
+  const elapsedSecondsRef = useRef(0)
+  const isNativeIOS = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios'
 
   const stop = useCallback((emit = true) => {
+    if (isNativeIOS) {
+      if (nativeStoppingRef.current) return
+      nativeStoppingRef.current = true
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
+      setIsRecording(false)
+      setSeconds(0)
+      setVolume(0)
+      startedTalkingRef.current = false
+      nativeLastSpeechAtRef.current = null
+      elapsedSecondsRef.current = 0
+
+      void (async () => {
+        try {
+          const result = emit
+            ? await stopIOSSpeechRecognition()
+            : (await cancelIOSSpeechRecognition(), { text: '' })
+          const transcript = (result.text || nativeTranscriptRef.current).trim()
+          if (emit && transcript) onTranscript?.(transcript)
+          else onStateChange('idle')
+        } catch (error) {
+          console.error('[Recorder] Falha ao encerrar reconhecimento nativo:', error)
+          onStateChange('error')
+          window.setTimeout(() => onStateChange('idle'), 1800)
+        } finally {
+          await nativeListenerRef.current?.remove().catch(() => {})
+          nativeListenerRef.current = null
+          nativeTranscriptRef.current = ''
+          nativeStoppingRef.current = false
+        }
+      })()
+      return
+    }
+
     emitOnStopRef.current = emit
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (volumeFrameRef.current) {
@@ -68,11 +116,52 @@ export function useRecorder({
     setIsRecording(false)
     setSeconds(0)
     setVolume(0)
-  }, [])
+    elapsedSecondsRef.current = 0
+  }, [isNativeIOS, onStateChange, onTranscript])
 
   const start = useCallback(async () => {
     if (isRecording) return
     try {
+      if (isNativeIOS) {
+        nativeTranscriptRef.current = ''
+        nativeLastSpeechAtRef.current = null
+        startedTalkingRef.current = false
+        elapsedSecondsRef.current = 0
+        setSeconds(0)
+        setVolume(0)
+        nativeListenerRef.current = await startIOSSpeechRecognition(event => {
+          const transcript = event.text.trim()
+          if (transcript && transcript !== nativeTranscriptRef.current) {
+            nativeTranscriptRef.current = transcript
+            nativeLastSpeechAtRef.current = performance.now()
+            startedTalkingRef.current = true
+          }
+          setVolume(Math.min(1, Math.max(0, event.volume)))
+          if (event.isFinal && transcript) stop(true)
+        })
+        setIsRecording(true)
+        onStateChange('listening')
+
+        timerRef.current = setInterval(() => {
+          elapsedSecondsRef.current += 1
+          const elapsed = elapsedSecondsRef.current
+          setSeconds(elapsed)
+          if (autoStopOnSilence && !startedTalkingRef.current && elapsed >= noSpeechTimeoutSeconds) {
+            stop(false)
+            return
+          }
+          if (autoStopOnSilence && startedTalkingRef.current && nativeLastSpeechAtRef.current !== null) {
+            const silentFor = performance.now() - nativeLastSpeechAtRef.current
+            if (silentFor >= silenceSeconds * 1000) {
+              stop(true)
+              return
+            }
+          }
+          if (elapsed >= maxSeconds) stop(!autoStopOnSilence || startedTalkingRef.current)
+        }, 1000)
+        return
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -86,6 +175,7 @@ export function useRecorder({
       silenceStartedAtRef.current = null
       setSeconds(0)
       setVolume(0)
+      elapsedSecondsRef.current = 0
 
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
       if (AudioContextClass) {
@@ -152,24 +242,21 @@ export function useRecorder({
       onStateChange('listening')
 
       timerRef.current = setInterval(() => {
-        setSeconds(s => {
-          if (autoStopOnSilence && !startedTalkingRef.current && s >= noSpeechTimeoutSeconds) {
-            stop(false)
-            return s
-          }
-          if (s >= maxSeconds) {
-            stop(!autoStopOnSilence || startedTalkingRef.current)
-            return s
-          }
-          return s + 1
-        })
+        elapsedSecondsRef.current += 1
+        const elapsed = elapsedSecondsRef.current
+        setSeconds(elapsed)
+        if (autoStopOnSilence && !startedTalkingRef.current && elapsed >= noSpeechTimeoutSeconds) {
+          stop(false)
+          return
+        }
+        if (elapsed >= maxSeconds) stop(!autoStopOnSilence || startedTalkingRef.current)
       }, 1000)
     } catch (err) {
       console.error('[Recorder] Permission denied:', err)
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 2000)
     }
-  }, [autoStopOnSilence, isRecording, maxSeconds, noSpeechTimeoutSeconds, onStateChange, onStop, silenceSeconds, speechThreshold, stop])
+  }, [autoStopOnSilence, isNativeIOS, isRecording, maxSeconds, noSpeechTimeoutSeconds, onStateChange, onStop, silenceSeconds, speechThreshold, stop])
 
   const toggle = useCallback(() => {
     if (isRecording) {

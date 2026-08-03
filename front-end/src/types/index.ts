@@ -63,8 +63,6 @@ export interface InterfaceSettings {
   theme: ThemeMode
   density: DensityMode
   showInsights: boolean
-  showBrainMap: boolean
-  showQuickPrompts: boolean
   autoPlayAudio: boolean
   voiceProvider: VoiceProvider
   webSearchEnabled: boolean
@@ -144,6 +142,13 @@ export interface LocalBackupStatus {
   device_id: string
   last_backup_error?: string | null
   local_records: Record<string, number>
+  storage?: {
+    used_bytes: number
+    database_bytes: number
+    model_bytes: number
+    audio_bytes: number
+    available_bytes: number
+  }
 }
 
 export interface LocalBackupImportResult {

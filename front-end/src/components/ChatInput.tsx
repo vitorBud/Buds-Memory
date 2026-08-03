@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
-import { Bot, ChevronDown, Compass, Mic, MicOff, Send, ShieldCheck, Square, Zap } from 'lucide-react'
+import { ChevronDown, Mic, MicOff, Send, Square } from 'lucide-react'
 import type { DensityMode } from '../types'
-import { isWindowsRuntime } from '../utils/runtime'
+import { isIOSRuntime, isWindowsRuntime } from '../utils/runtime'
 import { chatInputStyles } from '../styles/entradaChat'
 
 interface ChatInputProps {
@@ -14,18 +14,10 @@ interface ChatInputProps {
   selectedModel: string
   models?: string[]
   onModelChange?: (m: string) => void
-  showQuickPrompts?: boolean
   showModelSelect?: boolean
   showMeta?: boolean
   density?: DensityMode
 }
-
-const QUICK_PROMPTS = [
-  { icon: Bot, label: 'Tecnico', prompt: 'Explique como você funciona tecnicamente, de forma objetiva.' },
-  { icon: Zap, label: 'Direto', prompt: 'Responda de forma curta, prática e sem floreios.' },
-  { icon: Compass, label: 'Plano', prompt: 'Monte um plano de ação com prioridades claras.' },
-  { icon: ShieldCheck, label: 'Revisar', prompt: 'Revise minha ideia procurando riscos, lacunas e melhorias.' },
-]
 
 const MODEL_LABELS: Record<string, { label: string; hint: string }> = {
   'qwen2.5-coder:3b': { label: 'Rápido', hint: 'leve' },
@@ -33,7 +25,7 @@ const MODEL_LABELS: Record<string, { label: string; hint: string }> = {
   'qwen2.5-coder:14b': { label: 'Mais potente', hint: 'melhor raciocínio' },
 }
 
-// Campo de composição do chat com prompts rápidos, seletor de modelo, microfone e envio.
+// Campo de composição do chat com seletor de modelo, microfone e envio.
 export function ChatInput({
   onSend,
   onStop,
@@ -44,7 +36,6 @@ export function ChatInput({
   selectedModel,
   models = ['qwen3:8b'],
   onModelChange,
-  showQuickPrompts = true,
   showModelSelect = true,
   showMeta = true,
   density = 'compact',
@@ -53,15 +44,16 @@ export function ChatInput({
   const [showModelPicker, setShowModelPicker] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isWindowsUi = isWindowsRuntime()
+  const isIOSUi = isIOSRuntime()
 
   useEffect(() => {
-    if (isWindowsUi) return
+    if (isWindowsUi || isIOSUi) return
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
       const maxHeight = density === 'compact' ? 104 : 142
       textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, maxHeight) + 'px'
     }
-  }, [text, density, isWindowsUi])
+  }, [text, density, isIOSUi, isWindowsUi])
 
   function handleSend() {
     if (isProcessing) {
@@ -82,23 +74,6 @@ export function ChatInput({
 
   return (
     <div className={`chat-input-shell density-${density} ${chatInputStyles.shell} ${density === 'comfortable' ? 'gap-2.5' : ''}`}>
-      {showQuickPrompts && (
-        <div className={`quick-prompts ${chatInputStyles.prompts}`}>
-          {QUICK_PROMPTS.map(({ icon: Icon, label, prompt }) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => onSend(prompt)}
-              disabled={isProcessing}
-              className={`quick-prompt ${chatInputStyles.prompt}`}
-            >
-              <Icon size={13} />
-              <span>{label}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
       <div className={`composer ${chatInputStyles.composer} ${isRecording ? `is-recording ${chatInputStyles.recording}` : ''}`}>
         <textarea
           ref={textareaRef}

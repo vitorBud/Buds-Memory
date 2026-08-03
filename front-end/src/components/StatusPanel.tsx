@@ -1,6 +1,6 @@
-import { Activity, BrainCircuit, Circle, CloudDownload, Code2, Cpu, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Upload, UserRound, Volume2, X } from 'lucide-react'
+import { Activity, AlertTriangle, BrainCircuit, Circle, CloudDownload, Code2, Cpu, Database, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Trash2, Upload, UserRound, Volume2, X } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
-import { indexCodebase } from '../services/api'
+import { indexCodebase, isNativeIOSRuntime } from '../services/api'
 import { settingsControlStyles, themeDotStyles } from '../styles/controlesConfiguracoes'
 import { settingsLayoutStyles, settingsSectionStyles } from '../styles/estruturaConfiguracoes'
 import type { AiState, InterfaceSettings, LocalBackupStatus, ThemeMode } from '../types'
@@ -15,12 +15,14 @@ interface StatusPanelProps {
   googleSearchAvailable: boolean
   backupStatus: LocalBackupStatus | null
   isBackupBusy: boolean
+  isStorageBusy: boolean
   authMode?: string
   authEmail?: string
   settings: InterfaceSettings
   onModelChange: (model: string) => void
   onExportBackup: () => void
   onImportBackup: (file: File) => void
+  onClearStorage: (confirmation: string) => void
   onSettingChange: <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => void
   onClose: () => void
   children?: ReactNode
@@ -86,13 +88,15 @@ const VOICE_PROVIDER_OPTIONS: Array<{
   { value: 'piper', label: 'Piper local', hint: 'gera áudio offline no backend com a voz pt-BR instalada' },
 ]
 
-type SettingsSection = 'account' | 'appearance' | 'ai' | 'backup' | 'codebase' | 'memory' | 'system'
+type SettingsSection = 'account' | 'appearance' | 'ai' | 'voice' | 'backup' | 'storage' | 'codebase' | 'memory' | 'system'
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: string; icon: typeof UserRound }> = [
   { id: 'account', label: 'Sessão', hint: 'Banco local', icon: UserRound },
   { id: 'appearance', label: 'Aparência', hint: 'Tema e interface', icon: SlidersHorizontal },
-  { id: 'ai', label: 'IA', hint: 'Modelo, voz e Google', icon: BrainCircuit },
+  { id: 'ai', label: 'IA', hint: 'Modelo e Google', icon: BrainCircuit },
+  { id: 'voice', label: 'Voz', hint: 'Ativar e escolher', icon: Volume2 },
   { id: 'backup', label: 'Backup', hint: 'Memória local', icon: HardDrive },
+  { id: 'storage', label: 'Armazenamento', hint: 'Uso e limpeza', icon: Database },
   { id: 'codebase', label: 'Codebase', hint: 'Projetos locais', icon: Code2 },
   { id: 'memory', label: 'Memória', hint: 'Contexto do chat', icon: Activity },
   { id: 'system', label: 'Sistema', hint: 'Pipeline e sessão', icon: Cpu },
@@ -101,6 +105,14 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: strin
 type AetherBridge = {
   pickFolder?: () => Promise<string | null>
   isDesktop?: boolean
+}
+
+function formatBytes(bytes = 0): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const value = bytes / (1024 ** unit)
+  return `${value.toFixed(unit === 0 || value >= 10 ? 0 : 1)} ${units[unit]}`
 }
 
 // Gaveta de configurações da interface, voz, tema e status técnico da sessão.
@@ -114,12 +126,14 @@ export function StatusPanel({
   googleSearchAvailable,
   backupStatus,
   isBackupBusy,
+  isStorageBusy,
   authMode,
   authEmail,
   settings,
   onModelChange,
   onExportBackup,
   onImportBackup,
+  onClearStorage,
   onSettingChange,
   onClose,
   children,
@@ -128,7 +142,10 @@ export function StatusPanel({
   const [codebaseStatus, setCodebaseStatus] = useState('')
   const [isIndexingCodebase, setIsIndexingCodebase] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>('account')
+  const [storageConfirmation, setStorageConfirmation] = useState('')
+  const [storageDangerOpen, setStorageDangerOpen] = useState(false)
   const backupInputRef = useRef<HTMLInputElement>(null)
+  const nativeIOS = isNativeIOSRuntime()
 
   const pickCodebaseFolder = async () => {
     const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
@@ -156,7 +173,7 @@ export function StatusPanel({
   }
 
   return (
-    <aside className={settingsLayoutStyles.pagePanel}>
+    <aside className={`settings-page-panel ${settingsLayoutStyles.pagePanel}`}>
       <div className={settingsLayoutStyles.header}>
         <div className={settingsLayoutStyles.headerCopy}>
           <span className={settingsLayoutStyles.eyebrow}>Painel Aether</span>
@@ -203,7 +220,7 @@ export function StatusPanel({
           <SlidersHorizontal size={15} />
         </div>
         <p className={settingsControlStyles.sectionCopy}>
-          Ajuste a aparência geral do Aether Memory e escolha quais elementos ficam visíveis durante o uso.
+          Ajuste a aparência geral do Aether Memory.
         </p>
 
         <div className={settingsControlStyles.themeGrid} aria-label="Tema do sistema">
@@ -223,20 +240,6 @@ export function StatusPanel({
           ))}
         </div>
 
-        <div className={settingsControlStyles.toggleStack}>
-          <ToggleRow
-            label="Prompts rápidos"
-            description="Mostra sugestões curtas para começar conversas mais rápido."
-            checked={settings.showQuickPrompts}
-            onChange={(checked) => onSettingChange('showQuickPrompts', checked)}
-          />
-          <ToggleRow
-            label="Cérebro IA"
-            description="Exibe visualizações do conhecimento salvo no Aether Memory."
-            checked={settings.showBrainMap}
-            onChange={(checked) => onSettingChange('showBrainMap', checked)}
-          />
-        </div>
       </div>
 
       <div className="settings-section settings-account-block">
@@ -276,33 +279,11 @@ export function StatusPanel({
         </p>
         <div className={settingsControlStyles.toggleStack}>
           <ToggleRow
-            label="Voz automática"
-            description="Faz o Aether falar as respostas quando possível."
-            checked={settings.autoPlayAudio}
-            onChange={(checked) => onSettingChange('autoPlayAudio', checked)}
-          />
-          <ToggleRow
             label="Buscar no Google"
             description="Permite consulta em tempo real quando a pergunta precisar de dados atuais."
             checked={settings.webSearchEnabled}
             onChange={(checked) => onSettingChange('webSearchEnabled', checked)}
           />
-        </div>
-        <div className={settingsControlStyles.optionGrid} aria-label="Selecionar motor de voz">
-          {VOICE_PROVIDER_OPTIONS.map(option => (
-            <button
-              key={option.value}
-              type="button"
-              className={`${settingsControlStyles.optionButton} ${settings.voiceProvider === option.value ? settingsControlStyles.optionButtonActive : ''}`}
-              onClick={() => onSettingChange('voiceProvider', option.value)}
-            >
-              <Volume2 size={15} className={settingsControlStyles.optionIcon} />
-              <span className={settingsControlStyles.optionCopy}>
-                <strong className={settingsControlStyles.optionLabel}>{option.label}</strong>
-                <small className={settingsControlStyles.optionHint}>{option.hint}</small>
-              </span>
-            </button>
-          ))}
         </div>
         <div className={settingsControlStyles.modelGrid} aria-label="Selecionar modelo da IA">
           {models.map(option => {
@@ -320,6 +301,45 @@ export function StatusPanel({
               </button>
             )
           })}
+        </div>
+      </div>
+
+      <div className="settings-section settings-voice-block">
+        <div className={settingsControlStyles.panelHeading}>
+          <span>Voz do Aether</span>
+          <Volume2 size={15} />
+        </div>
+        <p className={settingsControlStyles.sectionCopy}>
+          Ative ou desative a leitura automática das respostas. O microfone do modo Voz continua disponível separadamente.
+        </p>
+        <div className={settingsControlStyles.toggleStack}>
+          <ToggleRow
+            label="Falar respostas automaticamente"
+            description={nativeIOS ? 'Usa a voz instalada no iPhone.' : 'Reproduz em voz alta as novas respostas do chat.'}
+            checked={settings.autoPlayAudio}
+            onChange={(checked) => {
+              if (nativeIOS && checked && settings.voiceProvider !== 'browser') {
+                onSettingChange('voiceProvider', 'browser')
+              }
+              onSettingChange('autoPlayAudio', checked)
+            }}
+          />
+        </div>
+        <div className={settingsControlStyles.optionGrid} aria-label="Selecionar motor de voz">
+          {VOICE_PROVIDER_OPTIONS.filter(option => !nativeIOS || option.value === 'browser').map(option => (
+            <button
+              key={option.value}
+              type="button"
+              className={`${settingsControlStyles.optionButton} ${settings.voiceProvider === option.value ? settingsControlStyles.optionButtonActive : ''}`}
+              onClick={() => onSettingChange('voiceProvider', option.value)}
+            >
+              <Volume2 size={15} className={settingsControlStyles.optionIcon} />
+              <span className={settingsControlStyles.optionCopy}>
+                <strong className={settingsControlStyles.optionLabel}>{option.label}</strong>
+                <small className={settingsControlStyles.optionHint}>{option.hint}</small>
+              </span>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -438,6 +458,86 @@ export function StatusPanel({
         />
       </div>
 
+      <div className="settings-section settings-storage-block">
+        <div className={settingsControlStyles.panelHeading}>
+          <span>Armazenamento</span>
+          <Database size={15} />
+        </div>
+        <p className={settingsControlStyles.sectionCopy}>
+          Espaço ocupado pelos dados locais do Aether neste dispositivo. Os valores são atualizados ao abrir as configurações.
+        </p>
+
+        <div className={settingsControlStyles.metricsGrid}>
+          <div className={settingsControlStyles.metric}>
+            <HardDrive size={13} />
+            <span className={settingsControlStyles.metricLabel}>Total usado</span>
+            <strong className={settingsControlStyles.metricValue}>{formatBytes(backupStatus?.storage?.used_bytes)}</strong>
+          </div>
+          <div className={settingsControlStyles.metric}>
+            <Database size={13} />
+            <span className={settingsControlStyles.metricLabel}>Conversas e memórias</span>
+            <strong className={settingsControlStyles.metricValue}>{formatBytes(backupStatus?.storage?.database_bytes)}</strong>
+          </div>
+          <div className={settingsControlStyles.metric}>
+            <BrainCircuit size={13} />
+            <span className={settingsControlStyles.metricLabel}>{nativeIOS ? 'Modelo local 7B' : 'Modelo dentro do Aether'}</span>
+            <strong className={settingsControlStyles.metricValue}>{formatBytes(backupStatus?.storage?.model_bytes)}</strong>
+          </div>
+          <div className={settingsControlStyles.metric}>
+            <Gauge size={13} />
+            <span className={settingsControlStyles.metricLabel}>Livre no dispositivo</span>
+            <strong className={settingsControlStyles.metricValue}>{formatBytes(backupStatus?.storage?.available_bytes)}</strong>
+          </div>
+        </div>
+
+        <div className={settingsControlStyles.storageNotice}>
+          <strong>Zona de exclusão</strong>
+          <span>
+            {nativeIOS
+              ? 'Apaga conversas, memórias e o modelo 7B deste iPhone. Para usar a IA novamente, será necessário baixar o modelo de novo.'
+              : 'Apaga conversas, memórias, documentos, grafo e áudios do Aether. Os modelos do Ollama instalados fora do aplicativo permanecem no MacBook.'}
+          </span>
+        </div>
+
+        {!storageDangerOpen ? (
+          <button
+            type="button"
+            className={settingsControlStyles.dangerButton}
+            onClick={() => setStorageDangerOpen(true)}
+            disabled={isStorageBusy || !['idle', 'error'].includes(aiState)}
+          >
+            <Trash2 size={15} />
+            Apagar todos os dados
+          </button>
+        ) : (
+          <div className={settingsControlStyles.storageNotice}>
+            <strong><AlertTriangle size={15} /> Esta ação não pode ser desfeita</strong>
+            <span>Digite APAGAR TUDO no campo abaixo para liberar o botão.</span>
+            <input
+              className={settingsControlStyles.storageInput}
+              value={storageConfirmation}
+              onChange={(event) => setStorageConfirmation(event.target.value)}
+              placeholder="APAGAR TUDO"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+            <button
+              type="button"
+              className={settingsControlStyles.dangerButton}
+              disabled={storageConfirmation !== 'APAGAR TUDO' || isStorageBusy || !['idle', 'error'].includes(aiState)}
+              onClick={() => {
+                const accepted = window.confirm('Apagar definitivamente todos os dados locais do Aether neste dispositivo?')
+                if (accepted) onClearStorage(storageConfirmation)
+              }}
+            >
+              <Trash2 size={15} />
+              {isStorageBusy ? 'Apagando dados...' : 'Confirmar exclusão total'}
+            </button>
+          </div>
+        )}
+      </div>
+
       <div className="settings-section settings-session-block">
         <div className={settingsControlStyles.panelHeading}>
           <span>Sessão</span>
@@ -476,7 +576,9 @@ export function StatusPanel({
           <div className={settingsControlStyles.pipelineLine}>
             <Volume2 size={14} />
             <span className={settingsControlStyles.technicalLabel}>TTS</span>
-            <strong className={settingsControlStyles.technicalValue}>Piper</strong>
+            <strong className={settingsControlStyles.technicalValue}>
+              {nativeIOS ? 'Voz do iPhone' : settings.voiceProvider === 'piper' ? 'Piper' : 'Sistema'}
+            </strong>
           </div>
           <div className={settingsControlStyles.pipelineLine}>
             <Gauge size={14} />

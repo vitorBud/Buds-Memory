@@ -264,6 +264,49 @@ def seed_all_tables(db_path: Path, prefix: str):
 
 
 class LocalBackupTests(unittest.TestCase):
+    def test_storage_status_and_confirmed_clear(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            db_path = root / "chat_history.db"
+            out_dir = root / "out"
+            out_dir.mkdir()
+            (out_dir / "answer.wav").write_bytes(b"audio")
+            create_minimal_schema(db_path)
+            with make_connection_factory(db_path)() as conn:
+                conn.execute(
+                    "INSERT INTO sessions VALUES ('s1', 'Sessão', '2026-08-03')"
+                )
+                conn.execute(
+                    """
+                    INSERT INTO messages
+                      (session_id, sender, text, created_at)
+                    VALUES ('s1', 'user', 'teste', '2026-08-03')
+                    """
+                )
+                conn.commit()
+
+            patches = (
+                patch.object(local_backup, "get_db_connection", make_connection_factory(db_path)),
+                patch.object(local_backup, "get_database_path", return_value=db_path),
+                patch.object(local_backup, "get_output_dir", return_value=out_dir),
+                patch.object(local_backup, "get_data_dir", return_value=root),
+            )
+            with patches[0], patches[1], patches[2], patches[3]:
+                status = local_backup.get_status()
+                self.assertGreaterEqual(status["storage"]["used_bytes"], 5)
+                self.assertEqual(status["local_records"]["sessions"], 1)
+
+                with self.assertRaises(ValueError):
+                    local_backup.clear_local_data("apagar")
+
+                cleared = local_backup.clear_local_data("APAGAR TUDO")
+                self.assertEqual(cleared["local_records"]["total"], 0)
+                self.assertEqual(list(out_dir.iterdir()), [])
+
+            with make_connection_factory(db_path)() as conn:
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 0)
+                self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 0)
+
     def test_export_and_import_local_memory_backup(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             source_db = Path(temp_dir) / "source.db"

@@ -4,10 +4,16 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_DIR="$(cd "$ROOT_DIR/.." && pwd)"
 APP_NAME="Aether Memory.app"
-BUILT_APP="$ROOT_DIR/release/mac-arm64/$APP_NAME"
 INSTALL_DIR="/Applications"
 INSTALLED_APP="$INSTALL_DIR/$APP_NAME"
 APP_SUPPORT_DIR="$HOME/Library/Application Support/Aether Memory"
+BUILD_OUTPUT_DIR="$(mktemp -d /private/tmp/aether-electron-build.XXXXXX)"
+BUILT_APP="$BUILD_OUTPUT_DIR/mac-arm64/$APP_NAME"
+# Recursos de dados não são código executável. Ignorá-los evita milhares de
+# chamadas codesign e mantém a assinatura dos helpers, dylibs, .so e backend.
+SIGN_IGNORE='(?:/Contents/Resources/(?:NexusAssets/|AetherBackend/_internal/(?:piper/espeak-ng-data/|models/|voz/))|\.(?:pyc|py|json|txt|md|wav|onnx|bin|xml|dic|aff|pak|dat|cfg|ini|ya?ml|html|css|js|map|woff2?|ttf|png|jpe?g|svg|asar)$)'
+
+trap 'rm -rf "$BUILD_OUTPUT_DIR"' EXIT
 
 cd "$ROOT_DIR"
 
@@ -18,7 +24,9 @@ echo "==> Empacotando backend autocontido..."
 npm run build:backend:mac
 
 echo "==> Gerando app macOS..."
-npx electron-builder --mac dir
+npx electron-builder --mac dir \
+  --config.directories.output="$BUILD_OUTPUT_DIR" \
+  --config.mac.signIgnore="$SIGN_IGNORE"
 
 if [ ! -d "$BUILT_APP" ]; then
   echo "App gerado nao encontrado: $BUILT_APP"
@@ -31,12 +39,13 @@ pkill -f "Aether Memory" 2>/dev/null || true
 
 echo "==> Instalando em $INSTALL_DIR..."
 rm -rf "$INSTALLED_APP"
-cp -R "$BUILT_APP" "$INSTALL_DIR/"
+ditto --norsrc "$BUILT_APP" "$INSTALLED_APP"
 
 if [ -f "$PROJECT_DIR/Back-end/.env" ]; then
   echo "==> Atualizando configuracoes do app..."
   mkdir -p "$APP_SUPPORT_DIR"
   cp "$PROJECT_DIR/Back-end/.env" "$APP_SUPPORT_DIR/.env"
+  chmod 600 "$APP_SUPPORT_DIR/.env"
 fi
 
 echo "==> Abrindo Aether Memory..."

@@ -2,6 +2,7 @@
 // All calls go through the Vite proxy → http://127.0.0.1:5050 (web)
 // or directly to http://127.0.0.1:5050/api (Electron desktop).
 
+import { Capacitor } from '@capacitor/core'
 import type {
   Session,
   Message,
@@ -13,6 +14,21 @@ import type {
   LocalBackupImportResult,
   LocalBackupStatus,
 } from '../types'
+import {
+  clearIOSLocalData,
+  createIOSLocalMemory,
+  createIOSLocalSession,
+  deleteIOSLocalSession,
+  deleteIOSLocalMemory,
+  getIOSLocalMemories,
+  getIOSLocalMessages,
+  getIOSLocalStatus,
+  listIOSLocalSessions,
+  setIOSLocalCoreMemory,
+  streamIOSLocalChat,
+  updateIOSLocalMemory,
+  updateIOSLocalSessionTitle,
+} from './iosLocal'
 
 type AetherBridge = {
   apiBase?: string
@@ -20,6 +36,10 @@ type AetherBridge = {
   getRemoteToken?: () => Promise<string>
 }
 const REMOTE_SESSION_KEY = 'nexus-remote-session-token'
+
+export function isNativeIOSRuntime(): boolean {
+  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios'
+}
 
 /**
  * Resolve a URL base de forma lazy (em tempo de execução) para garantir que o
@@ -126,6 +146,16 @@ async function fetchJsonWithStartupRetry<T>(url: string, attempts = isDesktop() 
 // ── Backend Config ─────────────────────────────────────────────────────────
 
 export async function getBackendConfig(): Promise<BackendConfig> {
+  if (isNativeIOSRuntime()) {
+    const status = await getIOSLocalStatus()
+    return {
+      model: status.modelName,
+      models: [status.modelName],
+      ollama_url: 'iphone://local',
+      google_search_available: false,
+      data_dir: 'iphone://application-support/AetherMemory',
+    }
+  }
   return fetchJsonWithStartupRetry<BackendConfig>(`${getBase()}/config`)
 }
 
@@ -193,10 +223,68 @@ export async function getLocalDeviceToken(): Promise<string> {
 // ── Local Memory Backup ────────────────────────────────────────────────────
 
 export async function getLocalBackupStatus(): Promise<LocalBackupStatus> {
+  if (isNativeIOSRuntime()) {
+    const [sessions, status] = await Promise.all([
+      listIOSLocalSessions(),
+      getIOSLocalStatus(),
+    ])
+    return {
+      mode: 'iphone-local',
+      device_id: 'aether-iphone',
+      local_records: { sessions: sessions.length },
+      storage: {
+        used_bytes: status.storage.usedBytes,
+        database_bytes: status.storage.databaseBytes,
+        model_bytes: status.modelBytes,
+        audio_bytes: 0,
+        available_bytes: status.storage.availableBytes,
+      },
+    }
+  }
   return fetchJsonWithStartupRetry<LocalBackupStatus>(`${getBase()}/local-backup/status`)
 }
 
+export async function clearLocalStorage(confirmation: string): Promise<LocalBackupStatus> {
+  if (isNativeIOSRuntime()) {
+    const status = await clearIOSLocalData(confirmation)
+    return {
+      mode: 'iphone-local',
+      device_id: 'aether-iphone',
+      local_records: { sessions: 0 },
+      storage: {
+        used_bytes: status.storage.usedBytes,
+        database_bytes: status.storage.databaseBytes,
+        model_bytes: status.modelBytes,
+        audio_bytes: 0,
+        available_bytes: status.storage.availableBytes,
+      },
+    }
+  }
+
+  let response: Response
+  try {
+    response = await authFetch(`${getBase()}/local-storage`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmation }),
+    })
+  } catch (error) {
+    throw humanizeError(error)
+  }
+  const payload = await response.json().catch(() => ({})) as {
+    error?: string
+    status?: LocalBackupStatus
+  }
+  if (!response.ok || !payload.status) {
+    throw new Error(payload.error || `clearLocalStorage: ${response.status}`)
+  }
+  return payload.status
+}
+
 export async function exportLocalMemoryBackup(): Promise<void> {
+  if (isNativeIOSRuntime()) {
+    throw new Error('O backup nativo do iPhone será disponibilizado em uma próxima etapa. As memórias já permanecem salvas localmente.')
+  }
   let res: Response
   try {
     res = await authFetch(`${getBase()}/local-backup/export`)
@@ -224,6 +312,10 @@ export async function exportLocalMemoryBackup(): Promise<void> {
 }
 
 export async function importLocalMemoryBackup(file: File): Promise<LocalBackupImportResult> {
+  if (isNativeIOSRuntime()) {
+    void file
+    throw new Error('A importação de backup ainda não está disponível no modo totalmente local do iPhone.')
+  }
   const body = new FormData()
   body.append('file', file)
 
@@ -245,10 +337,33 @@ export async function importLocalMemoryBackup(file: File): Promise<LocalBackupIm
 // ── Cognitive Brain / Obsidian ─────────────────────────────────────────────
 
 export async function getCognitiveMemories(limit = 200): Promise<CognitiveMemory[]> {
+  if (isNativeIOSRuntime()) return getIOSLocalMemories(limit)
   return fetchJsonWithStartupRetry<CognitiveMemory[]>(`${getBase()}/cognitive/memory?limit=${limit}`)
 }
 
 export async function getKnowledgeGraph(limit = 240): Promise<KnowledgeGraph> {
+  if (isNativeIOSRuntime()) {
+    const memories = await getIOSLocalMemories(limit)
+    return {
+      entities: memories.map(memory => ({
+        id: memory.id,
+        name: memory.content.slice(0, 72),
+        entity_type: memory.is_core ? 'core_memory' : 'memory',
+        description: memory.content,
+        importance: memory.importance,
+        access_count: memory.access_count,
+        first_seen: memory.created_at,
+        last_seen: memory.last_accessed || memory.created_at,
+        metadata: { origin: 'iphone_local' },
+      })),
+      edges: memories.slice(1).map((memory, index) => ({
+        source: memories[index].content.slice(0, 72),
+        target: memory.content.slice(0, 72),
+        relation_type: 'memória relacionada',
+        strength: Math.min(memories[index].importance, memory.importance),
+      })),
+    }
+  }
   return fetchJsonWithStartupRetry<KnowledgeGraph>(`${getBase()}/cognitive/graph?limit=${limit}`)
 }
 
@@ -256,6 +371,12 @@ export async function updateCognitiveMemory(
   id: number,
   updates: Partial<Pick<CognitiveMemory, 'content' | 'memory_type' | 'importance' | 'tags' | 'origin_type'>>,
 ): Promise<CognitiveMemory> {
+  if (isNativeIOSRuntime()) {
+    return updateIOSLocalMemory(id, {
+      content: updates.content,
+      importance: updates.importance,
+    })
+  }
   const res = await authFetch(`${getBase()}/cognitive/memory/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -267,6 +388,9 @@ export async function updateCognitiveMemory(
 }
 
 export async function setCoreMemory(id: number, enabled: boolean): Promise<CognitiveMemory> {
+  if (isNativeIOSRuntime()) {
+    return setIOSLocalCoreMemory(id, enabled)
+  }
   const res = await authFetch(`${getBase()}/cognitive/memory/${id}/core`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -278,6 +402,9 @@ export async function setCoreMemory(id: number, enabled: boolean): Promise<Cogni
 }
 
 export async function deleteCognitiveMemory(id: number, force = false): Promise<void> {
+  if (isNativeIOSRuntime()) {
+    return deleteIOSLocalMemory(id, force)
+  }
   const res = await authFetch(`${getBase()}/cognitive/memory/${id}?force=${String(force)}`, {
     method: 'DELETE',
   })
@@ -314,10 +441,12 @@ export async function indexCodebase(projectRoot: string, maxFiles = 900): Promis
 // ── Sessions ────────────────────────────────────────────────────────────────
 
 export async function getSessions(): Promise<Session[]> {
+  if (isNativeIOSRuntime()) return listIOSLocalSessions()
   return fetchJsonWithStartupRetry<Session[]>(`${getBase()}/sessions`)
 }
 
 export async function createSession(title?: string): Promise<Session> {
+  if (isNativeIOSRuntime()) return createIOSLocalSession(title)
   const res = await authFetch(`${getBase()}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -328,11 +457,13 @@ export async function createSession(title?: string): Promise<Session> {
 }
 
 export async function deleteSession(id: string): Promise<void> {
+  if (isNativeIOSRuntime()) return deleteIOSLocalSession(id)
   const res = await authFetch(`${getBase()}/sessions/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`deleteSession: ${res.status}`)
 }
 
 export async function updateSessionTitle(id: string, title: string): Promise<Session> {
+  if (isNativeIOSRuntime()) return updateIOSLocalSessionTitle(id, title)
   const res = await authFetch(`${getBase()}/sessions/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -343,6 +474,7 @@ export async function updateSessionTitle(id: string, title: string): Promise<Ses
 }
 
 export async function getSessionMessages(id: string): Promise<Message[]> {
+  if (isNativeIOSRuntime()) return getIOSLocalMessages(id)
   const res = await authFetch(`${getBase()}/sessions/${id}/messages`)
   if (!res.ok) throw new Error(`getSessionMessages: ${res.status}`)
   return res.json()
@@ -351,6 +483,10 @@ export async function getSessionMessages(id: string): Promise<Message[]> {
 // ── Knowledge Sources ──────────────────────────────────────────────────────
 
 export async function getSessionKnowledge(id: string): Promise<KnowledgeSource[]> {
+  if (isNativeIOSRuntime()) {
+    void id
+    return []
+  }
   const res = await authFetch(`${getBase()}/sessions/${id}/knowledge`)
   if (!res.ok) throw new Error(`getSessionKnowledge: ${res.status}`)
   return res.json()
@@ -360,6 +496,26 @@ export async function importKnowledge(
   sessionId: string,
   payload: { file?: File; text?: string; url?: string; query?: string; title?: string },
 ): Promise<KnowledgeSource> {
+  if (isNativeIOSRuntime()) {
+    if (payload.file) {
+      throw new Error('PDFs continuam sendo indexados pelo Aether no Mac; no iPhone você pode salvar textos diretamente na memória.')
+    }
+    const content = (payload.text || payload.url || payload.query || '').trim()
+    if (!content) throw new Error('Digite o conteúdo que deseja salvar na memória.')
+    const memory = await createIOSLocalMemory(content, 0.76)
+    return {
+      id: memory.id,
+      session_id: sessionId,
+      title: payload.title || content.slice(0, 72),
+      source_type: payload.url ? 'url' : 'texto',
+      source_name: 'Memória local do iPhone',
+      summary: content,
+      content,
+      topics: memory.tags,
+      metadata: { origin: 'iphone_local_memory' },
+      created_at: memory.created_at,
+    }
+  }
   let response: Response
 
   if (payload.file) {
@@ -397,6 +553,10 @@ export async function streamChat(
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  if (isNativeIOSRuntime()) {
+    if (payload.audio) throw new Error('A transcrição de áudio local será adicionada depois do motor 7B.')
+    return streamIOSLocalChat(payload, onEvent, signal)
+  }
   const attempts = isDesktop() ? 3 : 2
   let lastError: unknown
 

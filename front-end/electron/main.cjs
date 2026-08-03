@@ -244,6 +244,9 @@ function syncEnvFileToDataDir() {
     if (fs.existsSync(backendEnv) && !fs.existsSync(dataEnv)) {
       fs.copyFileSync(backendEnv, dataEnv)
     }
+    if (fs.existsSync(dataEnv)) {
+      fs.chmodSync(dataEnv, 0o600)
+    }
   } catch (error) {
     console.warn('[Aether Backend] não consegui preparar .env do app:', error)
   }
@@ -280,6 +283,10 @@ async function startBackend() {
   backendLogTail = []
   logLine('[Aether Backend] iniciando', runtime.description, 'cwd=', runtime.cwd)
   backendStartedByElectron = true
+  const mobileAccessEnabled = (
+    process.platform === 'darwin'
+    && String(process.env.NEXUS_DESKTOP_MOBILE_ACCESS || 'true').toLowerCase() !== 'false'
+  )
 
   try {
     backendProcess = spawn(runtime.command, runtime.args, {
@@ -287,10 +294,12 @@ async function startBackend() {
       env: {
         ...process.env,
         NEXUS_DATA_DIR: resolveDataDir(),
-        // O app desktop só conversa pelo loopback. O modo LAN autenticado é
-        // habilitado automaticamente apenas ao executar python app.py.
-        NEXUS_HOST: '127.0.0.1',
-        NEXUS_REMOTE_MODE: 'false',
+        // No macOS, o desktop também hospeda a API para o app iOS. O modo LAN
+        // sempre exige o token gerado dentro do diretório de dados do Aether.
+        // Windows preserva o caminho loopback atual e pode optar pelo fluxo
+        // mobile executando app.py diretamente.
+        NEXUS_HOST: mobileAccessEnabled ? '0.0.0.0' : '127.0.0.1',
+        NEXUS_REMOTE_MODE: mobileAccessEnabled ? 'true' : 'false',
         PYTHONUNBUFFERED: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],

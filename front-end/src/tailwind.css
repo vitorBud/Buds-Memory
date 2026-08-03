@@ -46,6 +46,7 @@
 @custom-variant theme-silver (:where(:root[data-theme="silver"]) &);
 @custom-variant theme-light (:where(:root[data-theme="light"]) &);
 @custom-variant platform-windows (:where(:root[data-platform="windows"]) &);
+@custom-variant platform-ios (:where(:root[data-platform="ios"]) &);
 
 @layer base {
   :root,
@@ -283,6 +284,215 @@
       overscroll-behavior-y: none;
     }
   }
+
+  :root[data-platform="ios"] {
+    --mobile-page-inline: clamp(10px, 3.2vw, 16px);
+    --mobile-nav-height: 58px;
+    --mobile-topbar-height: 54px;
+  }
+
+  :root[data-platform="ios"],
+  :root[data-platform="ios"] body,
+  :root[data-platform="ios"] #root {
+    width: 100%;
+    height: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+  }
+
+  :root[data-platform="ios"] body {
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: auto;
+  }
+
+  :root[data-platform="ios"] button,
+  :root[data-platform="ios"] input,
+  :root[data-platform="ios"] textarea,
+  :root[data-platform="ios"] select {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/*
+ * Perfil nativo iOS: superfícies opacas e composição simples evitam que o
+ * WKWebView recalcule blur e sombras grandes durante scroll/streaming. As
+ * transições curtas de tela continuam ativas para manter sensação nativa.
+ */
+@layer utilities {
+  :root[data-platform="ios"] .view-nav,
+  :root[data-platform="ios"] .workspace,
+  :root[data-platform="ios"] .composer,
+  :root[data-platform="ios"] .settings-section,
+  :root[data-platform="ios"] .brain-stats-popover,
+  :root[data-platform="ios"] .obsidian-memory-card,
+  :root[data-platform="ios"] .obsidian-graph-stats,
+  :root[data-platform="ios"] .obsidian-graph-zoom-controls button,
+  :root[data-platform="ios"] .voice-controls {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+  }
+
+  :root[data-platform="ios"] .scroll-experience {
+    width: 100%;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  :root[data-platform="ios"] .view-nav-floating {
+    right: max(10px, env(safe-area-inset-right)) !important;
+    bottom: max(8px, env(safe-area-inset-bottom)) !important;
+    left: max(10px, env(safe-area-inset-left)) !important;
+    min-height: 54px !important;
+    max-width: none !important;
+    border-radius: 20px !important;
+    background: color-mix(in srgb, var(--surface) 94%, var(--bg)) !important;
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.16) !important;
+    contain: layout paint;
+  }
+
+  :root[data-platform="ios"] .view-nav button {
+    min-height: 44px !important;
+    transition: background-color 140ms ease, color 140ms ease !important;
+  }
+
+  :root[data-platform="ios"] .view-nav button:active {
+    opacity: 0.72;
+    transform: scale(0.96);
+  }
+
+  :root[data-platform="ios"] .chat-scroll-scene,
+  :root[data-platform="ios"] .app-layout,
+  :root[data-platform="ios"] .app-shell,
+  :root[data-platform="ios"] .workspace {
+    width: 100% !important;
+    height: 100dvh !important;
+    min-height: 100dvh !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+  }
+
+  :root[data-platform="ios"] .workspace {
+    padding: env(safe-area-inset-top) 0 0 !important;
+    background: var(--liquid-bg-base) !important;
+  }
+
+  :root[data-platform="ios"] .content-grid {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+  }
+
+  :root[data-platform="ios"] .chat-session-bar {
+    margin: 6px var(--mobile-page-inline) 0 !important;
+    border-radius: 16px !important;
+    background: color-mix(in srgb, var(--surface) 91%, var(--bg)) !important;
+    box-shadow: none !important;
+  }
+
+  :root[data-platform="ios"] .chat-window {
+    contain: layout paint style;
+    transform: none !important;
+    will-change: auto !important;
+    scrollbar-gutter: auto !important;
+  }
+
+  :root[data-platform="ios"] .message-row {
+    animation: none !important;
+  }
+
+  :root[data-platform="ios"] .message-bubble {
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  :root[data-platform="ios"] .chat-input-shell {
+    padding-right: var(--mobile-page-inline) !important;
+    padding-bottom: calc(var(--mobile-nav-height) + 14px + env(safe-area-inset-bottom)) !important;
+    padding-left: var(--mobile-page-inline) !important;
+  }
+
+  :root[data-platform="ios"] .composer {
+    min-height: 52px !important;
+    flex-direction: row !important;
+    align-items: flex-end !important;
+    border-radius: 22px !important;
+    background: color-mix(in srgb, var(--surface) 95%, var(--bg)) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+  }
+
+  :root[data-platform="ios"] .composer textarea {
+    height: 38px !important;
+    min-height: 38px !important;
+    max-height: 38px !important;
+    overflow-y: auto !important;
+  }
+
+  :root[data-platform="ios"] .composer-actions {
+    flex: none;
+  }
+
+  :root[data-platform="ios"] .send-action,
+  :root[data-platform="ios"] .round-action {
+    width: 38px !important;
+    height: 38px !important;
+    min-width: 38px !important;
+    min-height: 38px !important;
+    transition: opacity 120ms ease, transform 120ms ease !important;
+  }
+
+  :root[data-platform="ios"] .home-landing {
+    min-height: 100dvh !important;
+    padding: calc(env(safe-area-inset-top) + 20px) var(--mobile-page-inline) calc(var(--mobile-nav-height) + 26px + env(safe-area-inset-bottom)) !important;
+    overflow: visible !important;
+  }
+
+  :root[data-platform="ios"] .home-landing > div > div:first-child {
+    position: relative !important;
+    top: auto !important;
+    min-height: calc(100dvh - var(--mobile-nav-height) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 34px) !important;
+  }
+
+  :root[data-platform="ios"] .home-landing canvas {
+    touch-action: none;
+  }
+
+  :root[data-platform="ios"] .voice-mode * {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  :root[data-platform="ios"] .voice-ambient,
+  :root[data-platform="ios"] .voice-core-particles {
+    display: none !important;
+  }
+
+  :root[data-platform="ios"] .voice-core-halo,
+  :root[data-platform="ios"] .voice-core-orb,
+  :root[data-platform="ios"] .voice-core-ring,
+  :root[data-platform="ios"] .voice-core-flow {
+    animation: none !important;
+    filter: none !important;
+  }
+
+  :root[data-platform="ios"] .voice-core-orb {
+    box-shadow: inset 0 1px 18px color-mix(in srgb, var(--voice-c) 14%, transparent), 0 12px 34px rgba(0, 0, 0, 0.22) !important;
+  }
+
+  :root[data-platform="ios"] .obsidian-graph-viewport {
+    min-height: min(54dvh, 520px) !important;
+  }
+
+  :root[data-platform="ios"] .settings-section,
+  :root[data-platform="ios"] .settings-page-panel > header {
+    box-shadow: none !important;
+  }
 }
 
 @keyframes deferredPulse {
@@ -319,6 +529,32 @@
 @keyframes drawer-in {
   from { opacity: 0; transform: translate3d(18px, 0, 0); }
   to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes sidebar-mobile-in {
+  from { opacity: 0; transform: translate3d(-104%, 0, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes sidebar-mobile-out {
+  from { opacity: 1; transform: translate3d(0, 0, 0); }
+  to { opacity: 0; transform: translate3d(-104%, 0, 0); }
+}
+
+@keyframes sidebar-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes sidebar-scrim-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes sidebar-new-chat-in {
+  0% { opacity: 0; transform: translateY(-6px) scale(0.94); }
+  62% { opacity: 1; transform: translateY(0) scale(1.035); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes boot-in {

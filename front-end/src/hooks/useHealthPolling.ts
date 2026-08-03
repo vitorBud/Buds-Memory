@@ -10,8 +10,10 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { getBackendConfig } from '../services/api'
 import type { SystemHealth } from '../components/BootScreen'
+import { isIOSRuntime } from '../utils/runtime'
 
 const BASE_INTERVAL_MS = 8_000
+const IOS_INTERVAL_MS = 30_000
 const MAX_INTERVAL_MS = 60_000
 
 interface UseHealthPollingOptions {
@@ -22,7 +24,7 @@ interface UseHealthPollingOptions {
 export function useHealthPolling({ enabled, onHealthChange }: UseHealthPollingOptions) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const intervalRef = useRef(BASE_INTERVAL_MS)
+  const intervalRef = useRef(isIOSRuntime() ? IOS_INTERVAL_MS : BASE_INTERVAL_MS)
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -44,18 +46,27 @@ export function useHealthPolling({ enabled, onHealthChange }: UseHealthPollingOp
       const latency = Date.now() - start
 
       // Sucesso → reseta o intervalo
-      intervalRef.current = BASE_INTERVAL_MS
+      intervalRef.current = isIOSRuntime() ? IOS_INTERVAL_MS : BASE_INTERVAL_MS
 
       onHealthChange(prev => {
         const current = prev ?? { backend: false, ollama: false, database: false, model: '', backendLatency: null }
-        return {
+        const next = {
           ...current,
           backend: true,
-          backendLatency: latency,
+          backendLatency: isIOSRuntime() ? current.backendLatency ?? latency : latency,
           ollama: Boolean(config.models && config.models.length > 0),
           model: config.model || current.model,
           database: true,
         }
+        if (
+          prev
+          && prev.backend === next.backend
+          && prev.ollama === next.ollama
+          && prev.database === next.database
+          && prev.model === next.model
+          && prev.backendLatency === next.backendLatency
+        ) return prev
+        return next
       })
     } catch (err) {
       if ((err as Error)?.name === 'AbortError') return

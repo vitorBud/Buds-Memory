@@ -118,6 +118,12 @@ def _canonical_origin(value: str) -> Optional[str]:
     parsed = urlsplit(value)
     if parsed.scheme.lower() == "file":
         return "file://"
+    if (
+        parsed.scheme.lower() == "capacitor"
+        and parsed.netloc.lower() == "localhost"
+    ):
+        # Origem fixa do WKWebView empacotado pelo Capacitor no app iOS.
+        return "capacitor://localhost"
     if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
         return None
     return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), "", "", ""))
@@ -143,6 +149,7 @@ def trusted_origins() -> set[str]:
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://[::1]:5173",
+        "capacitor://localhost",
         f"http://{local_ip}:{PORT}",
         f"http://{local_ip}:{FRONTEND_PORT}",
         PUBLIC_URL,

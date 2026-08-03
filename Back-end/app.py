@@ -753,11 +753,28 @@ def export_local_backup():
 
 @app.route('/api/local-backup/status', methods=['GET'])
 def get_local_backup_status():
-    """Retorna contagem dos dados locais que entram no backup portátil."""
+    """Retorna contagem e espaço usado pelos dados locais do Aether."""
     try:
         return jsonify(local_backup.get_status()), 200
     except Exception as exc:
         return jsonify({"error": f"Falha ao ler status do backup local: {exc}"}), 500
+
+
+@app.route('/api/local-storage', methods=['DELETE'])
+def clear_local_storage():
+    """Apaga dados do usuário e áudios locais após confirmação explícita."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        status = local_backup.clear_local_data(str(payload.get("confirmation") or ""))
+        return jsonify({
+            "success": True,
+            "message": "Dados locais do Aether apagados.",
+            "status": status,
+        }), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao apagar os dados locais: {exc}"}), 500
 
 
 @app.route('/api/local-backup/import', methods=['POST'])

@@ -110,6 +110,12 @@ export const settingsControlStyles = {
     'inline-flex min-h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--accent-hot),transparent_40%)] px-3.5 text-xs font-bold tracking-normal text-[var(--accent-ink)] shadow-[0_16px_44px_color-mix(in_srgb,var(--accent-hot),transparent_80%)] transition-[opacity,transform,box-shadow] duration-160 [background:linear-gradient(135deg,color-mix(in_srgb,var(--accent-hot),white_20%),color-mix(in_srgb,var(--accent),black_10%))] hover:-translate-y-px hover:shadow-[0_20px_54px_color-mix(in_srgb,var(--accent-hot),transparent_74%)] platform-windows:shadow-none platform-windows:transition-none platform-windows:hover:translate-y-0 disabled:cursor-not-allowed disabled:opacity-48',
   secondaryButton:
     'mt-2.5 !border-[color-mix(in_srgb,var(--accent-hot),transparent_62%)] !bg-[color-mix(in_srgb,var(--accent-hot),transparent_88%)] !text-aether-accent-hot !shadow-none hover:!shadow-[0_14px_36px_color-mix(in_srgb,var(--accent-hot),transparent_82%)] platform-windows:hover:!shadow-none',
+  storageNotice:
+    'grid gap-2 rounded-[18px] border border-[color-mix(in_srgb,#fb7185,transparent_55%)] bg-[color-mix(in_srgb,#fb7185,transparent_90%)] p-3.5 text-[12px] leading-[1.5] text-aether-muted [&>strong]:text-[13px] [&>strong]:text-[color-mix(in_srgb,#fb7185,var(--text)_24%)]',
+  storageInput:
+    'min-h-12 w-full rounded-[14px] border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--surface),transparent_10%)] px-3 text-base text-aether-text outline-none transition-[border-color,box-shadow] duration-160 placeholder:text-aether-faint focus:border-[color-mix(in_srgb,#fb7185,transparent_28%)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,#fb7185,transparent_84%)] platform-windows:transition-none',
+  dangerButton:
+    'inline-flex min-h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-[color-mix(in_srgb,#fb7185,transparent_38%)] bg-[color-mix(in_srgb,#fb7185,transparent_82%)] px-4 text-xs font-extrabold text-[color-mix(in_srgb,#fb7185,var(--text)_18%)] transition-[background,transform] duration-160 hover:-translate-y-px hover:bg-[color-mix(in_srgb,#fb7185,transparent_74%)] platform-windows:transition-none platform-windows:hover:translate-y-0 disabled:cursor-not-allowed disabled:opacity-45',
 
   technicalGrid:
     'grid flex-1 grid-cols-2 gap-2 max-[760px]:grid-cols-1',

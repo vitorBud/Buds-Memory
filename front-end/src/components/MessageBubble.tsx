@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { Volume2, Copy, Check } from 'lucide-react'
 import type { Message } from '../types'
 import { formatTime } from '../utils/formatters'
@@ -196,7 +196,7 @@ function CodeBlock({ language, code }: CodeBlockProps) {
 }
 
 // Bolha individual de mensagem, incluindo estado de pensamento e reprodução de áudio salvo.
-export function MessageBubble({ message }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.sender === 'user'
   const isThinking = message.streaming && message.text === '__thinking__'
   const time = message.created_at ? formatTime(new Date(message.created_at)) : ''
@@ -221,8 +221,8 @@ export function MessageBubble({ message }: MessageBubbleProps) {
     <article
       className={`message-row flex min-w-0 max-w-[min(820px,88%)] gap-2.5 animate-[msg-enter_220ms_ease_both] platform-windows:![animation:none] max-[760px]:w-full max-[760px]:max-w-full max-[760px]:gap-[7px] ${
         isUser
-          ? 'is-user self-end flex-row-reverse max-[760px]:justify-end'
-          : 'is-ai max-[760px]:justify-start'
+          ? 'is-user mr-auto self-start flex-row justify-start'
+          : 'is-ai mr-auto self-start justify-start'
       }`}
     >
       <div
@@ -236,14 +236,12 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </div>
 
       <div
-        className={`message-stack grid min-w-0 gap-[5px] max-[760px]:max-w-[min(calc(100vw-40px),560px)] ${
-          isUser ? 'justify-items-end' : ''
-        }`}
+        className="message-stack grid min-w-0 justify-items-start gap-[5px] max-[760px]:max-w-[min(calc(100vw-40px),560px)]"
       >
         <div
           className={`message-bubble min-w-0 max-w-[min(760px,78vw)] overflow-hidden rounded-3xl border px-[15px] py-[13px] text-sm leading-[1.62] text-aether-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] ![backdrop-filter:none] [transform:translateZ(0)] max-[760px]:max-w-full max-[760px]:break-words max-[760px]:[overflow-wrap:anywhere] max-[760px]:rounded-[18px] max-[760px]:px-[13px] max-[760px]:py-2.5 max-[760px]:text-[15px] max-[760px]:leading-[1.45] ${
             isUser
-              ? 'border-[rgba(var(--accent-hot-rgb)/0.16)] [background:linear-gradient(135deg,rgba(var(--accent-hot-rgb)/0.18),transparent_52%),rgba(var(--accent-hot-rgb)/0.09)] max-[760px]:rounded-br-md max-[760px]:border-[#0a84ff] max-[760px]:bg-[#0a84ff] max-[760px]:text-white'
+              ? 'border-[rgba(var(--accent-hot-rgb)/0.16)] [background:linear-gradient(135deg,rgba(var(--accent-hot-rgb)/0.18),transparent_52%),rgba(var(--accent-hot-rgb)/0.09)] max-[760px]:rounded-bl-md max-[760px]:border-[#0a84ff] max-[760px]:bg-[#0a84ff] max-[760px]:text-white'
               : 'border-[var(--liquid-border)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_42%),var(--liquid-panel-soft)] max-[760px]:rounded-bl-md max-[760px]:border-[var(--line)] max-[760px]:[background:color-mix(in_srgb,var(--surface-3)_86%,white_6%)]'
           } ${
             message.streaming && !isThinking
@@ -280,7 +278,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
           )}
         </div>
 
-        <div className="message-meta flex items-center gap-2 text-[11px] text-aether-muted max-[760px]:opacity-[.72]">
+        <div className="message-meta flex items-center justify-self-start gap-2 text-[11px] text-aether-muted max-[760px]:opacity-[.72]">
           {time && <span>{time}</span>}
           {!isUser && !isThinking && message.text.trim() && (
             <button
@@ -296,4 +294,4 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       </div>
     </article>
   )
-}
+})
