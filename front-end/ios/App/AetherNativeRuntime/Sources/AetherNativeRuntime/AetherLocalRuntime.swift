@@ -8,6 +8,8 @@ public final class AetherLocalRuntime: @unchecked Sendable {
     private let storeLock = NSLock()
     private var store: AetherLocalStore?
     private let engine = AetherInferenceEngine()
+    private let generationLock = NSLock()
+    private var activeGeneration: (id: String, sessionId: String)?
 
     private init() {
         do {
@@ -47,6 +49,10 @@ public final class AetherLocalRuntime: @unchecked Sendable {
     }
 
     public func deleteSession(id: String) throws {
+        generationLock.lock()
+        let shouldCancel = activeGeneration?.sessionId == id
+        generationLock.unlock()
+        if shouldCancel { cancelGeneration() }
         try ensureStore().deleteSession(id: id)
     }
 
@@ -75,40 +81,108 @@ public final class AetherLocalRuntime: @unchecked Sendable {
     }
 
     public func generate(
+        generationId: String,
         sessionId: String,
         text: String,
         onToken: @escaping @Sendable (String) -> Void
-    ) async throws -> (text: String, session: AetherSessionRecord?) {
+    ) async throws -> (text: String, session: AetherSessionRecord?, metrics: AetherGenerationMetrics) {
         guard modelManager.isInstalled else { throw AetherNativeError.modelMissing }
-        let store = try ensureStore()
-        _ = try store.addMessage(sessionId: sessionId, sender: "user", text: text)
-        let history = try store.messages(sessionId: sessionId, limit: 24)
-        let memories = try store.memories(limit: 16)
+        generationLock.lock()
+        let hadActiveGeneration = activeGeneration != nil
+        activeGeneration = (generationId, sessionId)
+        generationLock.unlock()
+        if hadActiveGeneration { engine.cancel() }
+        let store: AetherLocalStore
+        let history: [AetherMessageRecord]
+        let memories: [AetherMemoryRecord]
+        do {
+            store = try ensureStore()
+            _ = try store.addMessage(sessionId: sessionId, sender: "user", text: text)
+            history = try store.messages(sessionId: sessionId, limit: 24)
+            memories = try store.memoriesForPrompt(sessionId: sessionId, limit: 16)
+        } catch {
+            finishGeneration(generationId)
+            throw error
+        }
         let prompt = AetherPromptBuilder.build(history: history, memories: memories)
 
         return try await withCheckedThrowingContinuation { continuation in
             inferenceQueue.async { [engine, modelManager] in
                 do {
-                    let answer = try engine.generate(
+                    guard self.isActiveGeneration(generationId, sessionId: sessionId) else {
+                        throw AetherNativeError.cancelled
+                    }
+                    let engineResult = try engine.generate(
                         prompt: prompt,
                         modelURL: modelManager.modelURL,
-                        onToken: onToken
+                        onToken: { token in
+                            if self.isActiveGeneration(generationId, sessionId: sessionId) {
+                                onToken(token)
+                            }
+                        }
                     )
+                    let answer = engineResult.text
                     guard !answer.isEmpty else {
                         throw AetherNativeError.inference("o modelo encerrou sem produzir texto")
                     }
+                    guard self.isActiveGeneration(generationId, sessionId: sessionId) else {
+                        throw AetherNativeError.cancelled
+                    }
                     _ = try store.addMessage(sessionId: sessionId, sender: "ia", text: answer)
                     let session = try store.getSession(id: sessionId)
-                    continuation.resume(returning: (answer, session))
+                    let metrics = AetherGenerationMetrics(
+                        generationId: generationId,
+                        modelName: AetherModelManager.modelName,
+                        promptCharacters: prompt.count,
+                        historyMessages: history.count,
+                        memoryItems: memories.count,
+                        promptTokens: engineResult.promptTokens,
+                        outputTokens: engineResult.outputTokens,
+                        loadMilliseconds: engineResult.loadMilliseconds,
+                        timeToFirstTokenMilliseconds: engineResult.timeToFirstTokenMilliseconds,
+                        generationMilliseconds: engineResult.generationMilliseconds,
+                        totalMilliseconds: engineResult.totalMilliseconds,
+                        tokensPerSecond: engineResult.tokensPerSecond,
+                        inferenceThreads: engineResult.inferenceThreads,
+                        batchThreads: engineResult.batchThreads,
+                        residentBytesBefore: engineResult.residentBytesBefore,
+                        residentBytesAfter: engineResult.residentBytesAfter,
+                        observedPeakBytes: engineResult.observedPeakBytes,
+                        processCPUSeconds: engineResult.processCPUSeconds,
+                        thermalStateStart: engineResult.thermalStateStart,
+                        thermalStateEnd: engineResult.thermalStateEnd
+                    )
+                    self.finishGeneration(generationId)
+                    continuation.resume(returning: (answer, session, metrics))
                 } catch {
+                    self.finishGeneration(generationId)
                     continuation.resume(throwing: error)
                 }
             }
         }
     }
 
-    public func cancelGeneration() {
+    public func cancelGeneration(generationId: String? = nil) {
+        generationLock.lock()
+        if let generationId, activeGeneration?.id != generationId {
+            generationLock.unlock()
+            return
+        }
+        activeGeneration = nil
+        generationLock.unlock()
         engine.cancel()
+    }
+
+    private func isActiveGeneration(_ id: String, sessionId: String) -> Bool {
+        generationLock.lock()
+        defer { generationLock.unlock() }
+        return activeGeneration?.id == id && activeGeneration?.sessionId == sessionId
+    }
+
+    private func finishGeneration(_ id: String) {
+        generationLock.lock()
+        if activeGeneration?.id == id { activeGeneration = nil }
+        generationLock.unlock()
     }
 
     public func unloadModel() {

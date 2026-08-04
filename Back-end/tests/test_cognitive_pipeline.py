@@ -24,6 +24,10 @@ class CognitivePipelineTests(unittest.TestCase):
         self.session = database.create_session("Teste cognitivo")
         self.session_id = self.session["id"]
 
+    def tearDown(self):
+        if database.get_session(self.session_id):
+            database.delete_session(self.session_id)
+
     def test_profile_facts_become_core_memory_context(self):
         database.add_message(self.session_id, "user", "Meu nome é Vitor e meu projeto Aether Memory.")
         saved = user_profile.update_from_text(
@@ -123,6 +127,66 @@ class CognitivePipelineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             memory.delete_memory(item["id"])
         self.assertTrue(memory.delete_memory(item["id"], force=True))
+
+    def test_conversation_context_does_not_cross_chats_or_survive_deletion(self):
+        chat_b = database.create_session("Chat B isolado")
+        self.addCleanup(lambda: database.get_session(chat_b["id"]) and database.delete_session(chat_b["id"]))
+
+        database.add_message(self.session_id, "user", "Meu carro é azul")
+        memory.save_memory(
+            "O carro mencionado no Chat A é azul.",
+            memory_type="medium",
+            session_id=self.session_id,
+            importance=0.7,
+            scope="conversation",
+        )
+
+        context_b = conversation.build_conversation_context(
+            "Qual é a cor do meu carro?",
+            session_id=chat_b["id"],
+            history=[],
+        )["context"]
+        self.assertNotIn("azul", context_b.lower())
+
+        context_a = conversation.build_conversation_context(
+            "Qual é a cor do meu carro?",
+            session_id=self.session_id,
+            history=database.get_recent_session_messages(self.session_id),
+        )["context"]
+        self.assertIn("azul", context_a.lower())
+
+        database.delete_session(self.session_id)
+        self.assertFalse(database.get_session(self.session_id))
+        leaked = memory.recall(
+            "Qual é a cor do meu carro?",
+            memory_types=["medium"],
+            session_id=chat_b["id"],
+        )
+        self.assertFalse(any("azul" in item["content"].lower() for item in leaked))
+
+    def test_global_user_fact_survives_origin_chat_deletion(self):
+        item = memory.save_memory(
+            "O usuário prefere respostas objetivas e curtas.",
+            memory_type="long",
+            session_id=self.session_id,
+            importance=0.95,
+            is_core=True,
+            user_confirmed=True,
+            origin_type="profile",
+        )
+        database.delete_session(self.session_id)
+        preserved = memory.get_memory(item["id"])
+        self.assertIsNotNone(preserved)
+        self.assertEqual(preserved["scope"], "global")
+        self.assertIsNone(preserved["session_id"])
+
+    def test_twenty_messages_remain_bound_to_their_chat(self):
+        other = database.create_session("Carga concorrente")
+        self.addCleanup(lambda: database.get_session(other["id"]) and database.delete_session(other["id"]))
+        for index in range(20):
+            database.add_message(self.session_id, "user", f"Mensagem exclusiva {index}")
+        self.assertEqual(len(database.get_recent_session_messages(other["id"], limit=40)), 0)
+        self.assertEqual(len(database.get_recent_session_messages(self.session_id, limit=40)), 20)
 
 
 if __name__ == "__main__":

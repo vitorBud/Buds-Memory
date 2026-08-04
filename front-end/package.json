@@ -19,6 +19,7 @@
     "ios:run": "npm run ios:sync && npx cap run ios",
     "ios:doctor": "npx cap doctor ios",
     "lint": "eslint .",
+    "test:mobile": "node --experimental-strip-types --test tests/*.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

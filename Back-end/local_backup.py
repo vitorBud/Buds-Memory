@@ -487,6 +487,12 @@ def _remap_row(
             )
 
     if table == "memories":
+        if "scope" not in remapped:
+            is_global = bool(remapped.get("is_core")) or bool(remapped.get("user_confirmed"))
+            is_global = is_global or str(remapped.get("origin_type") or "").lower() in {
+                "profile", "manual", "core"
+            }
+            remapped["scope"] = "global" if is_global or not remapped.get("session_id") else "conversation"
         source_table = remapped.get("source_table")
         if source_table and remapped.get("source_id") is not None:
             remapped["source_id"] = _lookup_mapping(

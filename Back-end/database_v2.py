@@ -45,6 +45,7 @@ def migrate():
         _create_conversation_summaries(conn)
         _create_codebase_index(conn)
         _migrate_memories_core_columns(conn)
+        _migrate_memory_scope(conn)
         _migrate_knowledge_source_intelligence(conn)
         _migrate_embeddings_metadata(conn)
         _migrate_entity_mention_counts(conn)
@@ -61,6 +62,7 @@ def _create_memories(conn):
         CREATE TABLE IF NOT EXISTS memories (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id   TEXT,
+            scope        TEXT    NOT NULL DEFAULT 'global',
             content      TEXT    NOT NULL,
             memory_type  TEXT    NOT NULL DEFAULT 'short',
             importance   REAL    DEFAULT 0.5,
@@ -277,6 +279,7 @@ def _create_indexes(conn):
     indexes = [
         "CREATE INDEX IF NOT EXISTS idx_memories_type      ON memories(memory_type);",
         "CREATE INDEX IF NOT EXISTS idx_memories_session   ON memories(session_id);",
+        "CREATE INDEX IF NOT EXISTS idx_memories_scope     ON memories(scope, session_id);",
         "CREATE INDEX IF NOT EXISTS idx_memories_expires   ON memories(expires_at);",
         "CREATE INDEX IF NOT EXISTS idx_user_profile_key   ON user_profile_facts(fact_key);",
         "CREATE INDEX IF NOT EXISTS idx_user_profile_conf  ON user_profile_facts(confidence);",
@@ -462,6 +465,31 @@ def _migrate_memories_core_columns(conn):
     _add_column_if_missing(conn, "memories", "origin_id", "TEXT")
     _add_column_if_missing(conn, "memories", "source_table", "TEXT")
     _add_column_if_missing(conn, "memories", "source_id", "INTEGER")
+
+
+def _migrate_memory_scope(conn):
+    """Separa memória global de contexto exclusivo de uma conversa.
+
+    Bancos antigos não possuíam esse conceito. Registros vinculados a uma
+    sessão são classificados de modo conservador como conversacionais, salvo
+    Core Memories, fatos confirmados e fatos de perfil. A classificação só é
+    executada quando a coluna nasce, preservando edições posteriores.
+    """
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(memories)").fetchall()}
+    if "scope" in columns:
+        return
+
+    conn.execute("ALTER TABLE memories ADD COLUMN scope TEXT NOT NULL DEFAULT 'global'")
+    conn.execute(
+        """
+        UPDATE memories
+        SET scope='conversation'
+        WHERE session_id IS NOT NULL
+          AND COALESCE(is_core, 0)=0
+          AND COALESCE(user_confirmed, 0)=0
+          AND COALESCE(origin_type, 'conversation') NOT IN ('profile', 'manual', 'core')
+        """
+    )
 
 
 def _migrate_knowledge_source_intelligence(conn):

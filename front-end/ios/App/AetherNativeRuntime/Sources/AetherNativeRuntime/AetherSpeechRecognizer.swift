@@ -12,10 +12,12 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
     private var latestTranscript = ""
     private var updateHandler: UpdateHandler?
     private var tapInstalled = false
+    private var operationId: String?
 
     public init() {}
 
     public func start(
+        operationId: String,
         localeIdentifier: String = "pt-BR",
         onUpdate: @escaping UpdateHandler
     ) async throws {
@@ -33,6 +35,7 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
             self.stateLock.lock()
             self.latestTranscript = ""
             self.updateHandler = onUpdate
+            self.operationId = operationId
             self.stateLock.unlock()
 
             let audioSession = AVAudioSession.sharedInstance()
@@ -70,6 +73,10 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
             self.audioEngine = engine
             self.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
                 guard let self else { return }
+                self.stateLock.lock()
+                let isCurrent = self.operationId == operationId
+                self.stateLock.unlock()
+                guard isCurrent else { return }
                 if let result {
                     let transcript = result.bestTranscription.formattedString
                     self.stateLock.lock()
@@ -88,7 +95,7 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
 
             input.installTap(onBus: 0, bufferSize: 1_024, format: format) { [weak self] buffer, _ in
                 request.append(buffer)
-                self?.emitVolume(from: buffer)
+                self?.emitVolume(from: buffer, operationId: operationId)
             }
             self.tapInstalled = true
             engine.prepare()
@@ -97,17 +104,25 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
         }
     }
 
-    public func stop() async -> String {
+    public func stop(operationId: String) async -> String {
         await MainActor.run {
+            self.stateLock.lock()
+            let isCurrent = self.operationId == operationId
+            self.stateLock.unlock()
+            guard isCurrent else { return "" }
             let transcript = self.currentTranscript
             self.stopOnMainActor()
             return transcript
         }
     }
 
-    public func cancel() async {
+    public func cancel(operationId: String?) async {
         await MainActor.run {
             self.stateLock.lock()
+            guard operationId == nil || self.operationId == operationId else {
+                self.stateLock.unlock()
+                return
+            }
             self.latestTranscript = ""
             self.stateLock.unlock()
             self.stopOnMainActor()
@@ -134,11 +149,12 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
         recognitionTask = nil
         stateLock.lock()
         updateHandler = nil
+        operationId = nil
         stateLock.unlock()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
-    private func emitVolume(from buffer: AVAudioPCMBuffer) {
+    private func emitVolume(from buffer: AVAudioPCMBuffer, operationId: String) {
         guard let samples = buffer.floatChannelData?.pointee else { return }
         let count = Int(buffer.frameLength)
         guard count > 0 else { return }
@@ -150,6 +166,10 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
         let rms = sqrt(sum / Float(count))
         let volume = min(1, max(0, Double(rms) * 9))
         stateLock.lock()
+        guard self.operationId == operationId else {
+            stateLock.unlock()
+            return
+        }
         let handler = updateHandler
         let transcript = latestTranscript
         stateLock.unlock()

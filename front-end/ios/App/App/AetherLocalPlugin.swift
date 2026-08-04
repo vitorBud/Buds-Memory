@@ -174,15 +174,20 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func startSpeechRecognition(_ call: CAPPluginCall) {
+        guard let recordingId = call.getString("recordingId") else {
+            call.reject("Identificador da gravação não informado.")
+            return
+        }
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await speechRecognizer.start(localeIdentifier: "pt-BR") { [weak self] transcript, isFinal, volume in
+                try await speechRecognizer.start(operationId: recordingId, localeIdentifier: "pt-BR") { [weak self] transcript, isFinal, volume in
                     DispatchQueue.main.async {
                         self?.notifyListeners("speechRecognitionUpdate", data: [
                             "text": transcript,
                             "isFinal": isFinal,
                             "volume": volume,
+                            "recordingId": recordingId,
                         ])
                     }
                 }
@@ -194,15 +199,20 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func stopSpeechRecognition(_ call: CAPPluginCall) {
+        guard let recordingId = call.getString("recordingId") else {
+            call.reject("Identificador da gravação não informado.")
+            return
+        }
         Task {
-            let transcript = await speechRecognizer.stop()
-            call.resolve(["text": transcript])
+            let transcript = await speechRecognizer.stop(operationId: recordingId)
+            call.resolve(["text": transcript, "recordingId": recordingId])
         }
     }
 
     @objc func cancelSpeechRecognition(_ call: CAPPluginCall) {
+        let recordingId = call.getString("recordingId")
         Task {
-            await speechRecognizer.cancel()
+            await speechRecognizer.cancel(operationId: recordingId)
             call.resolve()
         }
     }
@@ -220,6 +230,7 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self else { return }
             do {
                 let result = try await runtime.generate(
+                    generationId: generationId,
                     sessionId: sessionId,
                     text: text
                 ) { [weak self] token in
@@ -238,6 +249,9 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                 if let session = result.session {
                     payload["session"] = sessionPayload(session)
                 }
+                let metrics = generationMetricsPayload(result.metrics)
+                payload["metrics"] = metrics
+                notifyListeners("performanceMetric", data: metrics)
                 call.resolve(payload)
             } catch {
                 call.reject(error.localizedDescription)
@@ -246,7 +260,7 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func stopGeneration(_ call: CAPPluginCall) {
-        runtime.cancelGeneration()
+        runtime.cancelGeneration(generationId: call.getString("generationId"))
         call.resolve()
     }
 
@@ -292,7 +306,7 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func memoryPayload(_ memory: AetherMemoryRecord) -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "id": memory.id,
             "content": memory.content,
             "memory_type": memory.isCore ? "long" : "medium",
@@ -303,7 +317,36 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
             "locked": memory.isCore,
             "user_confirmed": true,
             "origin_type": "iphone_local",
+            "scope": memory.scope,
             "created_at": memory.createdAt,
+        ]
+        if let sessionId = memory.sessionId { payload["session_id"] = sessionId }
+        return payload
+    }
+
+    private func generationMetricsPayload(_ metrics: AetherGenerationMetrics) -> [String: Any] {
+        [
+            "stage": "llm_generation",
+            "generation_id": metrics.generationId,
+            "model": metrics.modelName,
+            "prompt_characters": metrics.promptCharacters,
+            "history_messages": metrics.historyMessages,
+            "memory_items": metrics.memoryItems,
+            "prompt_tokens": metrics.promptTokens,
+            "output_tokens": metrics.outputTokens,
+            "model_load_ms": metrics.loadMilliseconds,
+            "llm_ttft_ms": metrics.timeToFirstTokenMilliseconds,
+            "llm_generation_ms": metrics.generationMilliseconds,
+            "total_ms": metrics.totalMilliseconds,
+            "tokens_per_second": metrics.tokensPerSecond,
+            "inference_threads": metrics.inferenceThreads,
+            "batch_threads": metrics.batchThreads,
+            "resident_bytes_before": metrics.residentBytesBefore,
+            "resident_bytes_after": metrics.residentBytesAfter,
+            "observed_peak_bytes": metrics.observedPeakBytes,
+            "process_cpu_seconds": metrics.processCPUSeconds,
+            "thermal_start": metrics.thermalStateStart,
+            "thermal_end": metrics.thermalStateEnd,
         ]
     }
 }

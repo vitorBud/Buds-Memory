@@ -36,16 +36,17 @@ interface IOSLocalPlugin {
   updateMemory(options: { id: number; content?: string; importance?: number }): Promise<CognitiveMemory>
   setCoreMemory(options: { id: number; enabled: boolean }): Promise<CognitiveMemory>
   deleteMemory(options: { id: number; force: boolean }): Promise<void>
-  startSpeechRecognition(): Promise<void>
-  stopSpeechRecognition(): Promise<{ text: string }>
-  cancelSpeechRecognition(): Promise<void>
+  startSpeechRecognition(options: { recordingId: string }): Promise<void>
+  stopSpeechRecognition(options: { recordingId: string }): Promise<{ text: string; recordingId: string }>
+  cancelSpeechRecognition(options: { recordingId?: string }): Promise<void>
   generate(options: { sessionId: string; text: string; generationId: string }): Promise<{
     generationId: string
     text: string
     model: string
     session?: Session
+    metrics?: Record<string, unknown>
   }>
-  stopGeneration(): Promise<void>
+  stopGeneration(options: { generationId?: string }): Promise<void>
   addListener(
     eventName: 'chatToken',
     listener: (event: { generationId: string; content: string }) => void,
@@ -56,7 +57,7 @@ interface IOSLocalPlugin {
   ): Promise<PluginListenerHandle>
   addListener(
     eventName: 'speechRecognitionUpdate',
-    listener: (event: { text: string; isFinal: boolean; volume: number }) => void,
+    listener: (event: { text: string; isFinal: boolean; volume: number; recordingId: string }) => void,
   ): Promise<PluginListenerHandle>
 }
 
@@ -131,11 +132,12 @@ export function deleteIOSLocalMemory(id: number, force = false): Promise<void> {
 }
 
 export async function startIOSSpeechRecognition(
-  onUpdate: (event: { text: string; isFinal: boolean; volume: number }) => void,
+  recordingId: string,
+  onUpdate: (event: { text: string; isFinal: boolean; volume: number; recordingId: string }) => void,
 ): Promise<PluginListenerHandle> {
   const listener = await native.addListener('speechRecognitionUpdate', onUpdate)
   try {
-    await native.startSpeechRecognition()
+    await native.startSpeechRecognition({ recordingId })
     return listener
   } catch (error) {
     await listener.remove()
@@ -143,12 +145,12 @@ export async function startIOSSpeechRecognition(
   }
 }
 
-export function stopIOSSpeechRecognition(): Promise<{ text: string }> {
-  return native.stopSpeechRecognition()
+export function stopIOSSpeechRecognition(recordingId: string): Promise<{ text: string; recordingId: string }> {
+  return native.stopSpeechRecognition({ recordingId })
 }
 
-export function cancelIOSSpeechRecognition(): Promise<void> {
-  return native.cancelSpeechRecognition()
+export function cancelIOSSpeechRecognition(recordingId?: string): Promise<void> {
+  return native.cancelSpeechRecognition(recordingId ? { recordingId } : {})
 }
 
 export async function streamIOSLocalChat(
@@ -167,16 +169,20 @@ export async function streamIOSLocalChat(
     streamedText += event.content
     onEvent({ type: 'token', content: event.content, model: 'qwen2.5-coder:7b' })
   })
-  const abort = () => { void native.stopGeneration() }
+  const abort = () => { void native.stopGeneration({ generationId }) }
   signal?.addEventListener('abort', abort, { once: true })
 
   try {
     if (signal?.aborted) throw new DOMException('Operação cancelada', 'AbortError')
     const result = await native.generate({ sessionId, text, generationId })
+    if (signal?.aborted || result.generationId !== generationId) {
+      throw new DOMException('Operação cancelada', 'AbortError')
+    }
     if (!streamedText && result.text) {
       onEvent({ type: 'replace_response', content: result.text, model: result.model })
     }
     if (result.session) onEvent({ type: 'session_update', session: result.session })
+    if (result.metrics) console.info('[AetherPerf]', result.metrics)
     onEvent({ type: 'done', model: result.model, pipeline: 'IPHONE_LOCAL' })
   } finally {
     signal?.removeEventListener('abort', abort)

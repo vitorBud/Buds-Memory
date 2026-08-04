@@ -110,6 +110,7 @@ export interface CognitiveMemory {
   origin_id?: string | null
   source_table?: string | null
   source_id?: number | null
+  scope?: 'global' | 'conversation' | 'detached' | string
   created_at: string
 }
 

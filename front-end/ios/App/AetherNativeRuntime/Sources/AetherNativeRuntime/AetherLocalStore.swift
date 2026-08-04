@@ -78,6 +78,13 @@ public final class AetherLocalStore: @unchecked Sendable {
         try queue.sync {
             try ensureWritable()
             try transaction {
+                let memoryStatement = try prepare(
+                    "DELETE FROM memories WHERE session_id = ? AND scope = 'conversation'"
+                )
+                bind(id, memoryStatement, 1)
+                try stepDone(memoryStatement)
+                sqlite3_finalize(memoryStatement)
+
                 let messageStatement = try prepare("DELETE FROM messages WHERE session_id = ?")
                 bind(id, messageStatement, 1)
                 try stepDone(messageStatement)
@@ -153,7 +160,7 @@ public final class AetherLocalStore: @unchecked Sendable {
             if sender == "user" {
                 try updateAutomaticTitleIfNeeded(sessionId: sessionId, text: text)
                 try rememberDurableFacts(from: text)
-                try rememberConversationTopic(from: text)
+                try rememberConversationTopic(from: text, sessionId: sessionId)
             }
             return record
         }
@@ -162,7 +169,7 @@ public final class AetherLocalStore: @unchecked Sendable {
     public func memories(limit: Int = 40) throws -> [AetherMemoryRecord] {
         try queue.sync {
             let statement = try prepare(
-                "SELECT id, content, importance, is_core, created_at FROM memories ORDER BY is_core DESC, importance DESC, id DESC LIMIT ?"
+                "SELECT id, content, importance, is_core, created_at, scope, session_id FROM memories ORDER BY is_core DESC, importance DESC, id DESC LIMIT ?"
             )
             defer { sqlite3_finalize(statement) }
             sqlite3_bind_int(statement, 1, Int32(max(1, min(limit, 200))))
@@ -173,7 +180,38 @@ public final class AetherLocalStore: @unchecked Sendable {
                     content: text(statement, 1),
                     importance: sqlite3_column_double(statement, 2),
                     isCore: sqlite3_column_int(statement, 3) == 1,
-                    createdAt: text(statement, 4)
+                    createdAt: text(statement, 4),
+                    scope: text(statement, 5),
+                    sessionId: optionalText(statement, 6)
+                ))
+            }
+            return records
+        }
+    }
+
+    public func memoriesForPrompt(sessionId: String, limit: Int = 16) throws -> [AetherMemoryRecord] {
+        try queue.sync {
+            let statement = try prepare(
+                """
+                SELECT id, content, importance, is_core, created_at, scope, session_id
+                FROM memories
+                WHERE scope = 'global' OR (scope = 'conversation' AND session_id = ?)
+                ORDER BY is_core DESC, importance DESC, id DESC LIMIT ?
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(sessionId, statement, 1)
+            sqlite3_bind_int(statement, 2, Int32(max(1, min(limit, 80))))
+            var records: [AetherMemoryRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(AetherMemoryRecord(
+                    id: sqlite3_column_int64(statement, 0),
+                    content: text(statement, 1),
+                    importance: sqlite3_column_double(statement, 2),
+                    isCore: sqlite3_column_int(statement, 3) == 1,
+                    createdAt: text(statement, 4),
+                    scope: text(statement, 5),
+                    sessionId: optionalText(statement, 6)
                 ))
             }
             return records
@@ -188,7 +226,7 @@ public final class AetherLocalStore: @unchecked Sendable {
                 throw AetherNativeError.databaseUnavailable("A memória não pode ficar vazia.")
             }
             let statement = try prepare(
-                "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at) VALUES (?, ?, 0, ?)"
+                "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id) VALUES (?, ?, 0, ?, 'global', NULL)"
             )
             defer { sqlite3_finalize(statement) }
             bind(String(value.prefix(2_000)), statement, 1)
@@ -196,7 +234,7 @@ public final class AetherLocalStore: @unchecked Sendable {
             bind(Self.now(), statement, 3)
             try stepDone(statement)
 
-            let lookup = try prepare("SELECT id FROM memories WHERE content = ? LIMIT 1")
+            let lookup = try prepare("SELECT id FROM memories WHERE content = ? AND scope = 'global' LIMIT 1")
             defer { sqlite3_finalize(lookup) }
             bind(String(value.prefix(2_000)), lookup, 1)
             guard sqlite3_step(lookup) == SQLITE_ROW,
@@ -232,11 +270,15 @@ public final class AetherLocalStore: @unchecked Sendable {
     public func setCoreMemory(id: Int64, enabled: Bool) throws -> AetherMemoryRecord {
         try queue.sync {
             try ensureWritable()
-            let statement = try prepare("UPDATE memories SET is_core = ?, importance = MAX(importance, ?) WHERE id = ?")
+            let statement = try prepare(
+                "UPDATE memories SET is_core = ?, importance = MAX(importance, ?), scope = CASE WHEN ? = 1 THEN 'global' ELSE scope END, session_id = CASE WHEN ? = 1 THEN NULL ELSE session_id END WHERE id = ?"
+            )
             defer { sqlite3_finalize(statement) }
             sqlite3_bind_int(statement, 1, enabled ? 1 : 0)
             sqlite3_bind_double(statement, 2, enabled ? 0.9 : 0.2)
-            sqlite3_bind_int64(statement, 3, id)
+            sqlite3_bind_int(statement, 3, enabled ? 1 : 0)
+            sqlite3_bind_int(statement, 4, enabled ? 1 : 0)
+            sqlite3_bind_int64(statement, 5, id)
             try stepDone(statement)
             guard let updated = try memory(id: id) else {
                 throw AetherNativeError.databaseUnavailable("Memória não encontrada.")
@@ -294,16 +336,8 @@ public final class AetherLocalStore: @unchecked Sendable {
             )
             """)
         try execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)")
-        try execute("""
-            CREATE TABLE IF NOT EXISTS memories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT NOT NULL UNIQUE,
-                importance REAL NOT NULL DEFAULT 0.7,
-                is_core INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )
-            """)
-        try execute("PRAGMA user_version=1")
+        try migrateMemoryScopeIfNeeded()
+        try execute("PRAGMA user_version=2")
     }
 
     private func ensureWritable() throws {
@@ -331,7 +365,7 @@ public final class AetherLocalStore: @unchecked Sendable {
 
     private func memory(id: Int64) throws -> AetherMemoryRecord? {
         let statement = try prepare(
-            "SELECT id, content, importance, is_core, created_at FROM memories WHERE id = ? LIMIT 1"
+            "SELECT id, content, importance, is_core, created_at, scope, session_id FROM memories WHERE id = ? LIMIT 1"
         )
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, id)
@@ -341,7 +375,9 @@ public final class AetherLocalStore: @unchecked Sendable {
             content: text(statement, 1),
             importance: sqlite3_column_double(statement, 2),
             isCore: sqlite3_column_int(statement, 3) == 1,
-            createdAt: text(statement, 4)
+            createdAt: text(statement, 4),
+            scope: text(statement, 5),
+            sessionId: optionalText(statement, 6)
         )
     }
 
@@ -367,7 +403,7 @@ public final class AetherLocalStore: @unchecked Sendable {
         guard clean.count >= 8, clean.count <= 280,
               durablePrefixes.contains(where: { lower.hasPrefix($0) }) else { return }
         let statement = try prepare(
-            "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at) VALUES (?, 0.85, 0, ?)"
+            "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id) VALUES (?, 0.85, 0, ?, 'global', NULL)"
         )
         defer { sqlite3_finalize(statement) }
         bind(clean, statement, 1)
@@ -375,7 +411,7 @@ public final class AetherLocalStore: @unchecked Sendable {
         try stepDone(statement)
     }
 
-    private func rememberConversationTopic(from text: String) throws {
+    private func rememberConversationTopic(from text: String, sessionId: String) throws {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = clean.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "pt_BR"))
         let trivialMessages: Set<String> = [
@@ -388,20 +424,82 @@ public final class AetherLocalStore: @unchecked Sendable {
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         let topic = String(compact.prefix(360))
         let statement = try prepare(
-            "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at) VALUES (?, 0.58, 0, ?)"
+            "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id) VALUES (?, 0.58, 0, ?, 'conversation', ?)"
         )
         defer { sqlite3_finalize(statement) }
         bind(topic, statement, 1)
         bind(Self.now(), statement, 2)
+        bind(sessionId, statement, 3)
         try stepDone(statement)
 
         // Mantém a Obsidian útil sem fazer o banco crescer indefinidamente.
         try execute("""
             DELETE FROM memories
-            WHERE is_core = 0 AND id NOT IN (
-                SELECT id FROM memories WHERE is_core = 0 ORDER BY id DESC LIMIT 240
+            WHERE scope = 'conversation' AND is_core = 0 AND id NOT IN (
+                SELECT id FROM memories WHERE scope = 'conversation' AND is_core = 0 ORDER BY id DESC LIMIT 240
             )
             """)
+    }
+
+    private func migrateMemoryScopeIfNeeded() throws {
+        let columns = try tableColumns("memories")
+        if columns.isEmpty {
+            try createScopedMemoriesTable()
+            return
+        }
+        if columns.contains("scope"), columns.contains("session_id") {
+            try createMemoryIndexes()
+            return
+        }
+
+        try transaction {
+            try execute("ALTER TABLE memories RENAME TO memories_legacy_scope")
+            try createScopedMemoriesTable()
+            // A versão anterior gravava tópicos automáticos com importância
+            // 0.58; fatos duráveis/manuais tinham >= 0.7. Tópicos antigos sem
+            // sessão ficam arquivados e visíveis, mas jamais entram no prompt.
+            try execute("""
+                INSERT INTO memories (id, content, importance, is_core, created_at, scope, session_id)
+                SELECT id, content, importance, is_core, created_at,
+                       CASE WHEN is_core = 1 OR importance >= 0.7 THEN 'global' ELSE 'detached' END,
+                       NULL
+                FROM memories_legacy_scope
+                """)
+            try execute("DROP TABLE memories_legacy_scope")
+        }
+        try createMemoryIndexes()
+    }
+
+    private func createScopedMemoriesTable() throws {
+        try execute("""
+            CREATE TABLE IF NOT EXISTS memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                importance REAL NOT NULL DEFAULT 0.7,
+                is_core INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                scope TEXT NOT NULL DEFAULT 'global',
+                session_id TEXT,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+            """)
+        try createMemoryIndexes()
+    }
+
+    private func createMemoryIndexes() throws {
+        try execute("CREATE INDEX IF NOT EXISTS idx_memories_scope_session ON memories(scope, session_id, id)")
+        try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_global_unique ON memories(content) WHERE scope = 'global'")
+        try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_conversation_unique ON memories(content, session_id) WHERE scope = 'conversation'")
+    }
+
+    private func tableColumns(_ table: String) throws -> Set<String> {
+        let statement = try prepare("PRAGMA table_info(\(table))")
+        defer { sqlite3_finalize(statement) }
+        var columns = Set<String>()
+        while sqlite3_step(statement) == SQLITE_ROW {
+            columns.insert(text(statement, 1))
+        }
+        return columns
     }
 
     private func transaction(_ work: () throws -> Void) throws {
@@ -462,6 +560,11 @@ public final class AetherLocalStore: @unchecked Sendable {
     private func text(_ statement: OpaquePointer, _ index: Int32) -> String {
         guard let pointer = sqlite3_column_text(statement, index) else { return "" }
         return String(cString: pointer)
+    }
+
+    private func optionalText(_ statement: OpaquePointer, _ index: Int32) -> String? {
+        guard sqlite3_column_type(statement, index) != SQLITE_NULL else { return nil }
+        return text(statement, index)
     }
 
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)

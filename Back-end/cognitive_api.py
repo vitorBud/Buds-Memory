@@ -168,7 +168,12 @@ def recall_memory():
 
     types = request.args.getlist("type") or None
     limit = _int_param("limit", 8)
-    data = memory.recall(query, memory_types=types, limit=limit)
+    data = memory.recall(
+        query,
+        memory_types=types,
+        limit=limit,
+        session_id=request.args.get("session_id"),
+    )
     return _ok(data)
 
 

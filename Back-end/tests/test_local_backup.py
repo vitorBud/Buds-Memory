@@ -489,6 +489,38 @@ class LocalBackupTests(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 0)
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0], 0)
 
+    def test_legacy_backup_classifies_session_memory_as_conversation(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target_db = Path(temp_dir) / "legacy-scope.db"
+            create_full_schema(target_db)
+            payload = {
+                "format": local_backup.BACKUP_FORMAT,
+                "version": 1,
+                "tables": {
+                    "sessions": [{
+                        "id": "legacy-chat",
+                        "title": "Chat legado",
+                        "created_at": "2026-07-22T12:00:00",
+                    }],
+                    "memories": [{
+                        "id": 1,
+                        "session_id": "legacy-chat",
+                        "content": "Contexto exclusivo do chat antigo",
+                        "memory_type": "medium",
+                        "importance": 0.6,
+                        "created_at": "2026-07-22T12:00:01",
+                        "origin_type": "conversation",
+                    }],
+                },
+            }
+
+            with patch.object(local_backup, "get_db_connection", make_connection_factory(target_db)):
+                local_backup.import_backup(payload)
+
+            with make_connection_factory(target_db)() as conn:
+                restored = conn.execute("SELECT scope FROM memories LIMIT 1").fetchone()
+            self.assertEqual(restored["scope"], "conversation")
+
 
 class RagCleanupTests(unittest.TestCase):
     def test_migration_cleans_orphans_and_deletes_cascade_to_rag(self):

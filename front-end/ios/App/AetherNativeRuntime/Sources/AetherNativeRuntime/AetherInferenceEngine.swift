@@ -43,8 +43,13 @@ final class AetherInferenceEngine: @unchecked Sendable {
         prompt: String,
         modelURL: URL,
         onToken: @escaping @Sendable (String) -> Void
-    ) throws -> String {
+    ) throws -> AetherEngineResult {
+        let totalStart = ProcessInfo.processInfo.systemUptime
+        let startSnapshot = AetherPerformanceMonitor.snapshot()
+        let thermalStart = Self.thermalStateName
+        let loadStart = ProcessInfo.processInfo.systemUptime
         try prepareForGeneration(modelURL: modelURL)
+        let loadMilliseconds = (ProcessInfo.processInfo.systemUptime - loadStart) * 1_000
         guard let model, let context, let sampler,
               let vocabulary = llama_model_get_vocab(model) else {
             throw AetherNativeError.modelLoad("runtime não inicializado")
@@ -63,17 +68,22 @@ final class AetherInferenceEngine: @unchecked Sendable {
         }
 
         try decode(tokens: &promptTokens, context: context)
+        let generationStart = ProcessInfo.processInfo.systemUptime
         var output = ""
         var pendingUTF8 = Data()
+        var outputTokenCount = 0
+        var firstTokenAt: TimeInterval?
 
         for _ in 0..<maxOutput {
             try checkRuntimeLimits()
             let token = llama_sampler_sample(sampler, context, -1)
             if llama_vocab_is_eog(vocabulary, token) { break }
+            outputTokenCount += 1
             llama_sampler_accept(sampler, token)
 
             pendingUTF8.append(piece(for: token, vocabulary: vocabulary))
             if let text = String(data: pendingUTF8, encoding: .utf8) {
+                if firstTokenAt == nil { firstTokenAt = ProcessInfo.processInfo.systemUptime }
                 pendingUTF8.removeAll(keepingCapacity: true)
                 output += text
                 onToken(text)
@@ -84,11 +94,33 @@ final class AetherInferenceEngine: @unchecked Sendable {
         }
 
         if !pendingUTF8.isEmpty {
+            if firstTokenAt == nil { firstTokenAt = ProcessInfo.processInfo.systemUptime }
             let replacement = String(decoding: pendingUTF8, as: UTF8.self)
             output += replacement
             onToken(replacement)
         }
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finishedAt = ProcessInfo.processInfo.systemUptime
+        let endSnapshot = AetherPerformanceMonitor.snapshot()
+        let generationSeconds = max(0.001, finishedAt - generationStart)
+        let (inferenceThreads, batchThreads) = threadConfiguration()
+        return AetherEngineResult(
+            text: output.trimmingCharacters(in: .whitespacesAndNewlines),
+            promptTokens: promptTokens.count,
+            outputTokens: outputTokenCount,
+            loadMilliseconds: loadMilliseconds,
+            timeToFirstTokenMilliseconds: ((firstTokenAt ?? finishedAt) - totalStart) * 1_000,
+            generationMilliseconds: generationSeconds * 1_000,
+            totalMilliseconds: (finishedAt - totalStart) * 1_000,
+            tokensPerSecond: Double(outputTokenCount) / generationSeconds,
+            inferenceThreads: inferenceThreads,
+            batchThreads: batchThreads,
+            residentBytesBefore: startSnapshot.residentBytes,
+            residentBytesAfter: endSnapshot.residentBytes,
+            observedPeakBytes: endSnapshot.observedPeakBytes,
+            processCPUSeconds: max(0, endSnapshot.cpuSeconds - startSnapshot.cpuSeconds),
+            thermalStateStart: thermalStart,
+            thermalStateEnd: Self.thermalStateName
+        )
     }
 
     private func prepareForGeneration(modelURL: URL) throws {
@@ -150,9 +182,24 @@ final class AetherInferenceEngine: @unchecked Sendable {
 
     private func configureThreads() {
         guard let context else { return }
+        let (inferenceThreads, batchThreads) = threadConfiguration()
+        llama_set_n_threads(context, Int32(inferenceThreads), Int32(batchThreads))
+    }
+
+    private func threadConfiguration() -> (Int, Int) {
         let constrained = ProcessInfo.processInfo.isLowPowerModeEnabled
             || ProcessInfo.processInfo.thermalState == .fair
-        llama_set_n_threads(context, constrained ? 2 : 4, constrained ? 4 : 6)
+        return constrained ? (2, 4) : (4, 6)
+    }
+
+    private static var thermalStateName: String {
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: return "nominal"
+        case .fair: return "fair"
+        case .serious: return "serious"
+        case .critical: return "critical"
+        @unknown default: return "unknown"
+        }
     }
 
     private func generationTokenBudget() -> Int {

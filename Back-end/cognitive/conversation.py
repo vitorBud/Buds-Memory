@@ -203,7 +203,7 @@ def build_conversation_context(
     if intent["primary"] != "SMALL_TALK":
         import concurrent.futures
         retrieval_fns = [
-            (retrieve_memories, (rewritten_query, intent["primary"])),
+            (retrieve_memories, (rewritten_query, intent["primary"], session_id)),
             (retrieve_graph, (rewritten_query, intent["primary"])),
             (retrieve_documents, (rewritten_query, session_id, intent["primary"])),
             (retrieve_codebase, (rewritten_query, intent["primary"])),
@@ -581,9 +581,9 @@ def build_working_memory(history: list[dict], limit: int = 8) -> str:
     return "\n".join(lines)
 
 
-def retrieve_memories(query: str, primary_intent: str) -> list[dict]:
+def retrieve_memories(query: str, primary_intent: str, session_id: Optional[str]) -> list[dict]:
     results = []
-    for item in memory.recall(query, memory_types=["medium", "long"], limit=8):
+    for item in memory.recall(query, memory_types=["medium", "long"], limit=8, session_id=session_id):
         if item.get("is_core"):
             continue
         results.append(_result(
@@ -598,7 +598,7 @@ def retrieve_memories(query: str, primary_intent: str) -> list[dict]:
         ))
 
     if primary_intent == "MEMORY_QUERY":
-        for item in memory.recall(query, memory_types=["archive"], limit=4):
+        for item in memory.recall(query, memory_types=["archive"], limit=4, session_id=session_id):
             results.append(_result(
                 "archive_memory",
                 "Archive Memory",

@@ -26,6 +26,7 @@ import { NetworkStatus } from './components/NetworkStatus'
 import type { VoiceSilenceMode } from './components/VoiceMode'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
+import { useMobilePerformanceMonitor } from './hooks/useMobilePerformance'
 import { useHealthPolling } from './hooks/useHealthPolling'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, exportLocalMemoryBackup, importLocalMemoryBackup, clearLocalStorage, getCognitiveMemories, getKnowledgeGraph, isNativeIOSRuntime } from './services/api'
 import type { AiState, BackendConfig, Session, InterfaceSettings, LocalBackupStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
@@ -121,9 +122,9 @@ const VOICE_SILENCE_CONFIG: Record<VoiceSilenceMode, {
   speechThreshold: number
   noSpeechTimeoutSeconds: number
 }> = {
-  fast: { silenceSeconds: 0.55, speechThreshold: 0.055, noSpeechTimeoutSeconds: 5 },
-  balanced: { silenceSeconds: 0.78, speechThreshold: 0.06, noSpeechTimeoutSeconds: 7 },
-  patient: { silenceSeconds: 1.18, speechThreshold: 0.052, noSpeechTimeoutSeconds: 10 },
+  fast: { silenceSeconds: 1.0, speechThreshold: 0.07, noSpeechTimeoutSeconds: 5 },
+  balanced: { silenceSeconds: 1.45, speechThreshold: 0.065, noSpeechTimeoutSeconds: 8 },
+  patient: { silenceSeconds: 2.1, speechThreshold: 0.058, noSpeechTimeoutSeconds: 12 },
 }
 
 function isDesktopApp() {
@@ -177,6 +178,7 @@ function getInitialVoiceSilenceMode(): VoiceSilenceMode {
 
 
 export default function App() {
+  useMobilePerformanceMonitor('app')
   const obsidianSceneRef = useRef<HTMLElement>(null)
   const obsidianFileInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)

@@ -112,4 +112,48 @@ public struct AetherMemoryRecord: Sendable {
     public let importance: Double
     public let isCore: Bool
     public let createdAt: String
+    public let scope: String
+    public let sessionId: String?
+}
+
+public struct AetherGenerationMetrics: Sendable {
+    public let generationId: String
+    public let modelName: String
+    public let promptCharacters: Int
+    public let historyMessages: Int
+    public let memoryItems: Int
+    public let promptTokens: Int
+    public let outputTokens: Int
+    public let loadMilliseconds: Double
+    public let timeToFirstTokenMilliseconds: Double
+    public let generationMilliseconds: Double
+    public let totalMilliseconds: Double
+    public let tokensPerSecond: Double
+    public let inferenceThreads: Int
+    public let batchThreads: Int
+    public let residentBytesBefore: UInt64
+    public let residentBytesAfter: UInt64
+    public let observedPeakBytes: UInt64
+    public let processCPUSeconds: Double
+    public let thermalStateStart: String
+    public let thermalStateEnd: String
+}
+
+struct AetherEngineResult {
+    let text: String
+    let promptTokens: Int
+    let outputTokens: Int
+    let loadMilliseconds: Double
+    let timeToFirstTokenMilliseconds: Double
+    let generationMilliseconds: Double
+    let totalMilliseconds: Double
+    let tokensPerSecond: Double
+    let inferenceThreads: Int
+    let batchThreads: Int
+    let residentBytesBefore: UInt64
+    let residentBytesAfter: UInt64
+    let observedPeakBytes: UInt64
+    let processCPUSeconds: Double
+    let thermalStateStart: String
+    let thermalStateEnd: String
 }

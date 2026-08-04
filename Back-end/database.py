@@ -182,6 +182,17 @@ def delete_session(session_id):
             ]
             _delete_rag_sources(conn, "messages", message_ids)
             _delete_rag_sources(conn, "knowledge_sources", knowledge_ids)
+        # O contexto derivado da conversa não pode sobreviver como memória
+        # global quando a FK da sessão aplicar ON DELETE SET NULL.
+        if _table_exists(conn, "memories"):
+            memory_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(memories)").fetchall()
+            }
+            if "scope" in memory_columns:
+                conn.execute(
+                    "DELETE FROM memories WHERE session_id=? AND scope='conversation'",
+                    (session_id,),
+                )
         conn.execute("DELETE FROM sessions WHERE id = ?;", (session_id,))
         conn.commit()
     return True

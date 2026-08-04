@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { streamChat } from '../services/api'
 import type { Message, AiState, Session, ChatStreamEvent, VoiceProvider } from '../types'
 import { isWindowsRuntime } from '../utils/runtime'
+import { createOperationId } from '../utils/controleOperacoes'
 
 interface UseChatOptions {
   sessionId: string | null
@@ -133,6 +134,9 @@ export function useChat({
   const preferredVoiceRef = useRef<SpeechSynthesisVoice | null>(null)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const activeAbortRef = useRef<AbortController | null>(null)
+  const activeOperationRef = useRef<{ id: string; sessionId: string; controller: AbortController } | null>(null)
+  const processingRef = useRef(false)
+  const outputEpochRef = useRef(0)
   const msgCountRef = useRef(0)
   const streamIdRef = useRef(-1)
   const pendingTokensRef = useRef<Map<number, string>>(new Map())
@@ -156,8 +160,9 @@ export function useChat({
     }
   }, [selectedVoiceURI])
 
-  function playNextSpeech() {
+  function playNextSpeech(epoch = outputEpochRef.current) {
     if (!('speechSynthesis' in window)) return
+    if (epoch !== outputEpochRef.current) return
 
     if (speechQueueRef.current.length === 0) {
       isSpeechPlayingRef.current = false
@@ -175,10 +180,18 @@ export function useChat({
     utterance.rate = 1.07
     utterance.pitch = 0.86
     utterance.volume = 1
+    let ttsStartedAt = 0
     isSpeechPlayingRef.current = true
     onStateChange('speaking')
-    utterance.onend = () => playNextSpeech()
-    utterance.onerror = () => playNextSpeech()
+    utterance.onstart = () => { ttsStartedAt = performance.now() }
+    utterance.onend = () => {
+      console.info('[AetherPerf]', {
+        stage: 'tts', provider: 'browser', characters: cleanText.length,
+        tts_ms: Math.round(performance.now() - (ttsStartedAt || performance.now())),
+      })
+      playNextSpeech(epoch)
+    }
+    utterance.onerror = () => playNextSpeech(epoch)
     window.speechSynthesis.speak(utterance)
   }
 
@@ -187,7 +200,7 @@ export function useChat({
     if (!cleanText || !('speechSynthesis' in window)) return
 
     speechQueueRef.current.push(cleanText.replace(/\s+/g, ' '))
-    if (!isSpeechPlayingRef.current) playNextSpeech()
+    if (!isSpeechPlayingRef.current) playNextSpeech(outputEpochRef.current)
   }
 
   function speakText(text: string) {
@@ -200,7 +213,8 @@ export function useChat({
   }
 
   // ── Audio Queue ────────────────────────────────────────────────────────────
-  function playNextAudio() {
+  function playNextAudio(epoch = outputEpochRef.current) {
+    if (epoch !== outputEpochRef.current) return
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false
       if (!isProcessing) onStateChange('idle')
@@ -210,19 +224,30 @@ export function useChat({
     const url = audioQueueRef.current.shift()!
     onStateChange('speaking')
     const audio = new Audio(url)
+    let audioStartedAt = 0
     currentAudioRef.current = audio
-    audio.play().catch(() => playNextAudio())
-    audio.onended = () => { currentAudioRef.current = null; playNextAudio() }
+    audio.onplaying = () => { audioStartedAt = performance.now() }
+    audio.play().catch(() => playNextAudio(epoch))
+    audio.onended = () => {
+      console.info('[AetherPerf]', {
+        stage: 'tts', provider: 'piper', tts_ms: Math.round(performance.now() - (audioStartedAt || performance.now())),
+      })
+      currentAudioRef.current = null
+      playNextAudio(epoch)
+    }
   }
 
   function queueAudio(url: string) {
     audioQueueRef.current.push(url)
-    if (!isPlayingRef.current) playNextAudio()
+    if (!isPlayingRef.current) playNextAudio(outputEpochRef.current)
   }
 
   const stopOutput = useCallback(() => {
+    outputEpochRef.current += 1
     activeAbortRef.current?.abort()
     activeAbortRef.current = null
+    activeOperationRef.current = null
+    processingRef.current = false
     pendingTokensRef.current = new Map()
     if (tokenFlushTimerRef.current !== null) {
       window.clearTimeout(tokenFlushTimerRef.current)
@@ -355,11 +380,29 @@ export function useChat({
 
   // ── Send text ──────────────────────────────────────────────────────────────
   async function sendText(text: string) {
-    if (!text.trim() || isProcessing) return
-
-    const sid = sessionId ?? await onNeedSession()
+    if (!text.trim() || processingRef.current) return
+    processingRef.current = true
     setIsProcessing(true)
     onStateChange('thinking')
+    const requestId = createOperationId('chat')
+    const controller = new AbortController()
+    activeOperationRef.current = { id: requestId, sessionId: sessionId ?? '', controller }
+    activeAbortRef.current = controller
+
+    let sid: string
+    try {
+      sid = sessionId ?? await onNeedSession()
+    } catch (error) {
+      if (activeOperationRef.current?.id === requestId) {
+        activeOperationRef.current = null
+        activeAbortRef.current = null
+        processingRef.current = false
+        setIsProcessing(false)
+      }
+      throw error
+    }
+    if (activeOperationRef.current?.id !== requestId) return
+    activeOperationRef.current.sessionId = sid
 
     addMessage({ sender: 'user', text, created_at: new Date().toISOString() })
     const assistantMessageId = createAssistantPlaceholder()
@@ -371,11 +414,10 @@ export function useChat({
     const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
     const useStreamingBrowserVoice = useBrowserVoice && !isWindowsRuntime()
     const useBackendVoice = autoPlayAudio && voiceProvider === 'piper'
-    const controller = new AbortController()
-    activeAbortRef.current = controller
-
     try {
       await streamChat({ text, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled, tts: useBackendVoice }, (event) => {
+        const active = activeOperationRef.current
+        if (!active || active.id !== requestId || active.sessionId !== sid) return
         if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
@@ -431,9 +473,13 @@ export function useChat({
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {
-      if (activeAbortRef.current === controller) activeAbortRef.current = null
-      setIsProcessing(false)
-      if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
+      if (activeOperationRef.current?.id === requestId) {
+        activeOperationRef.current = null
+        activeAbortRef.current = null
+        processingRef.current = false
+        setIsProcessing(false)
+        if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
+      }
     }
   }
 
@@ -460,9 +506,29 @@ export function useChat({
 
   // ── Send audio ─────────────────────────────────────────────────────────────
   async function sendAudio(blob: Blob) {
-    const sid = sessionId ?? await onNeedSession()
+    if (processingRef.current) return
+    processingRef.current = true
     setIsProcessing(true)
     onStateChange('transcribing')
+    const requestId = createOperationId('audio-chat')
+    const controller = new AbortController()
+    activeOperationRef.current = { id: requestId, sessionId: sessionId ?? '', controller }
+    activeAbortRef.current = controller
+
+    let sid: string
+    try {
+      sid = sessionId ?? await onNeedSession()
+    } catch (error) {
+      if (activeOperationRef.current?.id === requestId) {
+        activeOperationRef.current = null
+        activeAbortRef.current = null
+        processingRef.current = false
+        setIsProcessing(false)
+      }
+      throw error
+    }
+    if (activeOperationRef.current?.id !== requestId) return
+    activeOperationRef.current.sessionId = sid
 
     const assistantMessageId = createAssistantPlaceholder()
     const start = Date.now()
@@ -472,11 +538,10 @@ export function useChat({
     const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
     const useStreamingBrowserVoice = useBrowserVoice && !isWindowsRuntime()
     const useBackendVoice = autoPlayAudio && voiceProvider === 'piper'
-    const controller = new AbortController()
-    activeAbortRef.current = controller
-
     try {
       await streamChat({ audio: blob, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled, tts: useBackendVoice }, (event) => {
+        const active = activeOperationRef.current
+        if (!active || active.id !== requestId || active.sessionId !== sid) return
         if (event.type === 'transcription' && event.content) {
           // Show user transcription
           setMessages(prev => {
@@ -534,9 +599,13 @@ export function useChat({
       onStateChange('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {
-      if (activeAbortRef.current === controller) activeAbortRef.current = null
-      setIsProcessing(false)
-      if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
+      if (activeOperationRef.current?.id === requestId) {
+        activeOperationRef.current = null
+        activeAbortRef.current = null
+        processingRef.current = false
+        setIsProcessing(false)
+        if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
+      }
     }
   }
 

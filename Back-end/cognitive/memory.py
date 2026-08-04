@@ -55,12 +55,20 @@ def save_memory(
     origin_id: Optional[str] = None,
     source_table: Optional[str] = None,
     source_id: Optional[int] = None,
+    scope: Optional[str] = None,
 ) -> dict:
     """Salva uma memória no nível indicado com expiração automática.
     Se uma memória com conteúdo semanticamente idêntico já existir (não expirada),
     incrementa seu access_count em vez de criar duplicata.
     """
     tags = tags or []
+    if scope is None:
+        is_explicit_global = is_core or user_confirmed or origin_type in {"profile", "manual", "core"}
+        scope = "global" if is_explicit_global or not session_id else "conversation"
+    if scope not in {"global", "conversation"}:
+        raise ValueError("Escopo de memória inválido.")
+    if scope == "conversation" and not session_id:
+        raise ValueError("Memória de conversa exige session_id.")
     if is_core:
         memory_type = "long"
         locked = True
@@ -76,10 +84,12 @@ def save_memory(
             SELECT id FROM memories
             WHERE LOWER(TRIM(content)) = ?
               AND memory_type = ?
+              AND scope = ?
+              AND ((? = 'global') OR session_id = ?)
               AND (expires_at IS NULL OR expires_at > ?)
             LIMIT 1
             """,
-            (normalized, memory_type, now_iso()),
+            (normalized, memory_type, scope, scope, session_id, now_iso()),
         ).fetchone()
         if existing:
             conn.execute(
@@ -92,16 +102,17 @@ def save_memory(
                     "is_core": is_core, "locked": locked, "user_confirmed": user_confirmed,
                     "origin_type": origin_type, "origin_id": origin_id,
                     "source_table": source_table, "source_id": source_id,
+                    "scope": scope, "session_id": session_id,
                     "_deduplicated": True}
 
         cursor = conn.execute(
             """
             INSERT INTO memories
-              (session_id, content, memory_type, importance, last_accessed, expires_at, tags, created_at,
+              (session_id, scope, content, memory_type, importance, last_accessed, expires_at, tags, created_at,
                is_core, locked, user_confirmed, origin_type, origin_id, source_table, source_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, content, memory_type, importance, now_iso(), expires_at,
+            (session_id, scope, content, memory_type, importance, now_iso(), expires_at,
              json_dumps(tags), now_iso(), int(is_core), int(locked), int(user_confirmed),
              origin_type, origin_id, source_table, source_id),
         )
@@ -112,7 +123,8 @@ def save_memory(
             "importance": importance, "tags": tags, "expires_at": expires_at,
             "is_core": is_core, "locked": locked, "user_confirmed": user_confirmed,
             "origin_type": origin_type, "origin_id": origin_id,
-            "source_table": source_table, "source_id": source_id}
+            "source_table": source_table, "source_id": source_id,
+            "scope": scope, "session_id": session_id}
 
 
 def save_short_term(content: str, session_id: Optional[str] = None,
@@ -203,14 +215,19 @@ def get_memories(
     return memories
 
 
-def recall(query: str, memory_types: Optional[list] = None, limit: int = 8) -> list[dict]:
+def recall(
+    query: str,
+    memory_types: Optional[list] = None,
+    limit: int = 8,
+    session_id: Optional[str] = None,
+) -> list[dict]:
     """
     Recupera memórias relevantes para uma consulta de forma extremamente rápida.
     Usa tabela virtual memories_fts via FTS5 do SQLite com MATCH e ranking cognitivo.
     """
     tokens = _tokenize(query)
     if not tokens:
-        return get_memories(memory_types=memory_types, limit=limit)
+        return _context_memories(memory_types, session_id, limit)
 
     # Prepara consulta MATCH
     # Usamos OR para maior abrangência de busca textual
@@ -218,7 +235,7 @@ def recall(query: str, memory_types: Optional[list] = None, limit: int = 8) -> l
 
     # Filtros de tipo de memória
     type_conditions = []
-    params: list = [match_query, now_iso()]
+    params: list = [match_query, now_iso(), session_id, session_id]
 
     if memory_types:
         placeholders = ",".join("?" * len(memory_types))
@@ -235,6 +252,7 @@ def recall(query: str, memory_types: Optional[list] = None, limit: int = 8) -> l
             JOIN memories_fts fts ON m.id = fts.rowid
             WHERE fts.content MATCH ?
               AND (m.expires_at IS NULL OR m.expires_at > ?)
+              AND (m.scope = 'global' OR (m.scope = 'conversation' AND ? IS NOT NULL AND m.session_id = ?))
               {type_filter}
             LIMIT ?
             """,
@@ -245,7 +263,7 @@ def recall(query: str, memory_types: Optional[list] = None, limit: int = 8) -> l
 
     # Fallback se não houver candidatos textuais via FTS5
     if not candidates:
-        return get_memories(memory_types=memory_types, limit=limit)
+        return _context_memories(memory_types, session_id, limit)
 
     scored = []
     for mem in candidates:
@@ -271,6 +289,29 @@ def recall(query: str, memory_types: Optional[list] = None, limit: int = 8) -> l
     _bump_access([m["id"] for m in top])
 
     return top
+
+
+def _context_memories(memory_types: Optional[list], session_id: Optional[str], limit: int) -> list[dict]:
+    """Lista somente fatos globais e contexto da sessão solicitada."""
+    conditions = ["(expires_at IS NULL OR expires_at > ?)"]
+    params: list = [now_iso()]
+    if memory_types:
+        placeholders = ",".join("?" * len(memory_types))
+        conditions.append(f"memory_type IN ({placeholders})")
+        params.extend(memory_types)
+    conditions.append("(scope='global' OR (scope='conversation' AND ? IS NOT NULL AND session_id=?))")
+    params.extend([session_id, session_id, limit])
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM memories
+            WHERE {' AND '.join(conditions)}
+            ORDER BY importance DESC, last_accessed DESC
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    return [_row_to_dict(row) for row in rows]
 
 
 # ── Consolidação ─────────────────────────────────────────────────────────────
@@ -385,6 +426,7 @@ def update_memory(memory_id: int, **updates) -> Optional[dict]:
     if values.get("is_core"):
         values["locked"] = 1
         values["memory_type"] = "long"
+        values["scope"] = "global"
         values["expires_at"] = None
         values["importance"] = max(float(values.get("importance", 0.95)), 0.95)
 
