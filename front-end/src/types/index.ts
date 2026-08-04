@@ -152,6 +152,28 @@ export interface LocalBackupStatus {
   }
 }
 
+export type ConversationStorageState = 'active' | 'removed' | 'orphaned'
+
+export interface ConversationStorageItem {
+  id: string
+  title: string
+  created_at?: string | null
+  deleted_at?: string | null
+  state: ConversationStorageState
+  message_count: number
+  knowledge_count: number
+  memory_count: number
+  timeline_count: number
+  graph_count: number
+  total_records: number
+  estimated_bytes: number
+}
+
+export interface ConversationStorageStatus {
+  conversations: ConversationStorageItem[]
+  orphaned: ConversationStorageItem[]
+}
+
 export interface LocalBackupImportResult {
   success: boolean
   message: string

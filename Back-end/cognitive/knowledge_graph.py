@@ -359,10 +359,12 @@ def detect_and_register(text: str, session_id: Optional[str] = None) -> list[str
             if existing:
                 # Reforça a importância (+0.1 por menção)
                 new_imp = min(existing["importance"] + 0.1, 1.0)
-                upsert_entity(canonical, etype, importance=new_imp)
+                entity = upsert_entity(canonical, etype, importance=new_imp)
             else:
                 # Primeira detecção: fica em observação (0.35, abaixo do limiar)
-                upsert_entity(canonical, etype, importance=0.35)
+                entity = upsert_entity(canonical, etype, importance=0.35)
+            if session_id:
+                _register_entity_mention(int(entity["id"]), session_id)
             if canonical not in found:
                 found.append(canonical)
 
@@ -375,6 +377,23 @@ def detect_and_register(text: str, session_id: Optional[str] = None) -> list[str
             add_relation(a, b, relation_type, 0.45 if relation_type != "related_to" else 0.4)
 
     return found
+
+
+def _register_entity_mention(entity_id: int, session_id: str) -> None:
+    """Mantém a procedência necessária para limpeza seletiva do Obsidian."""
+    ts = now_iso()
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO kg_entity_mentions
+              (entity_id, session_id, mention_count, created_at, updated_at)
+            VALUES (?, ?, 1, ?, ?)
+            ON CONFLICT(entity_id, session_id) WHERE session_id IS NOT NULL
+            DO UPDATE SET mention_count=mention_count+1, updated_at=excluded.updated_at
+            """,
+            (entity_id, session_id, ts, ts),
+        )
+        conn.commit()
 
 
 def consolidate_duplicates() -> dict:

@@ -1,9 +1,9 @@
-import { Activity, AlertTriangle, BrainCircuit, Circle, CloudDownload, Code2, Cpu, Database, FolderOpen, Gauge, HardDrive, RefreshCw, SlidersHorizontal, Trash2, Upload, UserRound, Volume2, X } from 'lucide-react'
+import { Activity, AlertTriangle, BrainCircuit, Circle, CloudDownload, Code2, Cpu, Database, FolderOpen, Gauge, HardDrive, MessageSquare, RefreshCw, SlidersHorizontal, Trash2, Upload, UserRound, Volume2, X } from 'lucide-react'
 import { useRef, useState, type ReactNode } from 'react'
 import { indexCodebase, isNativeIOSRuntime } from '../services/api'
 import { settingsControlStyles, themeDotStyles } from '../styles/controlesConfiguracoes'
 import { settingsLayoutStyles, settingsSectionStyles } from '../styles/estruturaConfiguracoes'
-import type { AiState, InterfaceSettings, LocalBackupStatus, ThemeMode } from '../types'
+import type { AiState, ConversationStorageItem, ConversationStorageStatus, InterfaceSettings, LocalBackupStatus, ThemeMode } from '../types'
 
 interface StatusPanelProps {
   aiState: AiState
@@ -14,6 +14,7 @@ interface StatusPanelProps {
   models: string[]
   googleSearchAvailable: boolean
   backupStatus: LocalBackupStatus | null
+  conversationStorage: ConversationStorageStatus
   isBackupBusy: boolean
   isStorageBusy: boolean
   authMode?: string
@@ -23,6 +24,7 @@ interface StatusPanelProps {
   onExportBackup: () => void
   onImportBackup: (file: File) => void
   onClearStorage: (confirmation: string) => void
+  onPurgeConversation: (id: string) => void
   onSettingChange: <K extends keyof InterfaceSettings>(key: K, value: InterfaceSettings[K]) => void
   onClose: () => void
   children?: ReactNode
@@ -115,6 +117,14 @@ function formatBytes(bytes = 0): string {
   return `${value.toFixed(unit === 0 || value >= 10 ? 0 : 1)} ${units[unit]}`
 }
 
+function formatStorageDate(value?: string | null): string {
+  if (!value) return 'Data original indisponível'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? 'Data original indisponível'
+    : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(date)
+}
+
 // Gaveta de configurações da interface, voz, tema e status técnico da sessão.
 export function StatusPanel({
   aiState,
@@ -125,6 +135,7 @@ export function StatusPanel({
   models,
   googleSearchAvailable,
   backupStatus,
+  conversationStorage,
   isBackupBusy,
   isStorageBusy,
   authMode,
@@ -134,6 +145,7 @@ export function StatusPanel({
   onExportBackup,
   onImportBackup,
   onClearStorage,
+  onPurgeConversation,
   onSettingChange,
   onClose,
   children,
@@ -145,7 +157,22 @@ export function StatusPanel({
   const [storageConfirmation, setStorageConfirmation] = useState('')
   const [storageDangerOpen, setStorageDangerOpen] = useState(false)
   const backupInputRef = useRef<HTMLInputElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const nativeIOS = isNativeIOSRuntime()
+  const storageItems: ConversationStorageItem[] = [
+    ...conversationStorage.orphaned,
+    ...conversationStorage.conversations.filter(item => item.state === 'removed'),
+    ...conversationStorage.conversations.filter(item => item.state === 'active'),
+  ]
+
+  const selectSection = (section: SettingsSection) => {
+    setActiveSection(section)
+    if (window.matchMedia('(max-width: 860px)').matches) {
+      window.requestAnimationFrame(() => {
+        contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    }
+  }
 
   const pickCodebaseFolder = async () => {
     const bridge = (window as unknown as { nexus?: BudsBridge }).nexus
@@ -198,7 +225,7 @@ export function StatusPanel({
             key={id}
             type="button"
             className={`${settingsLayoutStyles.navButton} ${activeSection === id ? settingsLayoutStyles.navButtonActive : ''}`}
-            onClick={() => setActiveSection(id)}
+            onClick={() => selectSection(id)}
             aria-current={activeSection === id ? 'page' : undefined}
           >
             <Icon
@@ -213,7 +240,7 @@ export function StatusPanel({
         ))}
       </nav>
 
-      <div className={`${settingsLayoutStyles.content} ${settingsSectionStyles[activeSection]}`}>
+      <div ref={contentRef} className={`${settingsLayoutStyles.content} ${settingsSectionStyles[activeSection]}`}>
       <div className="settings-section settings-interface-block">
         <div className={settingsControlStyles.panelHeading}>
           <span>Configurações da interface</span>
@@ -265,6 +292,18 @@ export function StatusPanel({
                 ? 'Sessão autenticada neste dispositivo'
                 : 'Dados salvos no SQLite local'}
             </span>
+          </div>
+        </div>
+        <div className={settingsControlStyles.discoveryCard}>
+          <strong>O que você quer ajustar?</strong>
+          <span>As opções mais procuradas estão a um toque daqui.</span>
+          <div className={settingsControlStyles.discoveryGrid}>
+            {SETTINGS_SECTIONS.filter(item => ['appearance', 'ai', 'voice', 'storage'].includes(item.id)).map(({ id, label, icon: Icon }) => (
+              <button key={id} type="button" onClick={() => selectSection(id)}>
+                <Icon size={16} />
+                <span>{label}</span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -490,11 +529,66 @@ export function StatusPanel({
           </div>
         </div>
 
+        <div className={settingsControlStyles.storageInfoNotice}>
+          <strong>Dados por conversa</strong>
+          <span>
+            Remover um chat da barra lateral não apaga suas lembranças. Escolha abaixo o que deseja eliminar definitivamente; os pontos correspondentes também somem da Obsidian.
+          </span>
+        </div>
+
+        <div className={settingsControlStyles.conversationStorageList}>
+          {storageItems.length === 0 ? (
+            <div className={settingsControlStyles.storageEmpty}>
+              <MessageSquare size={18} />
+              <strong>Nenhuma conversa armazenada</strong>
+              <span>Quando houver chats, você poderá limpar cada um separadamente aqui.</span>
+            </div>
+          ) : storageItems.map(item => (
+            <article key={`${item.state}-${item.id}`} className={settingsControlStyles.conversationStorageCard}>
+              <div className={settingsControlStyles.conversationStorageHeader}>
+                <span className={settingsControlStyles.conversationStorageIcon}><MessageSquare size={15} /></span>
+                <div className={settingsControlStyles.conversationStorageCopy}>
+                  <strong>{item.title}</strong>
+                  <small>
+                    {item.state === 'active' ? 'Na barra lateral' : item.state === 'removed' ? 'Removida da barra lateral' : 'Dados de uma versão anterior'}
+                    {' · '}{formatStorageDate(item.deleted_at || item.created_at)}
+                  </small>
+                </div>
+                <span className={settingsControlStyles.conversationStorageBadge} data-state={item.state}>
+                  {item.state === 'active' ? 'Ativa' : item.state === 'removed' ? 'Removida' : 'Antiga'}
+                </span>
+              </div>
+              <div className={settingsControlStyles.conversationStorageStats}>
+                <span>{item.message_count} mensagens</span>
+                <span>{item.memory_count} memórias</span>
+                <span>{item.knowledge_count + item.graph_count + item.timeline_count} itens cognitivos</span>
+                {item.estimated_bytes > 0 && <span>~{formatBytes(item.estimated_bytes)}</span>}
+              </div>
+              <button
+                type="button"
+                className={settingsControlStyles.conversationDangerButton}
+                disabled={isStorageBusy || !['idle', 'error'].includes(aiState)}
+                onClick={() => {
+                  const accepted = window.confirm(`Apagar definitivamente “${item.title}” e toda memória associada? Esta ação não pode ser desfeita.`)
+                  if (accepted) onPurgeConversation(item.id)
+                }}
+              >
+                <Trash2 size={14} />
+                Apagar chat e memórias
+              </button>
+            </article>
+          ))}
+        </div>
+
+        <div className={settingsControlStyles.storageTotalDivider}>
+          <span>Exclusão completa do dispositivo</span>
+        </div>
+
         <div className={settingsControlStyles.storageNotice}>
-          <strong>Zona de exclusão</strong>
+          <strong>Zona de exclusão total</strong>
           <span>
             {nativeIOS
-              ? 'Apaga conversas, memórias e o modelo 7B deste iPhone. Para usar a IA novamente, será necessário baixar o modelo de novo.'
+              ? 'Apaga todas as conversas, memórias e o modelo 7B deste iPhone. Para usar a IA novamente, será necessário baixar o modelo de novo.'
               : 'Apaga conversas, memórias, documentos, grafo e áudios do Buds. Os modelos do Ollama instalados fora do aplicativo permanecem no MacBook.'}
           </span>
         </div>

@@ -85,9 +85,15 @@ def init_db():
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                deleted_at TEXT
             );
         """)
+        session_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()
+        }
+        if "deleted_at" not in session_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN deleted_at TEXT")
         # Tabela de mensagens vinculadas
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
@@ -158,8 +164,33 @@ def get_session(session_id):
 
 def get_all_sessions():
     with get_db_connection() as conn:
-        rows = conn.execute("SELECT * FROM sessions ORDER BY created_at DESC;").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY created_at DESC;"
+        ).fetchall()
         return [dict(row) for row in rows]
+
+
+def archive_session(session_id):
+    """Oculta um chat da lista sem destruir sua memória ou seu histórico.
+
+    A limpeza definitiva é deliberadamente separada e fica na tela de
+    Armazenamento. Isso permite ao usuário remover a conversa da interface sem
+    perder, por acidente, fatos que ainda aparecem no mapa cognitivo.
+    """
+    deleted_at = datetime.datetime.now().isoformat()
+    with get_db_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE sessions
+            SET deleted_at=COALESCE(deleted_at, ?)
+            WHERE id=?
+            """,
+            (deleted_at, session_id),
+        )
+        conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Conversa não encontrada.")
+    return True
 
 def delete_session(session_id):
     with get_db_connection() as conn:

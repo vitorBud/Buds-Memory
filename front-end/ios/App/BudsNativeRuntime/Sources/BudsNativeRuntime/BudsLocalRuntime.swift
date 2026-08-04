@@ -56,6 +56,18 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         try ensureStore().deleteSession(id: id)
     }
 
+    public func conversationStorage() throws -> [BudsConversationStorageRecord] {
+        try ensureStore().conversationStorage()
+    }
+
+    public func purgeConversation(id: String) throws {
+        generationLock.lock()
+        let shouldCancel = activeGeneration?.sessionId == id
+        generationLock.unlock()
+        if shouldCancel { cancelGeneration() }
+        try ensureStore().purgeConversation(id: id)
+    }
+
     public func messages(sessionId: String) throws -> [BudsMessageRecord] {
         try ensureStore().messages(sessionId: sessionId)
     }

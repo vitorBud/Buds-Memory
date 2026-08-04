@@ -13,6 +13,7 @@ import type {
   KnowledgeSource,
   LocalBackupImportResult,
   LocalBackupStatus,
+  ConversationStorageStatus,
 } from '../types'
 import {
   clearIOSLocalData,
@@ -24,6 +25,8 @@ import {
   getIOSLocalMessages,
   getIOSLocalStatus,
   listIOSLocalSessions,
+  listIOSConversationStorage,
+  purgeIOSConversation,
   setIOSLocalCoreMemory,
   streamIOSLocalChat,
   updateIOSLocalMemory,
@@ -279,6 +282,44 @@ export async function clearLocalStorage(confirmation: string): Promise<LocalBack
     throw new Error(payload.error || `clearLocalStorage: ${response.status}`)
   }
   return payload.status
+}
+
+export async function getConversationStorage(): Promise<ConversationStorageStatus> {
+  if (isNativeIOSRuntime()) {
+    const items = await listIOSConversationStorage()
+    return {
+      conversations: items.filter(item => item.state !== 'orphaned'),
+      orphaned: items.filter(item => item.state === 'orphaned'),
+    }
+  }
+  return fetchJsonWithStartupRetry<ConversationStorageStatus>(`${getBase()}/local-storage/conversations`)
+}
+
+export async function purgeConversationStorage(id: string): Promise<ConversationStorageStatus> {
+  if (isNativeIOSRuntime()) {
+    const items = await purgeIOSConversation(id)
+    return {
+      conversations: items.filter(item => item.state !== 'orphaned'),
+      orphaned: items.filter(item => item.state === 'orphaned'),
+    }
+  }
+
+  let response: Response
+  try {
+    response = await authFetch(`${getBase()}/local-storage/conversations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmation: `APAGAR:${id}` }),
+    })
+  } catch (error) {
+    throw humanizeError(error)
+  }
+  const payload = await response.json().catch(() => ({})) as ConversationStorageStatus & { error?: string }
+  if (!response.ok) throw new Error(payload.error || `purgeConversationStorage: ${response.status}`)
+  return {
+    conversations: payload.conversations || [],
+    orphaned: payload.orphaned || [],
+  }
 }
 
 export async function exportLocalMemoryBackup(): Promise<void> {

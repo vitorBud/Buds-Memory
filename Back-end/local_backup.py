@@ -24,7 +24,7 @@ from storage import get_data_dir, get_database_path, get_output_dir
 
 BACKUP_FORMAT = "buds_memory_backup"
 LEGACY_BACKUP_FORMATS = {"aether_memory_backup"}
-BACKUP_VERSION = 2
+BACKUP_VERSION = 3
 CLEAR_CONFIRMATION = "APAGAR TUDO"
 
 BACKUP_TABLES = [
@@ -36,6 +36,7 @@ BACKUP_TABLES = [
     "conversation_summaries",
     "kg_entities",
     "kg_relations",
+    "kg_entity_mentions",
     "projects",
     "project_sessions",
     "project_documents",
@@ -58,6 +59,7 @@ IMPORT_ORDER = [
     "memories",
     "conversation_summaries",
     "kg_relations",
+    "kg_entity_mentions",
     "project_sessions",
     "project_documents",
     "timeline_events",
@@ -83,6 +85,7 @@ CLEAR_ORDER = [
     "project_documents",
     "project_sessions",
     "conversation_summaries",
+    "kg_entity_mentions",
     "kg_relations",
     "memories",
     "user_profile_facts",
@@ -105,6 +108,10 @@ DIRECT_REFERENCES = {
     "kg_relations": {
         "source_id": "kg_entities",
         "target_id": "kg_entities",
+    },
+    "kg_entity_mentions": {
+        "entity_id": "kg_entities",
+        "session_id": "sessions",
     },
     "project_sessions": {
         "project_id": "projects",
@@ -178,6 +185,209 @@ def get_status() -> dict:
         "local_records": counts,
         "storage": _storage_usage(),
     }
+
+
+def get_conversation_storage() -> dict:
+    """Lista dados por conversa, inclusive chats retirados da barra lateral."""
+    conversations: list[dict] = []
+    with get_db_connection() as conn:
+        if not _table_exists(conn, "sessions"):
+            return {"conversations": [], "orphaned": []}
+
+        rows = conn.execute(
+            "SELECT id, title, created_at, deleted_at FROM sessions ORDER BY deleted_at IS NULL, COALESCE(deleted_at, created_at) DESC"
+        ).fetchall()
+        for row in rows:
+            conversations.append(_conversation_storage_row(conn, dict(row)))
+
+        orphan_ids: set[str] = set()
+        for table in ("user_profile_facts", "timeline_events"):
+            if not _table_exists(conn, table):
+                continue
+            found = conn.execute(
+                f"""
+                SELECT DISTINCT source.session_id
+                FROM {_quote_identifier(table)} source
+                LEFT JOIN sessions ON sessions.id=source.session_id
+                WHERE source.session_id IS NOT NULL AND sessions.id IS NULL
+                """
+            ).fetchall()
+            orphan_ids.update(str(item["session_id"]) for item in found if item["session_id"])
+
+        orphaned = [
+            _orphan_storage_row(conn, session_id)
+            for session_id in sorted(orphan_ids)
+        ]
+
+    return {"conversations": conversations, "orphaned": orphaned}
+
+
+def purge_conversation_data(session_id: str, confirmation: str) -> dict:
+    """Remove definitivamente uma conversa e todos os dados atribuíveis a ela."""
+    session_id = str(session_id or "").strip()
+    if not session_id or confirmation != f"APAGAR:{session_id}":
+        raise ValueError("Confirmação inválida para a exclusão desta conversa.")
+
+    with contextlib.closing(get_db_connection()) as conn:
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            session = conn.execute("SELECT id FROM sessions WHERE id=?", (session_id,)).fetchone()
+            has_orphan_data = _has_orphan_conversation_data(conn, session_id)
+            if not session and not has_orphan_data:
+                raise ValueError("Conversa ou dados associados não encontrados.")
+
+            fact_ids = _ids_for_session(conn, "user_profile_facts", session_id)
+            entity_ids = _ids_for_session(conn, "kg_entity_mentions", session_id, column="entity_id")
+            _delete_memories_for_conversation(conn, session_id, fact_ids)
+
+            if _table_exists(conn, "timeline_events"):
+                conn.execute("DELETE FROM timeline_events WHERE session_id=?", (session_id,))
+            if _table_exists(conn, "user_profile_facts"):
+                conn.execute("DELETE FROM user_profile_facts WHERE session_id=?", (session_id,))
+
+            if session:
+                conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+
+            # Só remove nós que passaram a não possuir qualquer outra origem.
+            if entity_ids and _table_exists(conn, "kg_entity_mentions"):
+                placeholders = ",".join("?" for _ in entity_ids)
+                conn.execute(
+                    f"""
+                    DELETE FROM kg_entities
+                    WHERE id IN ({placeholders})
+                      AND NOT EXISTS (
+                          SELECT 1 FROM kg_entity_mentions m
+                          WHERE m.entity_id=kg_entities.id
+                      )
+                    """,
+                    entity_ids,
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    return get_conversation_storage()
+
+
+def _conversation_storage_row(conn, session: dict) -> dict:
+    session_id = session["id"]
+    messages = _count_for_session(conn, "messages", session_id)
+    knowledge = _count_for_session(conn, "knowledge_sources", session_id)
+    memories = _count_for_session(conn, "memories", session_id)
+    facts = _count_for_session(conn, "user_profile_facts", session_id)
+    timeline = _count_for_session(conn, "timeline_events", session_id)
+    graph = _count_for_session(conn, "kg_entity_mentions", session_id)
+    estimated = _session_text_bytes(conn, session_id)
+    return {
+        **session,
+        "state": "removed" if session.get("deleted_at") else "active",
+        "message_count": messages,
+        "knowledge_count": knowledge,
+        "memory_count": memories + facts,
+        "timeline_count": timeline,
+        "graph_count": graph,
+        "total_records": messages + knowledge + memories + facts + timeline + graph + 1,
+        "estimated_bytes": estimated,
+    }
+
+
+def _orphan_storage_row(conn, session_id: str) -> dict:
+    facts = _count_for_session(conn, "user_profile_facts", session_id)
+    timeline = _count_for_session(conn, "timeline_events", session_id)
+    direct_memories = _count_for_session(conn, "memories", session_id)
+    fact_ids = _ids_for_session(conn, "user_profile_facts", session_id)
+    linked_memories = _count_profile_memories(conn, fact_ids)
+    total = facts + timeline + direct_memories + linked_memories
+    return {
+        "id": session_id,
+        "title": f"Conversa removida · {session_id[:8]}",
+        "created_at": None,
+        "deleted_at": None,
+        "state": "orphaned",
+        "message_count": 0,
+        "knowledge_count": 0,
+        "memory_count": direct_memories + facts + linked_memories,
+        "timeline_count": timeline,
+        "graph_count": 0,
+        "total_records": total,
+        "estimated_bytes": 0,
+    }
+
+
+def _has_orphan_conversation_data(conn, session_id: str) -> bool:
+    return any(
+        _count_for_session(conn, table, session_id) > 0
+        for table in ("user_profile_facts", "timeline_events", "memories")
+    )
+
+
+def _count_for_session(conn, table: str, session_id: str) -> int:
+    if not _table_exists(conn, table):
+        return 0
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM {_quote_identifier(table)} WHERE session_id=?",
+        (session_id,),
+    ).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def _ids_for_session(conn, table: str, session_id: str, column: str = "id") -> list[int]:
+    if not _table_exists(conn, table):
+        return []
+    rows = conn.execute(
+        f"SELECT {_quote_identifier(column)} AS id FROM {_quote_identifier(table)} WHERE session_id=?",
+        (session_id,),
+    ).fetchall()
+    return [int(row["id"]) for row in rows]
+
+
+def _count_profile_memories(conn, fact_ids: list[int]) -> int:
+    if not fact_ids or not _table_exists(conn, "memories"):
+        return 0
+    placeholders = ",".join("?" for _ in fact_ids)
+    row = conn.execute(
+        f"""
+        SELECT COUNT(*) AS n FROM memories
+        WHERE source_table='user_profile_facts' AND source_id IN ({placeholders})
+        """,
+        fact_ids,
+    ).fetchone()
+    return int(row["n"] if row else 0)
+
+
+def _delete_memories_for_conversation(conn, session_id: str, fact_ids: list[int]) -> None:
+    if not _table_exists(conn, "memories"):
+        return
+    conn.execute("DELETE FROM memories WHERE session_id=?", (session_id,))
+    if fact_ids:
+        placeholders = ",".join("?" for _ in fact_ids)
+        conn.execute(
+            f"""
+            DELETE FROM memories
+            WHERE source_table='user_profile_facts' AND source_id IN ({placeholders})
+            """,
+            fact_ids,
+        )
+
+
+def _session_text_bytes(conn, session_id: str) -> int:
+    total = 0
+    queries = (
+        ("messages", "text"),
+        ("knowledge_sources", "content"),
+        ("memories", "content"),
+        ("user_profile_facts", "fact_value"),
+    )
+    for table, column in queries:
+        if not _table_exists(conn, table):
+            continue
+        row = conn.execute(
+            f"SELECT COALESCE(SUM(LENGTH({_quote_identifier(column)})), 0) AS n FROM {_quote_identifier(table)} WHERE session_id=?",
+            (session_id,),
+        ).fetchone()
+        total += int(row["n"] if row else 0)
+    return total
 
 
 def clear_local_data(confirmation: str) -> dict:

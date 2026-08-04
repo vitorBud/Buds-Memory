@@ -83,6 +83,11 @@ export const settingsControlStyles = {
   statusOrbOffline:
     'border-[color-mix(in_srgb,var(--accent-hot),transparent_58%)] bg-[color-mix(in_srgb,var(--accent-hot),transparent_82%)] text-buds-accent-hot',
 
+  discoveryCard:
+    'grid gap-2.5 rounded-[18px] border border-[var(--liquid-border)] p-3.5 [background:linear-gradient(135deg,color-mix(in_srgb,var(--accent-hot),transparent_89%),transparent_62%),var(--liquid-panel-soft)] [&>strong]:text-sm [&>strong]:text-buds-text [&>span]:text-[11px] [&>span]:text-buds-muted',
+  discoveryGrid:
+    'grid grid-cols-4 gap-2 max-[620px]:grid-cols-2 [&>button]:inline-flex [&>button]:min-h-11 [&>button]:cursor-pointer [&>button]:items-center [&>button]:justify-center [&>button]:gap-1.5 [&>button]:rounded-[13px] [&>button]:border [&>button]:border-[var(--liquid-border)] [&>button]:bg-[var(--liquid-panel)] [&>button]:px-2 [&>button]:text-xs [&>button]:font-bold [&>button]:text-buds-text [&>button]:transition-colors [&>button:hover]:border-[var(--liquid-border-strong)] [&>button:hover]:bg-[rgba(var(--accent-hot-rgb)/0.1)] platform-windows:[&>button]:transition-none',
+
   codebaseCard:
     'grid gap-[13px] rounded-[18px] border border-[var(--liquid-border)] p-3.5 [background:linear-gradient(135deg,var(--liquid-highlight),transparent_50%),var(--liquid-panel-soft)]',
   codebaseTitle:
@@ -112,6 +117,28 @@ export const settingsControlStyles = {
     'mt-2.5 !border-[color-mix(in_srgb,var(--accent-hot),transparent_62%)] !bg-[color-mix(in_srgb,var(--accent-hot),transparent_88%)] !text-buds-accent-hot !shadow-none hover:!shadow-[0_14px_36px_color-mix(in_srgb,var(--accent-hot),transparent_82%)] platform-windows:hover:!shadow-none',
   storageNotice:
     'grid gap-2 rounded-[18px] border border-[color-mix(in_srgb,#fb7185,transparent_55%)] bg-[color-mix(in_srgb,#fb7185,transparent_90%)] p-3.5 text-[12px] leading-[1.5] text-buds-muted [&>strong]:text-[13px] [&>strong]:text-[color-mix(in_srgb,#fb7185,var(--text)_24%)]',
+  storageInfoNotice:
+    'grid gap-2 rounded-[18px] border border-[color-mix(in_srgb,var(--accent-hot),transparent_62%)] bg-[color-mix(in_srgb,var(--accent-hot),transparent_91%)] p-3.5 text-[12px] leading-[1.5] text-buds-muted [&>strong]:text-[13px] [&>strong]:text-buds-text',
+  conversationStorageList:
+    'grid max-h-[520px] gap-2.5 overflow-y-auto pr-1 max-[760px]:max-h-none max-[760px]:overflow-visible',
+  conversationStorageCard:
+    'grid gap-3 rounded-[18px] border border-[var(--liquid-border)] p-3.5 [background:linear-gradient(135deg,var(--liquid-highlight),transparent_56%),var(--liquid-panel-soft)]',
+  conversationStorageHeader:
+    'grid min-w-0 grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2.5 max-[520px]:grid-cols-[32px_minmax(0,1fr)]',
+  conversationStorageIcon:
+    'grid size-8 place-items-center rounded-[10px] border border-[var(--liquid-border)] bg-[var(--liquid-panel)] text-buds-accent-hot',
+  conversationStorageCopy:
+    'grid min-w-0 gap-0.5 [&>strong]:overflow-hidden [&>strong]:text-ellipsis [&>strong]:whitespace-nowrap [&>strong]:text-[13px] [&>strong]:text-buds-text [&>small]:text-[10px] [&>small]:text-buds-muted',
+  conversationStorageBadge:
+    'rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-2 py-1 text-[9px] font-extrabold uppercase text-buds-muted data-[state=removed]:border-[color-mix(in_srgb,#fb7185,transparent_60%)] data-[state=removed]:text-[color-mix(in_srgb,#fb7185,var(--text)_18%)] data-[state=active]:border-[color-mix(in_srgb,#34d399,transparent_60%)] data-[state=active]:text-[#34d399] max-[520px]:col-start-2 max-[520px]:w-fit',
+  conversationStorageStats:
+    'flex flex-wrap gap-1.5 [&>span]:rounded-full [&>span]:border [&>span]:border-[var(--liquid-border)] [&>span]:bg-[color-mix(in_srgb,var(--surface),transparent_20%)] [&>span]:px-2 [&>span]:py-1 [&>span]:text-[10px] [&>span]:text-buds-muted',
+  conversationDangerButton:
+    'inline-flex min-h-10 w-fit cursor-pointer items-center justify-center gap-1.5 justify-self-end rounded-full border border-[color-mix(in_srgb,#fb7185,transparent_56%)] bg-[color-mix(in_srgb,#fb7185,transparent_90%)] px-3 text-[11px] font-bold text-[color-mix(in_srgb,#fb7185,var(--text)_20%)] transition-colors hover:bg-[color-mix(in_srgb,#fb7185,transparent_82%)] disabled:cursor-not-allowed disabled:opacity-45 platform-windows:transition-none max-[520px]:w-full max-[520px]:justify-self-stretch',
+  storageEmpty:
+    'grid place-items-center gap-1.5 rounded-[18px] border border-dashed border-[var(--liquid-border)] p-6 text-center text-buds-muted [&>svg]:text-buds-faint [&>strong]:text-[13px] [&>strong]:text-buds-text [&>span]:max-w-[360px] [&>span]:text-[11px]',
+  storageTotalDivider:
+    'relative my-1 flex items-center justify-center before:absolute before:inset-x-0 before:h-px before:bg-[var(--liquid-border)] [&>span]:relative [&>span]:bg-[var(--liquid-panel)] [&>span]:px-3 [&>span]:text-[10px] [&>span]:font-bold [&>span]:uppercase [&>span]:text-buds-faint',
   storageInput:
     'min-h-12 w-full rounded-[14px] border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--surface),transparent_10%)] px-3 text-base text-buds-text outline-none transition-[border-color,box-shadow] duration-160 placeholder:text-buds-faint focus:border-[color-mix(in_srgb,#fb7185,transparent_28%)] focus:shadow-[0_0_0_3px_color-mix(in_srgb,#fb7185,transparent_84%)] platform-windows:transition-none',
   dangerButton:

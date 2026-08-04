@@ -28,8 +28,8 @@ import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { useMobilePerformanceMonitor } from './hooks/useMobilePerformance'
 import { useHealthPolling } from './hooks/useHealthPolling'
-import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, exportLocalMemoryBackup, importLocalMemoryBackup, clearLocalStorage, getCognitiveMemories, getKnowledgeGraph, isNativeIOSRuntime } from './services/api'
-import type { AiState, BackendConfig, Session, InterfaceSettings, LocalBackupStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
+import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, getConversationStorage, purgeConversationStorage, exportLocalMemoryBackup, importLocalMemoryBackup, clearLocalStorage, getCognitiveMemories, getKnowledgeGraph, isNativeIOSRuntime } from './services/api'
+import type { AiState, BackendConfig, Session, InterfaceSettings, LocalBackupStatus, ConversationStorageStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
 import { getRuntimePlatform, isIOSRuntime, isWindowsRuntime } from './utils/runtime'
 import { toastStyles } from './styles/notificacoes'
@@ -218,6 +218,7 @@ export default function App() {
   const [isImportingKnowledge, setIsImportingKnowledge] = useState(false)
   const [knowledgePanelOpen, setKnowledgePanelOpen] = useState(false)
   const [backupStatus, setLocalBackupStatus] = useState<LocalBackupStatus | null>(null)
+  const [conversationStorage, setConversationStorage] = useState<ConversationStorageStatus>({ conversations: [], orphaned: [] })
   const [isBackupBusy, setIsBackupBusy] = useState(false)
   const [isStorageBusy, setIsStorageBusy] = useState(false)
   const [cognitiveMemories, setCognitiveMemories] = useState<CognitiveMemory[]>([])
@@ -338,8 +339,12 @@ export default function App() {
 
   const refreshLocalBackupStatus = useCallback(async () => {
     try {
-      const status = await getLocalBackupStatus()
+      const [status, conversations] = await Promise.all([
+        getLocalBackupStatus(),
+        getConversationStorage(),
+      ])
       setLocalBackupStatus(status)
+      setConversationStorage(conversations)
     } catch (err) {
       console.error(err)
     }
@@ -590,7 +595,7 @@ export default function App() {
   }
 
   const handleDeleteSession = async (id: string) => {
-    if (!confirm('Deletar esta conversa?')) return
+    if (!confirm('Remover esta conversa da lista? As memórias continuam no Buds até você apagá-las em Configurações > Armazenamento.')) return
     await deleteSession(id)
     setSessions(prev => prev.filter(s => s.id !== id))
     if (currentSessionId === id) {
@@ -604,6 +609,7 @@ export default function App() {
       setKnowledgeInput('')
       clearMessages()
     }
+    void refreshLocalBackupStatus()
   }
 
   const handleSendText = async (text: string) => {
@@ -715,6 +721,34 @@ export default function App() {
       setIsStorageBusy(false)
     }
   }, [cancelRecording, stopOutput])
+
+  const handlePurgeConversation = useCallback(async (id: string) => {
+    setIsStorageBusy(true)
+    try {
+      cancelRecording()
+      stopOutput()
+      const updated = await purgeConversationStorage(id)
+      setConversationStorage(updated)
+      setSessions(prev => prev.filter(session => session.id !== id))
+      if (currentSessionId === id) {
+        sessionLoadRequestRef.current += 1
+        setCurrentSessionId(null)
+        setCurrentSessionTitle(null)
+        setCurrentSessionCreatedAt(null)
+        setDraftTitle('')
+        setIsEditingTitle(false)
+        setKnowledgeSources([])
+        setKnowledgeInput('')
+        clearMessages()
+      }
+      await Promise.all([refreshLocalBackupStatus(), refreshCognitiveBrain()])
+      showToast('Conversa e memórias apagadas definitivamente.', 'success')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Falha ao apagar os dados desta conversa.')
+    } finally {
+      setIsStorageBusy(false)
+    }
+  }, [cancelRecording, clearMessages, currentSessionId, refreshCognitiveBrain, refreshLocalBackupStatus, showToast, stopOutput])
 
   const handleOpenHome = () => {
     setSettingsOpen(false)
@@ -1105,8 +1139,9 @@ export default function App() {
         {activeView === 'voice' && (
           <motion.div
             key="voice"
+            className="w-full max-w-full overflow-x-hidden"
             {...viewMotionProps}
-            style={{ minHeight: '100dvh' }}
+            style={{ minHeight: '100dvh', width: '100%', maxWidth: '100vw' }}
           >
             <Suspense fallback={<DeferredSurface label="Carregando conversa..." />}>
               <VoiceMode
@@ -1233,6 +1268,7 @@ export default function App() {
               models={availableModels}
               googleSearchAvailable={googleSearchAvailable}
               backupStatus={backupStatus}
+              conversationStorage={conversationStorage}
               isBackupBusy={isBackupBusy}
               isStorageBusy={isStorageBusy}
               authMode={systemHealth?.authMode}
@@ -1242,6 +1278,7 @@ export default function App() {
               onExportBackup={handleExportMemoryBackup}
               onImportBackup={handleImportMemoryBackup}
               onClearStorage={handleClearLocalStorage}
+              onPurgeConversation={handlePurgeConversation}
               onSettingChange={updateSetting}
               onClose={() => setSettingsOpen(false)}
             >

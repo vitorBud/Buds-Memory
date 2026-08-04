@@ -44,11 +44,13 @@ def migrate():
         _create_backup_import_map(conn)
         _create_conversation_summaries(conn)
         _create_codebase_index(conn)
+        _migrate_session_retention(conn)
         _migrate_memories_core_columns(conn)
         _migrate_memory_scope(conn)
         _migrate_knowledge_source_intelligence(conn)
         _migrate_embeddings_metadata(conn)
         _migrate_entity_mention_counts(conn)
+        _create_graph_provenance(conn)
         _create_indexes(conn)
         _create_rag_cleanup_triggers(conn)
         _cleanup_orphaned_rag(conn)
@@ -273,6 +275,52 @@ def _create_codebase_index(conn):
             indexed_at     TEXT NOT NULL
         );
     """)
+
+
+def _migrate_session_retention(conn):
+    """Adiciona a lixeira lógica sem remover conversas de bancos existentes."""
+    _add_column_if_missing(conn, "sessions", "deleted_at", "TEXT")
+
+
+def _create_graph_provenance(conn):
+    """Registra quais conversas criaram cada ponto/relação do grafo.
+
+    Entidades antigas recebem uma origem legada sem sessão. Dessa forma uma
+    limpeza nova nunca apaga silenciosamente um nó cuja procedência histórica
+    não pode ser provada.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS kg_entity_mentions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_id     INTEGER NOT NULL,
+            session_id    TEXT,
+            mention_count INTEGER NOT NULL DEFAULT 1,
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL,
+            FOREIGN KEY (entity_id) REFERENCES kg_entities(id) ON DELETE CASCADE,
+            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_entity_mentions_session
+        ON kg_entity_mentions(entity_id, session_id)
+        WHERE session_id IS NOT NULL
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_kg_entity_mentions_legacy
+        ON kg_entity_mentions(entity_id)
+        WHERE session_id IS NULL
+    """)
+    conn.execute("""
+        INSERT OR IGNORE INTO kg_entity_mentions
+          (entity_id, session_id, mention_count, created_at, updated_at)
+        SELECT id, NULL, MAX(1, COALESCE(access_count, 1)), first_seen, last_seen
+        FROM kg_entities
+        WHERE NOT EXISTS (
+            SELECT 1 FROM kg_entity_mentions m WHERE m.entity_id=kg_entities.id
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_kg_entity_mentions_chat ON kg_entity_mentions(session_id)")
 
 
 def _create_indexes(conn):

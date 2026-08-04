@@ -37,7 +37,7 @@ public final class BudsLocalStore: @unchecked Sendable {
 
     public func listSessions() throws -> [BudsSessionRecord] {
         try queue.sync {
-            let sql = "SELECT id, title, created_at FROM sessions ORDER BY created_at DESC"
+            let sql = "SELECT id, title, created_at FROM sessions WHERE deleted_at IS NULL ORDER BY created_at DESC"
             let statement = try prepare(sql)
             defer { sqlite3_finalize(statement) }
             var records: [BudsSessionRecord] = []
@@ -93,23 +93,86 @@ public final class BudsLocalStore: @unchecked Sendable {
     public func deleteSession(id: String) throws {
         try queue.sync {
             try ensureWritable()
+            let statement = try prepare(
+                "UPDATE sessions SET deleted_at = COALESCE(deleted_at, ?) WHERE id = ?"
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(Self.now(), statement, 1)
+            bind(id, statement, 2)
+            try stepDone(statement)
+        }
+    }
+
+    public func conversationStorage() throws -> [BudsConversationStorageRecord] {
+        try queue.sync {
+            let statement = try prepare(
+                "SELECT id, title, created_at, deleted_at FROM sessions ORDER BY deleted_at IS NULL, COALESCE(deleted_at, created_at) DESC"
+            )
+            defer { sqlite3_finalize(statement) }
+            var records: [BudsConversationStorageRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let id = text(statement, 0)
+                let messages = try count(table: "messages", sessionId: id)
+                let memories = try count(table: "memories", sessionId: id)
+                let bytes = try conversationTextBytes(sessionId: id)
+                let deletedAt = optionalText(statement, 3)
+                records.append(BudsConversationStorageRecord(
+                    id: id,
+                    title: text(statement, 1),
+                    createdAt: text(statement, 2),
+                    deletedAt: deletedAt,
+                    state: deletedAt == nil ? "active" : "removed",
+                    messageCount: messages,
+                    memoryCount: memories,
+                    totalRecords: messages + memories + 1,
+                    estimatedBytes: bytes
+                ))
+            }
+
+            let legacyCount = try scalarInt(
+                "SELECT COUNT(*) FROM memories WHERE session_id IS NULL AND origin_type='legacy' AND is_core=0"
+            )
+            if legacyCount > 0 {
+                records.insert(BudsConversationStorageRecord(
+                    id: "__legacy_orphaned__",
+                    title: "Memórias antigas sem conversa",
+                    createdAt: nil,
+                    deletedAt: nil,
+                    state: "orphaned",
+                    messageCount: 0,
+                    memoryCount: legacyCount,
+                    totalRecords: legacyCount,
+                    estimatedBytes: try scalarInt64(
+                        "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM memories WHERE session_id IS NULL AND origin_type='legacy' AND is_core=0"
+                    )
+                ), at: 0)
+            }
+            return records
+        }
+    }
+
+    public func purgeConversation(id: String) throws {
+        try queue.sync {
+            try ensureWritable()
             try transaction {
-                let memoryStatement = try prepare(
-                    "DELETE FROM memories WHERE session_id = ? AND scope = 'conversation'"
-                )
-                bind(id, memoryStatement, 1)
-                try stepDone(memoryStatement)
-                sqlite3_finalize(memoryStatement)
+                if id == "__legacy_orphaned__" {
+                    try execute("DELETE FROM memories WHERE session_id IS NULL AND origin_type='legacy' AND is_core=0")
+                    return
+                }
+                let memories = try prepare("DELETE FROM memories WHERE session_id = ?")
+                bind(id, memories, 1)
+                try stepDone(memories)
+                sqlite3_finalize(memories)
 
-                let messageStatement = try prepare("DELETE FROM messages WHERE session_id = ?")
-                bind(id, messageStatement, 1)
-                try stepDone(messageStatement)
-                sqlite3_finalize(messageStatement)
+                let messages = try prepare("DELETE FROM messages WHERE session_id = ?")
+                bind(id, messages, 1)
+                try stepDone(messages)
+                sqlite3_finalize(messages)
 
-                let sessionStatement = try prepare("DELETE FROM sessions WHERE id = ?")
-                bind(id, sessionStatement, 1)
-                try stepDone(sessionStatement)
-                sqlite3_finalize(sessionStatement)
+                let session = try prepare("DELETE FROM sessions WHERE id = ?")
+                bind(id, session, 1)
+                try stepDone(session)
+                sqlite3_finalize(session)
             }
         }
     }
@@ -175,7 +238,7 @@ public final class BudsLocalStore: @unchecked Sendable {
             )
             if sender == "user" {
                 try updateAutomaticTitleIfNeeded(sessionId: sessionId, text: text)
-                try rememberDurableFacts(from: text)
+                try rememberDurableFacts(from: text, sessionId: sessionId)
                 try rememberConversationTopic(from: text, sessionId: sessionId)
             }
             return record
@@ -242,7 +305,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 throw BudsNativeError.databaseUnavailable("A memória não pode ficar vazia.")
             }
             let statement = try prepare(
-                "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id) VALUES (?, ?, 0, ?, 'global', NULL)"
+                "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id, origin_type) VALUES (?, ?, 0, ?, 'global', NULL, 'manual')"
             )
             defer { sqlite3_finalize(statement) }
             bind(String(value.prefix(2_000)), statement, 1)
@@ -287,14 +350,13 @@ public final class BudsLocalStore: @unchecked Sendable {
         try queue.sync {
             try ensureWritable()
             let statement = try prepare(
-                "UPDATE memories SET is_core = ?, importance = MAX(importance, ?), scope = CASE WHEN ? = 1 THEN 'global' ELSE scope END, session_id = CASE WHEN ? = 1 THEN NULL ELSE session_id END WHERE id = ?"
+                "UPDATE memories SET is_core = ?, importance = MAX(importance, ?), scope = CASE WHEN ? = 1 THEN 'global' ELSE scope END WHERE id = ?"
             )
             defer { sqlite3_finalize(statement) }
             sqlite3_bind_int(statement, 1, enabled ? 1 : 0)
             sqlite3_bind_double(statement, 2, enabled ? 0.9 : 0.2)
             sqlite3_bind_int(statement, 3, enabled ? 1 : 0)
-            sqlite3_bind_int(statement, 4, enabled ? 1 : 0)
-            sqlite3_bind_int64(statement, 5, id)
+            sqlite3_bind_int64(statement, 4, id)
             try stepDone(statement)
             guard let updated = try memory(id: id) else {
                 throw BudsNativeError.databaseUnavailable("Memória não encontrada.")
@@ -338,9 +400,13 @@ public final class BudsLocalStore: @unchecked Sendable {
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                deleted_at TEXT
             )
             """)
+        if !((try? tableColumns("sessions")) ?? []).contains("deleted_at") {
+            try execute("ALTER TABLE sessions ADD COLUMN deleted_at TEXT")
+        }
         try execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -353,7 +419,11 @@ public final class BudsLocalStore: @unchecked Sendable {
             """)
         try execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)")
         try migrateMemoryScopeIfNeeded()
-        try execute("PRAGMA user_version=2")
+        let memoryColumns = try tableColumns("memories")
+        if !memoryColumns.contains("origin_type") {
+            try execute("ALTER TABLE memories ADD COLUMN origin_type TEXT NOT NULL DEFAULT 'legacy'")
+        }
+        try execute("PRAGMA user_version=3")
     }
 
     private func ensureWritable() throws {
@@ -409,7 +479,7 @@ public final class BudsLocalStore: @unchecked Sendable {
         try stepDone(statement)
     }
 
-    private func rememberDurableFacts(from text: String) throws {
+    private func rememberDurableFacts(from text: String, sessionId: String) throws {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = clean.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "pt_BR"))
         let durablePrefixes = [
@@ -419,11 +489,12 @@ public final class BudsLocalStore: @unchecked Sendable {
         guard clean.count >= 8, clean.count <= 280,
               durablePrefixes.contains(where: { lower.hasPrefix($0) }) else { return }
         let statement = try prepare(
-            "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id) VALUES (?, 0.85, 0, ?, 'global', NULL)"
+            "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id, origin_type) VALUES (?, 0.85, 0, ?, 'global', ?, 'conversation')"
         )
         defer { sqlite3_finalize(statement) }
         bind(clean, statement, 1)
         bind(Self.now(), statement, 2)
+        bind(sessionId, statement, 3)
         try stepDone(statement)
     }
 
@@ -440,7 +511,7 @@ public final class BudsLocalStore: @unchecked Sendable {
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         let topic = String(compact.prefix(360))
         let statement = try prepare(
-            "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id) VALUES (?, 0.58, 0, ?, 'conversation', ?)"
+            "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id, origin_type) VALUES (?, 0.58, 0, ?, 'conversation', ?, 'conversation')"
         )
         defer { sqlite3_finalize(statement) }
         bind(topic, statement, 1)
@@ -496,6 +567,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 created_at TEXT NOT NULL,
                 scope TEXT NOT NULL DEFAULT 'global',
                 session_id TEXT,
+                origin_type TEXT NOT NULL DEFAULT 'legacy',
                 FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
             """)
@@ -516,6 +588,40 @@ public final class BudsLocalStore: @unchecked Sendable {
             columns.insert(text(statement, 1))
         }
         return columns
+    }
+
+    private func count(table: String, sessionId: String) throws -> Int {
+        let statement = try prepare("SELECT COUNT(*) FROM \(table) WHERE session_id = ?")
+        defer { sqlite3_finalize(statement) }
+        bind(sessionId, statement, 1)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(statement, 0))
+    }
+
+    private func conversationTextBytes(sessionId: String) throws -> Int64 {
+        let statement = try prepare(
+            """
+            SELECT
+              COALESCE((SELECT SUM(LENGTH(text)) FROM messages WHERE session_id=?), 0) +
+              COALESCE((SELECT SUM(LENGTH(content)) FROM memories WHERE session_id=?), 0)
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        bind(sessionId, statement, 1)
+        bind(sessionId, statement, 2)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
+        return sqlite3_column_int64(statement, 0)
+    }
+
+    private func scalarInt(_ sql: String) throws -> Int {
+        Int(try scalarInt64(sql))
+    }
+
+    private func scalarInt64(_ sql: String) throws -> Int64 {
+        let statement = try prepare(sql)
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
+        return sqlite3_column_int64(statement, 0)
     }
 
     private func transaction(_ work: () throws -> Void) throws {

@@ -777,6 +777,35 @@ def clear_local_storage():
         return jsonify({"error": f"Falha ao apagar os dados locais: {exc}"}), 500
 
 
+@app.route('/api/local-storage/conversations', methods=['GET'])
+def get_conversation_storage():
+    """Lista o espaço e a memória atribuídos a cada conversa."""
+    try:
+        return jsonify(local_backup.get_conversation_storage()), 200
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao listar dados das conversas: {exc}"}), 500
+
+
+@app.route('/api/local-storage/conversations/<session_id>', methods=['DELETE'])
+def purge_conversation_storage(session_id):
+    """Apaga definitivamente o chat e sua memória cognitiva atribuível."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        result = local_backup.purge_conversation_data(
+            session_id,
+            str(payload.get("confirmation") or ""),
+        )
+        return jsonify({
+            "success": True,
+            "message": "Conversa e memórias associadas apagadas definitivamente.",
+            **result,
+        }), 200
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao apagar os dados da conversa: {exc}"}), 500
+
+
 @app.route('/api/local-backup/import', methods=['POST'])
 def import_local_backup():
     """Importa um backup JSON do Buds em modo merge, sem apagar dados locais."""
@@ -842,10 +871,15 @@ def create_session():
 
 @app.route('/api/sessions/<session_id>', methods=['DELETE'])
 def delete_session(session_id):
-    """Deleta uma sessão de chat e todas as mensagens associadas (cascade delete)."""
+    """Retira uma conversa da lista; a limpeza definitiva fica em Armazenamento."""
     try:
-        database.delete_session(session_id)
-        return jsonify({"success": True, "message": "Sessão deletada com sucesso!"}), 200
+        database.archive_session(session_id)
+        return jsonify({
+            "success": True,
+            "message": "Conversa removida da lista. Os dados podem ser apagados em Configurações > Armazenamento.",
+        }), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

@@ -13,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
 import local_backup  # noqa: E402
 import database  # noqa: E402
 import database_v2  # noqa: E402
+from cognitive import knowledge_graph, memory, user_profile  # noqa: E402
 
 
 class ClosingConnection(sqlite3.Connection):
@@ -90,6 +91,7 @@ def create_full_schema(db_path: Path):
         database_v2._create_memories(conn)
         database_v2._create_user_profile(conn)
         database_v2._create_knowledge_graph(conn)
+        database_v2._create_graph_provenance(conn)
         database_v2._create_projects(conn)
         database_v2._create_timeline(conn)
         database_v2._create_insights(conn)
@@ -189,6 +191,13 @@ def seed_all_tables(db_path: Path, prefix: str):
               (id, source_id, target_id, relation_type, strength, created_at)
             VALUES
               (1, 1, 2, 'related_to', 0.8, '2026-07-22T12:00:08')
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO kg_entity_mentions
+              (entity_id, session_id, mention_count, created_at, updated_at)
+            VALUES (1, 'session-1', 1, '2026-07-22T12:00:08', '2026-07-22T12:00:08')
             """
         )
         conn.execute(
@@ -558,9 +567,8 @@ class RagCleanupTests(unittest.TestCase):
             with make_connection_factory(db_path)() as conn:
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0], 0)
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM ingestion_cache").fetchone()[0], 0)
-
                 conn.execute(
-                    "INSERT INTO sessions VALUES ('s1', 'Sessão', '2026-07-22')"
+                    "INSERT INTO sessions (id, title, created_at) VALUES ('s1', 'Sessão', '2026-07-22')"
                 )
                 message_id = conn.execute(
                     """
@@ -647,6 +655,65 @@ class RagCleanupTests(unittest.TestCase):
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM knowledge_sources").fetchone()[0], 0)
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0], 0)
                 self.assertEqual(conn.execute("SELECT COUNT(*) FROM ingestion_cache").fetchone()[0], 0)
+
+
+class ConversationStorageTests(unittest.TestCase):
+    def test_archive_preserves_data_until_explicit_conversation_purge(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "conversation-storage.db"
+            with patch.object(database, "DB_PATH", db_path), patch.object(database_v2, "DB_PATH", db_path):
+                database.init_db()
+                database_v2.migrate()
+                session = database.create_session("Minha vida")
+                database.add_message(session["id"], "user", "Eu uso Python no meu projeto pessoal.")
+                saved_memory = memory.save_memory(
+                    "O usuário usa Python no projeto pessoal.",
+                    session_id=session["id"],
+                    memory_type="long",
+                    importance=0.9,
+                    scope="conversation",
+                )
+                knowledge_graph.detect_and_register("Python", session["id"])
+
+                database.archive_session(session["id"])
+                self.assertEqual(database.get_all_sessions(), [])
+                self.assertIsNotNone(database.get_session(session["id"]))
+                self.assertIsNotNone(memory.get_memory(saved_memory["id"]))
+
+                status = local_backup.get_conversation_storage()
+                removed = next(item for item in status["conversations"] if item["id"] == session["id"])
+                self.assertEqual(removed["state"], "removed")
+                self.assertGreaterEqual(removed["memory_count"], 1)
+                self.assertGreaterEqual(removed["graph_count"], 1)
+
+                local_backup.purge_conversation_data(session["id"], f"APAGAR:{session['id']}")
+                self.assertIsNone(database.get_session(session["id"]))
+                self.assertIsNone(memory.get_memory(saved_memory["id"]))
+                self.assertIsNone(knowledge_graph.get_entity("python"))
+
+    def test_old_deleted_chat_is_listed_and_profile_memory_can_be_purged(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "orphaned-chat.db"
+            with patch.object(database, "DB_PATH", db_path), patch.object(database_v2, "DB_PATH", db_path):
+                database.init_db()
+                database_v2.migrate()
+                session = database.create_session("Chat antigo")
+                fact = user_profile.upsert_fact("name", "Vitor", confidence=0.9, session_id=session["id"])
+                user_profile._sync_core_memory(fact)
+                database.delete_session(session["id"])
+
+                status = local_backup.get_conversation_storage()
+                orphan = next(item for item in status["orphaned"] if item["id"] == session["id"])
+                self.assertGreaterEqual(orphan["memory_count"], 1)
+
+                local_backup.purge_conversation_data(session["id"], f"APAGAR:{session['id']}")
+                with database_v2.get_db_connection() as conn:
+                    self.assertEqual(
+                        conn.execute("SELECT COUNT(*) FROM user_profile_facts WHERE session_id=?", (session["id"],)).fetchone()[0], 0
+                    )
+                    self.assertEqual(
+                        conn.execute("SELECT COUNT(*) FROM memories WHERE source_table='user_profile_facts' AND source_id=?", (fact["id"],)).fetchone()[0], 0
+                    )
 
 
 if __name__ == "__main__":

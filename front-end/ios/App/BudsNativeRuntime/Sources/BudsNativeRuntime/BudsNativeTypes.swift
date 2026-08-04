@@ -98,6 +98,18 @@ public struct BudsSessionRecord: Sendable {
     public let createdAt: String
 }
 
+public struct BudsConversationStorageRecord: Sendable {
+    public let id: String
+    public let title: String
+    public let createdAt: String?
+    public let deletedAt: String?
+    public let state: String
+    public let messageCount: Int
+    public let memoryCount: Int
+    public let totalRecords: Int
+    public let estimatedBytes: Int64
+}
+
 public struct BudsMessageRecord: Sendable {
     public let id: Int64
     public let sessionId: String

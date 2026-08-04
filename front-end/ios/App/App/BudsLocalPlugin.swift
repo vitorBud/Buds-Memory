@@ -15,6 +15,8 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "createSession", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateSessionTitle", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteSession", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listConversationStorage", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "purgeConversation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getMessages", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getMemories", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "createMemory", returnType: CAPPluginReturnPromise),
@@ -105,6 +107,24 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         resolve(call) {
             try runtime.deleteSession(id: id)
             return [:]
+        }
+    }
+
+    @objc func listConversationStorage(_ call: CAPPluginCall) {
+        resolve(call) {
+            ["conversations": try runtime.conversationStorage().map(conversationStoragePayload)]
+        }
+    }
+
+    @objc func purgeConversation(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"),
+              call.getString("confirmation") == "APAGAR:\(id)" else {
+            call.reject("Confirmação inválida para a exclusão desta conversa.")
+            return
+        }
+        resolve(call) {
+            try runtime.purgeConversation(id: id)
+            return ["conversations": try runtime.conversationStorage().map(conversationStoragePayload)]
         }
     }
 
@@ -293,6 +313,23 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private func sessionPayload(_ session: BudsSessionRecord) -> [String: Any] {
         ["id": session.id, "title": session.title, "created_at": session.createdAt]
+    }
+
+    private func conversationStoragePayload(_ item: BudsConversationStorageRecord) -> [String: Any] {
+        [
+            "id": item.id,
+            "title": item.title,
+            "created_at": item.createdAt ?? NSNull(),
+            "deleted_at": item.deletedAt ?? NSNull(),
+            "state": item.state,
+            "message_count": item.messageCount,
+            "knowledge_count": 0,
+            "memory_count": item.memoryCount,
+            "timeline_count": 0,
+            "graph_count": 0,
+            "total_records": item.totalRecords,
+            "estimated_bytes": item.estimatedBytes,
+        ]
     }
 
     private func messagePayload(_ message: BudsMessageRecord) -> [String: Any] {

@@ -1,6 +1,6 @@
 import { registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
-import type { ChatStreamEvent, CognitiveMemory, Message, Session } from '../types'
+import type { ChatStreamEvent, CognitiveMemory, ConversationStorageItem, Message, Session } from '../types'
 
 export interface IOSLocalStorageStatus {
   availableBytes: number
@@ -30,6 +30,8 @@ interface IOSLocalPlugin {
   createSession(options: { title?: string }): Promise<Session>
   updateSessionTitle(options: { id: string; title: string }): Promise<Session>
   deleteSession(options: { id: string }): Promise<void>
+  listConversationStorage(): Promise<{ conversations: ConversationStorageItem[] }>
+  purgeConversation(options: { id: string; confirmation: string }): Promise<{ conversations: ConversationStorageItem[] }>
   getMessages(options: { sessionId: string }): Promise<{ messages: Message[] }>
   getMemories(options: { limit: number }): Promise<{ memories: CognitiveMemory[] }>
   createMemory(options: { content: string; importance: number }): Promise<CognitiveMemory>
@@ -102,6 +104,14 @@ export function updateIOSLocalSessionTitle(id: string, title: string): Promise<S
 
 export function deleteIOSLocalSession(id: string): Promise<void> {
   return native.deleteSession({ id })
+}
+
+export async function listIOSConversationStorage(): Promise<ConversationStorageItem[]> {
+  return (await native.listConversationStorage()).conversations
+}
+
+export async function purgeIOSConversation(id: string): Promise<ConversationStorageItem[]> {
+  return (await native.purgeConversation({ id, confirmation: `APAGAR:${id}` })).conversations
 }
 
 export async function getIOSLocalMessages(sessionId: string): Promise<Message[]> {
