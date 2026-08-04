@@ -118,7 +118,7 @@ export function VoiceMode({
           aria-label={isRecording ? 'Enviar fala' : canInterrupt ? 'Interromper e falar' : 'Ativar microfone'}
           title={isRecording ? 'Enviar fala' : canInterrupt ? 'Interromper e falar' : 'Ativar microfone'}
         >
-          <span className={`voice-core-halo ${voiceModeStyles.coreLayer} ${voiceModeStyles.halo} ${voiceHaloStateStyles[aiState] ?? ''}`} />
+          <span className={`voice-core-halo ${voiceModeStyles.coreLayer} ${voiceHaloStateStyles[aiState] ?? ''}`} />
           <span className={`voice-core-orb ${voiceModeStyles.coreLayer} ${voiceModeStyles.orb}`}>
             <i className={`${voiceModeStyles.orbLayer} ${voiceModeStyles.ringOne} ${voiceRingStateStyles[aiState] ?? ''}`} />
             <i className={`${voiceModeStyles.orbLayer} ${voiceModeStyles.ringTwo} ${voiceRingStateStyles[aiState] ?? ''}`} />
