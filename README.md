@@ -1,6 +1,6 @@
-# Aether Memory
+# Buds Memory
 
-Aether Memory e um assistente local-first com chat, voz, memoria, RAG, Obsidian visual, backup portatil e app desktop via Electron.
+Buds Memory e um assistente local-first com chat, voz, memoria, RAG, Obsidian visual, backup portatil e app desktop via Electron.
 
 O projeto roda com Ollama local, salva dados em SQLite e foi adaptado para macOS e Windows sem precisar trocar a API do frontend. No Mac ele preserva o visual mais pesado. No Windows ele usa um perfil visual mais leve para evitar travadas no Chromium/Electron.
 
@@ -180,7 +180,7 @@ Pelo terminal:
 
 ```powershell
 curl http://127.0.0.1:5050/api/local-backup/status
-curl -o aether-memory-backup.json http://127.0.0.1:5050/api/local-backup/export
+curl -o buds-memory-backup.json http://127.0.0.1:5050/api/local-backup/export
 ```
 
 ## Acesso Remoto
@@ -271,7 +271,7 @@ Se ainda travar, teste com voz automatica desligada e com a tela Home/Obsidian f
 - `front-end/node_modules/`
 - `front-end/dist/`
 - `front-end/release/`
-- backups `aether-memory-backup-*.json`
+- backups `buds-memory-backup-*.json`
 
 ## Status Esperado
 

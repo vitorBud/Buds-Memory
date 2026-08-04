@@ -1,7 +1,7 @@
 import Foundation
 import llama
 
-final class AetherInferenceEngine: @unchecked Sendable {
+final class BudsInferenceEngine: @unchecked Sendable {
     private var model: OpaquePointer?
     private var context: OpaquePointer?
     private var sampler: UnsafeMutablePointer<llama_sampler>?
@@ -43,16 +43,16 @@ final class AetherInferenceEngine: @unchecked Sendable {
         prompt: String,
         modelURL: URL,
         onToken: @escaping @Sendable (String) -> Void
-    ) throws -> AetherEngineResult {
+    ) throws -> BudsEngineResult {
         let totalStart = ProcessInfo.processInfo.systemUptime
-        let startSnapshot = AetherPerformanceMonitor.snapshot()
+        let startSnapshot = BudsPerformanceMonitor.snapshot()
         let thermalStart = Self.thermalStateName
         let loadStart = ProcessInfo.processInfo.systemUptime
         try prepareForGeneration(modelURL: modelURL)
         let loadMilliseconds = (ProcessInfo.processInfo.systemUptime - loadStart) * 1_000
         guard let model, let context, let sampler,
               let vocabulary = llama_model_get_vocab(model) else {
-            throw AetherNativeError.modelLoad("runtime não inicializado")
+            throw BudsNativeError.modelLoad("runtime não inicializado")
         }
 
         stateLock.lock()
@@ -64,7 +64,7 @@ final class AetherInferenceEngine: @unchecked Sendable {
         let maxOutput = generationTokenBudget()
         var promptTokens = try tokenizePreservingSystemPrompt(prompt, vocabulary: vocabulary)
         guard !promptTokens.isEmpty else {
-            throw AetherNativeError.inference("prompt vazio")
+            throw BudsNativeError.inference("prompt vazio")
         }
 
         try decode(tokens: &promptTokens, context: context)
@@ -100,10 +100,10 @@ final class AetherInferenceEngine: @unchecked Sendable {
             onToken(replacement)
         }
         let finishedAt = ProcessInfo.processInfo.systemUptime
-        let endSnapshot = AetherPerformanceMonitor.snapshot()
+        let endSnapshot = BudsPerformanceMonitor.snapshot()
         let generationSeconds = max(0.001, finishedAt - generationStart)
         let (inferenceThreads, batchThreads) = threadConfiguration()
-        return AetherEngineResult(
+        return BudsEngineResult(
             text: output.trimmingCharacters(in: .whitespacesAndNewlines),
             promptTokens: promptTokens.count,
             outputTokens: outputTokenCount,
@@ -127,7 +127,7 @@ final class AetherInferenceEngine: @unchecked Sendable {
         let thermal = ProcessInfo.processInfo.thermalState
         if thermal == .serious || thermal == .critical {
             if thermal == .critical { unload() }
-            throw AetherNativeError.thermalBlocked
+            throw BudsNativeError.thermalBlocked
         }
 
         if model != nil, context != nil, loadedModelPath == modelURL.path {
@@ -144,7 +144,7 @@ final class AetherInferenceEngine: @unchecked Sendable {
         modelParameters.n_gpu_layers = -1
         modelParameters.check_tensors = false
         guard let loadedModel = llama_model_load_from_file(modelURL.path, modelParameters) else {
-            throw AetherNativeError.modelLoad("o arquivo GGUF não pôde ser lido")
+            throw BudsNativeError.modelLoad("o arquivo GGUF não pôde ser lido")
         }
         model = loadedModel
 
@@ -159,7 +159,7 @@ final class AetherInferenceEngine: @unchecked Sendable {
         guard let loadedContext = llama_init_from_model(loadedModel, contextParameters) else {
             llama_model_free(loadedModel)
             model = nil
-            throw AetherNativeError.modelLoad("não foi possível reservar memória para o contexto")
+            throw BudsNativeError.modelLoad("não foi possível reservar memória para o contexto")
         }
         context = loadedContext
         loadedModelPath = modelURL.path
@@ -213,14 +213,14 @@ final class AetherInferenceEngine: @unchecked Sendable {
         stateLock.lock()
         let cancelled = cancellationRequested
         stateLock.unlock()
-        if cancelled { throw AetherNativeError.cancelled }
+        if cancelled { throw BudsNativeError.cancelled }
 
         switch ProcessInfo.processInfo.thermalState {
         case .serious:
-            throw AetherNativeError.thermalBlocked
+            throw BudsNativeError.thermalBlocked
         case .critical:
             unload()
-            throw AetherNativeError.thermalBlocked
+            throw BudsNativeError.thermalBlocked
         default:
             break
         }
@@ -246,7 +246,7 @@ final class AetherInferenceEngine: @unchecked Sendable {
                 )
             }
         }
-        guard count >= 0 else { throw AetherNativeError.inference("falha ao tokenizar o contexto") }
+        guard count >= 0 else { throw BudsNativeError.inference("falha ao tokenizar o contexto") }
         return Array(tokens.prefix(Int(count)))
     }
 
@@ -285,7 +285,7 @@ final class AetherInferenceEngine: @unchecked Sendable {
                 let batch = llama_batch_get_one(base.advanced(by: offset), Int32(amount))
                 let result = llama_decode(context, batch)
                 guard result == 0 else {
-                    throw AetherNativeError.inference("llama_decode retornou \(result)")
+                    throw BudsNativeError.inference("llama_decode retornou \(result)")
                 }
                 offset += amount
             }

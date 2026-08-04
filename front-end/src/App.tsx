@@ -52,21 +52,28 @@ const MemoryPanel = lazy(() => import('./components/panels/MemoryPanel').then(mo
 const FilesPanel = lazy(() => import('./components/panels/FilesPanel').then(module => ({ default: module.FilesPanel })))
 const SummaryPanel = lazy(() => import('./components/panels/SummaryPanel').then(module => ({ default: module.SummaryPanel })))
 
-const SETTINGS_KEY = 'aether-interface-settings'
-const DESKTOP_THEME_BOOT_KEY = 'aether-desktop-theme-boot-v1'
-const VOICE_URI_KEY = 'aether-voice-uri-v1'
-const VOICE_SILENCE_MODE_KEY = 'aether-voice-silence-mode-v1'
-const AUDIO_DEFAULT_DISABLED_KEY = 'aether-audio-default-disabled-v1'
-const MOBILE_CHAT_INTRO_KEY = 'aether-mobile-chat-intro-seen-v1'
+const SETTINGS_KEY = 'buds-interface-settings'
+const DESKTOP_THEME_BOOT_KEY = 'buds-desktop-theme-boot-v1'
+const VOICE_URI_KEY = 'buds-voice-uri-v1'
+const VOICE_SILENCE_MODE_KEY = 'buds-voice-silence-mode-v1'
+const AUDIO_DEFAULT_DISABLED_KEY = 'buds-audio-default-disabled-v1'
+const MOBILE_CHAT_INTRO_KEY = 'buds-mobile-chat-intro-seen-v1'
 
-// Migração transparente: lê chaves legadas nexus-* e move para aether-* uma única vez
+// Migração transparente: preserva preferências das marcas anteriores.
 ;(function migrateStorageKeys() {
   const migrations: [string, string][] = [
-    ['nexus-interface-settings', 'aether-interface-settings'],
-    ['nexus-desktop-theme-boot-v1', 'aether-desktop-theme-boot-v1'],
-    ['nexus-voice-uri-v1', 'aether-voice-uri-v1'],
-    ['nexus-voice-silence-mode-v1', 'aether-voice-silence-mode-v1'],
-    ['nexus_selected_model', 'aether_selected_model'],
+    ['aether-interface-settings', 'buds-interface-settings'],
+    ['nexus-interface-settings', 'buds-interface-settings'],
+    ['aether-desktop-theme-boot-v1', 'buds-desktop-theme-boot-v1'],
+    ['nexus-desktop-theme-boot-v1', 'buds-desktop-theme-boot-v1'],
+    ['aether-voice-uri-v1', 'buds-voice-uri-v1'],
+    ['nexus-voice-uri-v1', 'buds-voice-uri-v1'],
+    ['aether-voice-silence-mode-v1', 'buds-voice-silence-mode-v1'],
+    ['nexus-voice-silence-mode-v1', 'buds-voice-silence-mode-v1'],
+    ['aether-audio-default-disabled-v1', 'buds-audio-default-disabled-v1'],
+    ['aether-mobile-chat-intro-seen-v1', 'buds-mobile-chat-intro-seen-v1'],
+    ['aether_selected_model', 'buds_selected_model'],
+    ['nexus_selected_model', 'buds_selected_model'],
   ]
   for (const [oldKey, newKey] of migrations) {
     try {
@@ -382,7 +389,7 @@ export default function App() {
 
   const handleModelChange = useCallback((model: string) => {
     setSelectedModel(model)
-    localStorage.setItem('aether_selected_model', model)
+    localStorage.setItem('buds_selected_model', model)
     const friendlyNames: Record<string, string> = {
       'qwen2.5-coder:3b': 'IA Modo Rápido (3B)',
       'qwen2.5-coder:7b': 'IA Modo Padrão (7B)',
@@ -481,7 +488,7 @@ export default function App() {
         const models = config.models?.length ? config.models : DEFAULT_MODELS
         setAvailableModels(models)
 
-        const savedModel = localStorage.getItem('aether_selected_model')
+        const savedModel = localStorage.getItem('buds_selected_model')
         if (savedModel && models.includes(savedModel)) {
           setSelectedModel(savedModel)
         } else {
@@ -849,14 +856,14 @@ export default function App() {
             key="home"
             className={`home-landing ${homeStyles.landing}`}
             id="inicio"
-            aria-label="Tela inicial Aether Memory"
+            aria-label="Tela inicial Buds Memory"
             {...viewMotionProps}
           >
             <div className={homeStyles.content}>
               <div className={homeStyles.hero}>
                 <div className={homeStyles.brandCopy}>
                   <span className={homeStyles.eyebrow}>Assistente local inteligente</span>
-                  <h1 className={homeStyles.title}>Aether Memory</h1>
+                  <h1 className={homeStyles.title}>Buds Memory</h1>
                 </div>
 
                 <div className={`${homeStyles.brandCopy} ${homeStyles.subcopy}`}>
@@ -880,14 +887,14 @@ export default function App() {
               </div>
 
               <div className={homeStyles.info}>
-                <div className={homeStyles.projectCard} aria-label="O que é o Aether Memory">
+                <div className={homeStyles.projectCard} aria-label="O que é o Buds Memory">
                   <div className={homeStyles.projectCopy}>
                     <span className={homeStyles.projectEyebrow}>Por que ele existe</span>
                     <h2 className={homeStyles.projectTitle}>Uma IA local com memória própria, não apenas um modelo rodando.</h2>
                     <p className={homeStyles.projectDescription}>
-                      O Aether Memory usa o Ollama como motor de inteligência, mas adiciona uma camada
+                      O Buds Memory usa o Ollama como motor de inteligência, mas adiciona uma camada
                       pessoal em volta dele: histórico, memórias, PDFs, busca, codebase, Obsidian visual
-                      e backup portátil. O modelo responde; o Aether lembra, organiza e conecta.
+                      e backup portátil. O modelo responde; o Buds lembra, organiza e conecta.
                     </p>
                   </div>
                   <div className={homeStyles.projectPoints}>
@@ -1214,7 +1221,7 @@ export default function App() {
       {settingsOpen && (
         <section
           className={settingsLayoutStyles.shell}
-          aria-label="Configurações do Aether Memory"
+          aria-label="Configurações do Buds Memory"
         >
           <Suspense fallback={<DeferredSurface label="Carregando configurações..." />}>
             <StatusPanel

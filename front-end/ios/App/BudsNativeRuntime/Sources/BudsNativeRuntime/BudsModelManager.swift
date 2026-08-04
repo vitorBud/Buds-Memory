@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-public final class AetherModelManager: @unchecked Sendable {
+public final class BudsModelManager: @unchecked Sendable {
     public static let modelName = "qwen2.5-coder:7b"
     public static let fileName = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
     public static let expectedSHA256 = "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c"
@@ -14,11 +14,11 @@ public final class AetherModelManager: @unchecked Sendable {
     public let modelURL: URL
     private let markerURL: URL
     private let lock = NSLock()
-    private var activeDownloader: AetherModelDownloader?
+    private var activeDownloader: BudsModelDownloader?
 
     public init() throws {
         Self.cleanupOrphanedSystemDownloads()
-        let modelDirectory = try AetherStorageGuard.appSupportDirectory()
+        let modelDirectory = try BudsStorageGuard.appSupportDirectory()
             .appendingPathComponent("Models", isDirectory: true)
         try FileManager.default.createDirectory(at: modelDirectory, withIntermediateDirectories: true)
         var values = URLResourceValues()
@@ -62,7 +62,7 @@ public final class AetherModelManager: @unchecked Sendable {
     public var isInstalled: Bool {
         let acceptedHash: String
         switch installedBytes {
-        case AetherStorageGuard.modelBytes:
+        case BudsStorageGuard.modelBytes:
             acceptedHash = Self.expectedSHA256
         case Self.macOllamaBytes:
             acceptedHash = Self.macOllamaSHA256
@@ -79,12 +79,12 @@ public final class AetherModelManager: @unchecked Sendable {
             progress(1)
             return
         }
-        try AetherStorageGuard.requireModelDownloadSpace()
+        try BudsStorageGuard.requireModelDownloadSpace()
         try removeIncompleteModel()
 
         let temporaryURL = modelURL.deletingLastPathComponent()
             .appendingPathComponent("\(Self.fileName).download")
-        let downloader = AetherModelDownloader(
+        let downloader = BudsModelDownloader(
             source: Self.downloadURL,
             destination: temporaryURL,
             progress: progress
@@ -96,12 +96,12 @@ public final class AetherModelManager: @unchecked Sendable {
         do {
             try await downloader.start()
             let size = ((try FileManager.default.attributesOfItem(atPath: temporaryURL.path)[.size]) as? NSNumber)?.int64Value ?? 0
-            guard size == AetherStorageGuard.modelBytes else {
-                throw AetherNativeError.modelIntegrity
+            guard size == BudsStorageGuard.modelBytes else {
+                throw BudsNativeError.modelIntegrity
             }
             let digest = try sha256(of: temporaryURL)
             guard digest == Self.expectedSHA256 else {
-                throw AetherNativeError.modelIntegrity
+                throw BudsNativeError.modelIntegrity
             }
             if FileManager.default.fileExists(atPath: modelURL.path) {
                 try FileManager.default.removeItem(at: modelURL)
@@ -157,7 +157,7 @@ public final class AetherModelManager: @unchecked Sendable {
     }
 }
 
-private final class AetherModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+private final class BudsModelDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let source: URL
     private let destination: URL
     private let progress: @Sendable (Double) -> Void
@@ -200,7 +200,7 @@ private final class AetherModelDownloader: NSObject, URLSessionDownloadDelegate,
     ) {
         let expected = totalBytesExpectedToWrite > 0
             ? totalBytesExpectedToWrite
-            : AetherStorageGuard.modelBytes
+            : BudsStorageGuard.modelBytes
         let value = min(1, max(0, Double(totalBytesWritten) / Double(expected)))
         let now = Date.timeIntervalSinceReferenceDate
         guard value >= 1 || now - lastProgressNotification >= 0.2 else { return }
@@ -229,11 +229,11 @@ private final class AetherModelDownloader: NSObject, URLSessionDownloadDelegate,
         didCompleteWithError error: Error?
     ) {
         if let error {
-            finish(.failure(AetherNativeError.modelDownload(error.localizedDescription)))
+            finish(.failure(BudsNativeError.modelDownload(error.localizedDescription)))
         } else if FileManager.default.fileExists(atPath: destination.path) {
             finish(.success(()))
         } else {
-            finish(.failure(AetherNativeError.modelDownload("arquivo temporário não encontrado")))
+            finish(.failure(BudsNativeError.modelDownload("arquivo temporário não encontrado")))
         }
     }
 

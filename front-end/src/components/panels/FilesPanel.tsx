@@ -25,7 +25,7 @@ export function FilesPanel({ messages }: FilesPanelProps) {
         {files.length ? files.map(([file, count]) => (
           <div
             key={file}
-            className={`file-reference grid-cols-[auto_minmax(0,1fr)_auto] [&>svg]:text-aether-cyan ${railStyles.chip}`}
+            className={`file-reference grid-cols-[auto_minmax(0,1fr)_auto] [&>svg]:text-buds-cyan ${railStyles.chip}`}
           >
             <FileCode2 size={14} />
             <span>{file}</span>

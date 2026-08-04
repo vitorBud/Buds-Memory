@@ -11,7 +11,7 @@ interface HomeBrainProps {
   memoryCount: number
 }
 
-type AetherBridge = { assetBase?: string }
+type BudsBridge = { assetBase?: string }
 
 // Representação de cores Three.js baseadas no tema selecionado
 function getThemeColors(theme: ThemeMode) {
@@ -76,7 +76,7 @@ function createFallbackGlowTexture(glowColorStr: string) {
 // Resolve assets em dev, web build e Electron empacotado com base relativa.
 function getPublicAssetPath(path: string) {
   const normalizedPath = path.replace(/^\//, '')
-  const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
+  const bridge = (window as unknown as { nexus?: BudsBridge }).nexus
 
   if (bridge?.assetBase) {
     return `${bridge.assetBase}${normalizedPath}`

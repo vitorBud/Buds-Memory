@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aether-mobile-shell-v2'
+const CACHE_NAME = 'buds-mobile-shell-v2'
 const SHELL_ASSETS = [
   '/',
   '/manifest.webmanifest',

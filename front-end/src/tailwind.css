@@ -6,37 +6,37 @@
 @source "./**/*.{ts,tsx}";
 
 /*
- * Tokens semânticos do Aether.
+ * Tokens semânticos do Buds.
  *
  * Eles apontam para as variáveis que já controlam os temas black, gold e
- * silver. Assim, utilitários como bg-aether-surface e text-aether-muted
+ * silver. Assim, utilitários como bg-buds-surface e text-buds-muted
  * respondem ao tema sem duplicar cores nos componentes.
  */
 @theme inline {
   --font-sans: "Outfit", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  --color-aether-bg: var(--bg);
-  --color-aether-surface: var(--surface);
-  --color-aether-surface-2: var(--surface-2);
-  --color-aether-surface-3: var(--surface-3);
-  --color-aether-text: var(--text);
-  --color-aether-muted: var(--muted);
-  --color-aether-faint: var(--faint);
-  --color-aether-accent: var(--accent);
-  --color-aether-accent-hot: var(--accent-hot);
-  --color-aether-action: var(--accent-hot);
-  --color-aether-action-ink: var(--accent-ink);
-  --color-aether-icon: var(--muted-strong);
-  --color-aether-cyan: var(--cyan);
-  --color-aether-teal: var(--teal);
-  --color-aether-violet: var(--violet);
-  --color-aether-emerald: var(--emerald);
-  --color-aether-amber: var(--amber);
-  --color-aether-rose: var(--rose);
+  --color-buds-bg: var(--bg);
+  --color-buds-surface: var(--surface);
+  --color-buds-surface-2: var(--surface-2);
+  --color-buds-surface-3: var(--surface-3);
+  --color-buds-text: var(--text);
+  --color-buds-muted: var(--muted);
+  --color-buds-faint: var(--faint);
+  --color-buds-accent: var(--accent);
+  --color-buds-accent-hot: var(--accent-hot);
+  --color-buds-action: var(--accent-hot);
+  --color-buds-action-ink: var(--accent-ink);
+  --color-buds-icon: var(--muted-strong);
+  --color-buds-cyan: var(--cyan);
+  --color-buds-teal: var(--teal);
+  --color-buds-violet: var(--violet);
+  --color-buds-emerald: var(--emerald);
+  --color-buds-amber: var(--amber);
+  --color-buds-rose: var(--rose);
 
-  --radius-aether: var(--radius);
-  --shadow-aether: var(--shadow);
+  --radius-buds: var(--radius);
+  --shadow-buds: var(--shadow);
 
   --breakpoint-mobile: 47.5rem;
 }

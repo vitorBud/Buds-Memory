@@ -1,5 +1,5 @@
 {
-  "name": "front-end",
+  "name": "buds-memory",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -52,8 +52,8 @@
     "vite": "^8.0.12"
   },
   "build": {
-    "appId": "com.aethermemory.desktop",
-    "productName": "Aether Memory",
+    "appId": "com.budsmemory.desktop",
+    "productName": "Buds Memory",
     "directories": {
       "output": "release"
     },
@@ -78,8 +78,8 @@
         ]
       },
       {
-        "from": "../Back-end/dist/aether-backend",
-        "to": "AetherBackend",
+        "from": "../Back-end/dist/buds-backend",
+        "to": "BudsBackend",
         "filter": [
           "**/*"
         ]

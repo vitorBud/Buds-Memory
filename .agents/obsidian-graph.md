@@ -2,7 +2,7 @@
 
 ## Missao
 
-Transformar a Obsidian em ponto central do Aether Memory: visual forte,
+Transformar a Obsidian em ponto central do Buds Memory: visual forte,
 organizado, interativo e fiel ao que a IA aprendeu.
 
 ## Arquivos Principais

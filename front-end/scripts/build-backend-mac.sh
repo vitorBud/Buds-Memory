@@ -22,7 +22,7 @@ PYINSTALLER_ARGS=(
   --noconfirm
   --clean
   --onedir
-  --name aether-backend
+  --name buds-backend
   --paths "$BACKEND_DIR"
   --distpath "$BACKEND_DIR/dist"
   --workpath "$BACKEND_DIR/build/pyinstaller"
@@ -51,7 +51,7 @@ echo "==> Empacotando backend Python autocontido ($(uname -m))..."
 cd "$BACKEND_DIR"
 "$PYTHON_BIN" -m PyInstaller "${PYINSTALLER_ARGS[@]}" app.py
 
-BACKEND_EXECUTABLE="$BACKEND_DIR/dist/aether-backend/aether-backend"
+BACKEND_EXECUTABLE="$BACKEND_DIR/dist/buds-backend/buds-backend"
 if [ ! -x "$BACKEND_EXECUTABLE" ]; then
   echo "Executável do backend não foi gerado: $BACKEND_EXECUTABLE"
   exit 1

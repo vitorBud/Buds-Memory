@@ -1,10 +1,10 @@
-# Estabilização arquitetural do Aether Memory mobile
+# Estabilização arquitetural do Buds Memory mobile
 
 ## Arquitetura verificada
 
 - **Frontend/mobile:** React/Vite dentro do Capacitor. O `useChat` controla uma única requisição ativa; o `useRecorder` controla a captura e o endpoint de fala.
-- **Voice no iPhone:** WebView → plugin Capacitor → `SFSpeechRecognizer`. O texto final retorna ao mesmo fluxo do chat local. O TTS usa a síntese do navegador e o microfone permanece desligado enquanto o Aether fala.
-- **Conversation Engine mobile:** `AetherLocalRuntime` serializa a inferência em uma fila nativa e usa o `sessionId` para ler histórico.
+- **Voice no iPhone:** WebView → plugin Capacitor → `SFSpeechRecognizer`. O texto final retorna ao mesmo fluxo do chat local. O TTS usa a síntese do navegador e o microfone permanece desligado enquanto o Buds fala.
+- **Conversation Engine mobile:** `BudsLocalRuntime` serializa a inferência em uma fila nativa e usa o `sessionId` para ler histórico.
 - **LLM mobile:** llama.cpp com Qwen 7B local, contexto limpo antes de cada geração e apenas uma inferência válida por vez.
 - **Banco mobile:** SQLite nativo com sessões, mensagens e memórias. Memórias agora possuem `scope` e `session_id`.
 - **Backend desktop/web:** Flask monta contexto com perfil/Core Memory global, working memory/histórico/resumo da sessão, RAG filtrado por sessão e Ollama.
@@ -28,7 +28,7 @@
 
 - **Causa real:** encerramento dependia de um timestamp/limiar simples e callbacks nativos não tinham identidade. Resultado antigo podia alterar estado atual.
 - **Correção:** máquina `waiting → speech-candidate → speaking → possible-pause → complete`, com debounce de ativação, duração mínima e silêncio contínuo. React, Capacitor e Swift validam `recording_id`; callbacks obsoletos são ignorados.
-- **Barge-in:** o microfone não fica aberto durante TTS, eliminando feedback Aether→microfone. A interrupção é explícita pelo núcleo; primeiro invalida geração/TTS e depois abre uma nova captura.
+- **Barge-in:** o microfone não fica aberto durante TTS, eliminando feedback Buds→microfone. A interrupção é explícita pelo núcleo; primeiro invalida geração/TTS e depois abre uma nova captura.
 
 ### Geração concorrente
 
@@ -39,7 +39,7 @@
 
 ## Instrumentação adicionada
 
-Logs estruturados usam o prefixo `[AetherPerf]`:
+Logs estruturados usam o prefixo `[BudsPerf]`:
 
 - `voice_capture`: duração, bytes, chunks, caracteres reconhecidos e ID.
 - `llm_generation`: modelo, prompt, histórico, memórias, tokens, load, TTFT, geração, tokens/s, threads, CPU, RAM e pico observado, estado térmico.
@@ -65,7 +65,7 @@ Esses dados são diagnóstico; não alteram amostragem, quantização ou qualida
 
 ```bash
 cd Back-end
-env PYTHONPYCACHEPREFIX=/private/tmp/aether_pycache ambiente/bin/python -m unittest discover -s tests
+env PYTHONPYCACHEPREFIX=/private/tmp/buds_pycache ambiente/bin/python -m unittest discover -s tests
 
 cd ../front-end
 npm run test:mobile

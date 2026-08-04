@@ -2,7 +2,7 @@
 
 ## Missao
 
-Melhorar o segundo cerebro do Aether Memory: memoria, perfil do usuario, RAG,
+Melhorar o segundo cerebro do Buds Memory: memoria, perfil do usuario, RAG,
 resumos persistentes, extracao cognitiva, documentos e busca contextual.
 
 ## Arquivos Principais
@@ -50,7 +50,7 @@ resumos persistentes, extracao cognitiva, documentos e busca contextual.
 
 ```bash
 cd Back-end
-env PYTHONPYCACHEPREFIX=/private/tmp/aether_pycache ambiente/bin/python -m py_compile cognitive/*.py app.py
+env PYTHONPYCACHEPREFIX=/private/tmp/buds_pycache ambiente/bin/python -m py_compile cognitive/*.py app.py
 ```
 
 Testes manuais uteis:
@@ -63,5 +63,5 @@ Testes manuais uteis:
 
 ## Resultado Esperado
 
-O Aether Memory deve parecer mais inteligente porque lembra o que importa,
+O Buds Memory deve parecer mais inteligente porque lembra o que importa,
 recupera contexto certo e sabe admitir quando nao possui informacao.

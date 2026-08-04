@@ -1,50 +1,50 @@
 import Foundation
 
-public final class AetherLocalRuntime: @unchecked Sendable {
-    public static let shared = AetherLocalRuntime()
+public final class BudsLocalRuntime: @unchecked Sendable {
+    public static let shared = BudsLocalRuntime()
 
-    public let modelManager: AetherModelManager
-    private let inferenceQueue = DispatchQueue(label: "com.aethermemory.ios.inference", qos: .userInitiated)
+    public let modelManager: BudsModelManager
+    private let inferenceQueue = DispatchQueue(label: "com.budsmemory.ios.inference", qos: .userInitiated)
     private let storeLock = NSLock()
-    private var store: AetherLocalStore?
-    private let engine = AetherInferenceEngine()
+    private var store: BudsLocalStore?
+    private let engine = BudsInferenceEngine()
     private let generationLock = NSLock()
     private var activeGeneration: (id: String, sessionId: String)?
 
     private init() {
         do {
-            modelManager = try AetherModelManager()
+            modelManager = try BudsModelManager()
         } catch {
-            fatalError("Aether model directory unavailable: \(error.localizedDescription)")
+            fatalError("Buds model directory unavailable: \(error.localizedDescription)")
         }
     }
 
-    public func status() -> AetherRuntimeStatus {
-        let storage = AetherStorageGuard.status()
+    public func status() -> BudsRuntimeStatus {
+        let storage = BudsStorageGuard.status()
         var databaseReady = false
         if !storage.databaseBlocked {
             databaseReady = (try? ensureStore()) != nil
         }
-        return AetherRuntimeStatus(
+        return BudsRuntimeStatus(
             storage: storage,
             databaseReady: databaseReady,
             modelInstalled: modelManager.isInstalled,
             modelBytes: modelManager.installedBytes,
-            modelName: AetherModelManager.modelName,
+            modelName: BudsModelManager.modelName,
             thermalState: Self.thermalStateName,
             lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled
         )
     }
 
-    public func listSessions() throws -> [AetherSessionRecord] {
+    public func listSessions() throws -> [BudsSessionRecord] {
         try ensureStore().listSessions()
     }
 
-    public func createSession(title: String?) throws -> AetherSessionRecord {
+    public func createSession(title: String?) throws -> BudsSessionRecord {
         try ensureStore().createSession(title: title)
     }
 
-    public func updateSessionTitle(id: String, title: String) throws -> AetherSessionRecord {
+    public func updateSessionTitle(id: String, title: String) throws -> BudsSessionRecord {
         try ensureStore().updateSessionTitle(id: id, title: title)
     }
 
@@ -56,23 +56,23 @@ public final class AetherLocalRuntime: @unchecked Sendable {
         try ensureStore().deleteSession(id: id)
     }
 
-    public func messages(sessionId: String) throws -> [AetherMessageRecord] {
+    public func messages(sessionId: String) throws -> [BudsMessageRecord] {
         try ensureStore().messages(sessionId: sessionId)
     }
 
-    public func memories(limit: Int) throws -> [AetherMemoryRecord] {
+    public func memories(limit: Int) throws -> [BudsMemoryRecord] {
         try ensureStore().memories(limit: limit)
     }
 
-    public func createMemory(content: String, importance: Double) throws -> AetherMemoryRecord {
+    public func createMemory(content: String, importance: Double) throws -> BudsMemoryRecord {
         try ensureStore().createMemory(content: content, importance: importance)
     }
 
-    public func updateMemory(id: Int64, content: String?, importance: Double?) throws -> AetherMemoryRecord {
+    public func updateMemory(id: Int64, content: String?, importance: Double?) throws -> BudsMemoryRecord {
         try ensureStore().updateMemory(id: id, content: content, importance: importance)
     }
 
-    public func setCoreMemory(id: Int64, enabled: Bool) throws -> AetherMemoryRecord {
+    public func setCoreMemory(id: Int64, enabled: Bool) throws -> BudsMemoryRecord {
         try ensureStore().setCoreMemory(id: id, enabled: enabled)
     }
 
@@ -85,16 +85,16 @@ public final class AetherLocalRuntime: @unchecked Sendable {
         sessionId: String,
         text: String,
         onToken: @escaping @Sendable (String) -> Void
-    ) async throws -> (text: String, session: AetherSessionRecord?, metrics: AetherGenerationMetrics) {
-        guard modelManager.isInstalled else { throw AetherNativeError.modelMissing }
+    ) async throws -> (text: String, session: BudsSessionRecord?, metrics: BudsGenerationMetrics) {
+        guard modelManager.isInstalled else { throw BudsNativeError.modelMissing }
         generationLock.lock()
         let hadActiveGeneration = activeGeneration != nil
         activeGeneration = (generationId, sessionId)
         generationLock.unlock()
         if hadActiveGeneration { engine.cancel() }
-        let store: AetherLocalStore
-        let history: [AetherMessageRecord]
-        let memories: [AetherMemoryRecord]
+        let store: BudsLocalStore
+        let history: [BudsMessageRecord]
+        let memories: [BudsMemoryRecord]
         do {
             store = try ensureStore()
             _ = try store.addMessage(sessionId: sessionId, sender: "user", text: text)
@@ -104,13 +104,13 @@ public final class AetherLocalRuntime: @unchecked Sendable {
             finishGeneration(generationId)
             throw error
         }
-        let prompt = AetherPromptBuilder.build(history: history, memories: memories)
+        let prompt = BudsPromptBuilder.build(history: history, memories: memories)
 
         return try await withCheckedThrowingContinuation { continuation in
             inferenceQueue.async { [engine, modelManager] in
                 do {
                     guard self.isActiveGeneration(generationId, sessionId: sessionId) else {
-                        throw AetherNativeError.cancelled
+                        throw BudsNativeError.cancelled
                     }
                     let engineResult = try engine.generate(
                         prompt: prompt,
@@ -123,16 +123,16 @@ public final class AetherLocalRuntime: @unchecked Sendable {
                     )
                     let answer = engineResult.text
                     guard !answer.isEmpty else {
-                        throw AetherNativeError.inference("o modelo encerrou sem produzir texto")
+                        throw BudsNativeError.inference("o modelo encerrou sem produzir texto")
                     }
                     guard self.isActiveGeneration(generationId, sessionId: sessionId) else {
-                        throw AetherNativeError.cancelled
+                        throw BudsNativeError.cancelled
                     }
                     _ = try store.addMessage(sessionId: sessionId, sender: "ia", text: answer)
                     let session = try store.getSession(id: sessionId)
-                    let metrics = AetherGenerationMetrics(
+                    let metrics = BudsGenerationMetrics(
                         generationId: generationId,
-                        modelName: AetherModelManager.modelName,
+                        modelName: BudsModelManager.modelName,
                         promptCharacters: prompt.count,
                         historyMessages: history.count,
                         memoryItems: memories.count,
@@ -189,7 +189,7 @@ public final class AetherLocalRuntime: @unchecked Sendable {
         inferenceQueue.async { [engine] in engine.unload() }
     }
 
-    public func clearAllData() throws -> AetherRuntimeStatus {
+    public func clearAllData() throws -> BudsRuntimeStatus {
         engine.cancel()
         inferenceQueue.sync { [engine] in engine.unload() }
 
@@ -210,12 +210,12 @@ public final class AetherLocalRuntime: @unchecked Sendable {
         return status()
     }
 
-    private func ensureStore() throws -> AetherLocalStore {
-        try AetherStorageGuard.requireDatabaseSpace()
+    private func ensureStore() throws -> BudsLocalStore {
+        try BudsStorageGuard.requireDatabaseSpace()
         storeLock.lock()
         defer { storeLock.unlock() }
         if let store { return store }
-        let created = try AetherLocalStore()
+        let created = try BudsLocalStore()
         store = created
         return created
     }

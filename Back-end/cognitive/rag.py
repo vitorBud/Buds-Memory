@@ -1,5 +1,5 @@
 """
-cognitive/rag.py — RAG Cognitivo Avançado do Aether Memory.
+cognitive/rag.py — RAG Cognitivo Avançado do Buds Memory.
 
 Implementa (funcionalidades já existentes, preservadas):
   ✓ Chunking inteligente (parágrafos e código)

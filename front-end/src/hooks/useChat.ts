@@ -18,7 +18,7 @@ interface UseChatOptions {
   autoPlayAudio?: boolean
 }
 
-const OFFLINE_QUEUE_KEY = 'aether-offline-message-queue-v1'
+const OFFLINE_QUEUE_KEY = 'buds-offline-message-queue-v1'
 const MALE_PT_VOICE_HINTS = [
   'felipe',
   'daniel',
@@ -185,7 +185,7 @@ export function useChat({
     onStateChange('speaking')
     utterance.onstart = () => { ttsStartedAt = performance.now() }
     utterance.onend = () => {
-      console.info('[AetherPerf]', {
+      console.info('[BudsPerf]', {
         stage: 'tts', provider: 'browser', characters: cleanText.length,
         tts_ms: Math.round(performance.now() - (ttsStartedAt || performance.now())),
       })
@@ -229,7 +229,7 @@ export function useChat({
     audio.onplaying = () => { audioStartedAt = performance.now() }
     audio.play().catch(() => playNextAudio(epoch))
     audio.onended = () => {
-      console.info('[AetherPerf]', {
+      console.info('[BudsPerf]', {
         stage: 'tts', provider: 'piper', tts_ms: Math.round(performance.now() - (audioStartedAt || performance.now())),
       })
       currentAudioRef.current = null
@@ -464,7 +464,7 @@ export function useChat({
         queueOfflineText(text)
         addMessage({
           sender: 'ia',
-          text: 'Mensagem salva neste aparelho. Vou tentar sincronizar quando a conexão com o Aether Memory voltar.',
+          text: 'Mensagem salva neste aparelho. Vou tentar sincronizar quando a conexão com o Buds Memory voltar.',
           created_at: new Date().toISOString(),
         })
       } else {

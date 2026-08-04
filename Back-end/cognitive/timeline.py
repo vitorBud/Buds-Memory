@@ -1,5 +1,5 @@
 """
-cognitive/timeline.py — Timeline Inteligente do Aether Memory.
+cognitive/timeline.py — Timeline Inteligente do Buds Memory.
 
 Registra eventos cronológicos:
   - Aprendizados

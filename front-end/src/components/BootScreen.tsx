@@ -232,7 +232,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
               state: status.storage.modelDownloadAllowed ? 'pending' : 'error',
               detail: 'Modelo 7B ainda não instalado',
               errorMsg: status.storage.modelDownloadAllowed
-                ? 'Baixe 4,68 GB uma vez para usar o Aether totalmente offline.'
+                ? 'Baixe 4,68 GB uma vez para usar o Buds totalmente offline.'
                 : 'Libere cerca de 6,7 GB para baixar e instalar o modelo com segurança.',
             })
           }
@@ -309,7 +309,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
         setStep('backend', {
           state: 'error',
           detail: 'Não foi possível conectar',
-          errorMsg: 'Inicie o backend local do Aether Memory.',
+          errorMsg: 'Inicie o backend local do Buds Memory.',
         })
         setStep('ollama', { state: 'error', detail: 'Não verificado (backend offline)', errorMsg: '' })
         setHealth(updatedHealth)
@@ -368,7 +368,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
       className={`${bootScreenStyles.overlay} ${closing ? bootScreenStyles.closing : ''}`}
       role="dialog"
       aria-modal="true"
-      aria-label="Inicializando Aether Memory"
+      aria-label="Inicializando Buds Memory"
     >
       <div className={bootScreenStyles.modal}>
 
@@ -378,7 +378,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
             <Wifi size={26} />
           </div>
           <div>
-            <h2 className={bootScreenStyles.title}>Aether Memory</h2>
+            <h2 className={bootScreenStyles.title}>Buds Memory</h2>
             <p className={bootScreenStyles.subtitle}>
               {allOk ? 'Tudo pronto!' : hasError ? 'Alguns serviços não responderam' : 'Inicializando serviços…'}
             </p>
@@ -413,7 +413,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
                 disabled={authBusy || !authToken.trim()}
               >
                 {authBusy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
-                Conectar ao Aether
+                Conectar ao Buds
               </button>
             </form>
             {authError && <p className={bootScreenStyles.authError}>{authError}</p>}

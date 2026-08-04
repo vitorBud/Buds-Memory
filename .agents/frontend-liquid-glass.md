@@ -2,7 +2,7 @@
 
 ## Missao
 
-Evoluir a interface do Aether Memory mantendo a experiencia premium, compacta,
+Evoluir a interface do Buds Memory mantendo a experiencia premium, compacta,
 responsiva e inspirada em Apple Liquid Glass. Este agente cuida de Home, Chat,
 Voice Mode, configuracoes, navegacao, responsividade mobile e performance no
 Windows.

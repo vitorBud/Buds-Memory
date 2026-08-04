@@ -36,7 +36,7 @@ export function useMobilePerformanceMonitor(surface: string) {
       const memory = (performance as Performance & { memory?: BrowserMemorySnapshot }).memory
       const renders = renderCountRef.current - rendersAtLastSampleRef.current
       rendersAtLastSampleRef.current = renderCountRef.current
-      console.info('[AetherPerf]', {
+      console.info('[BudsPerf]', {
         stage: 'ui_health',
         surface,
         sample_ms: 30_000,

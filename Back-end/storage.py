@@ -1,5 +1,5 @@
 """
-storage.py - caminhos persistentes do Aether Memory.
+storage.py - caminhos persistentes do Buds Memory.
 
 No desenvolvimento, os dados continuam na pasta Back-end. No app desktop,
 o Electron define NEXUS_DATA_DIR para salvar banco e audios em Application
@@ -13,7 +13,7 @@ import shutil
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
-APP_NAME = "Aether Memory"
+APP_NAME = "Buds Memory"
 
 
 def get_data_dir() -> Path:

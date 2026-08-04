@@ -58,7 +58,7 @@ export function Sidebar({
             <Bot size={18} />
           </div>
           <div className={sidebarStyles.mobileBrandCopy}>
-            <strong>Aether Memory</strong>
+            <strong>Buds Memory</strong>
             <span>Conversas</span>
           </div>
         </div>

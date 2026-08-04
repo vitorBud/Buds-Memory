@@ -1,6 +1,6 @@
 import Foundation
 
-public enum AetherStorageGuard {
+public enum BudsStorageGuard {
     public static let warningBytes: Int64 = 3 * 1_073_741_824
     public static let databaseMinimumBytes: Int64 = 1_500_000_000
     public static let modelBytes: Int64 = 4_683_073_536
@@ -14,9 +14,38 @@ public enum AetherStorageGuard {
             appropriateFor: nil,
             create: true
         )
-        let directory = base.appendingPathComponent("AetherMemory", isDirectory: true)
+        let directory = base.appendingPathComponent("BudsMemory", isDirectory: true)
+        let legacyDirectory = base.appendingPathComponent("AetherMemory", isDirectory: true)
+        try migrateLegacyDirectory(from: legacyDirectory, to: directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
+    }
+
+    private static func migrateLegacyDirectory(from legacy: URL, to current: URL) throws {
+        let manager = FileManager.default
+        guard manager.fileExists(atPath: legacy.path) else { return }
+
+        if !manager.fileExists(atPath: current.path) {
+            try manager.moveItem(at: legacy, to: current)
+            return
+        }
+
+        // Se uma versão anterior já criou a pasta nova vazia, combina os itens
+        // sem copiar o modelo de vários GB nem substituir dados atuais.
+        let legacyItems = try manager.contentsOfDirectory(
+            at: legacy,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        for source in legacyItems {
+            let destination = current.appendingPathComponent(source.lastPathComponent)
+            if !manager.fileExists(atPath: destination.path) {
+                try manager.moveItem(at: source, to: destination)
+            }
+        }
+        if (try? manager.contentsOfDirectory(atPath: legacy.path).isEmpty) == true {
+            try? manager.removeItem(at: legacy)
+        }
     }
 
     public static func availableBytes() -> Int64 {
@@ -29,10 +58,10 @@ public enum AetherStorageGuard {
         }
     }
 
-    public static func status() -> AetherStorageStatus {
+    public static func status() -> BudsStorageStatus {
         let available = availableBytes()
         let sizes = ownedStorageBytes()
-        return AetherStorageStatus(
+        return BudsStorageStatus(
             availableBytes: available,
             usedBytes: sizes.total,
             databaseBytes: sizes.database,
@@ -55,6 +84,9 @@ public enum AetherStorageGuard {
         var total: Int64 = 0
         var database: Int64 = 0
         let databaseNames: Set<String> = [
+            "buds-memory-iphone.sqlite3",
+            "buds-memory-iphone.sqlite3-wal",
+            "buds-memory-iphone.sqlite3-shm",
             "aether-memory-iphone.sqlite3",
             "aether-memory-iphone.sqlite3-wal",
             "aether-memory-iphone.sqlite3-shm",
@@ -74,7 +106,7 @@ public enum AetherStorageGuard {
     public static func requireDatabaseSpace() throws {
         let available = availableBytes()
         guard available >= databaseMinimumBytes else {
-            throw AetherNativeError.insufficientStorage(
+            throw BudsNativeError.insufficientStorage(
                 available: available,
                 required: databaseMinimumBytes
             )
@@ -84,7 +116,7 @@ public enum AetherStorageGuard {
     public static func requireModelDownloadSpace() throws {
         let available = availableBytes()
         guard available >= modelRequiredBytes else {
-            throw AetherNativeError.insufficientStorage(
+            throw BudsNativeError.insufficientStorage(
                 available: available,
                 required: modelRequiredBytes
             )

@@ -1,5 +1,5 @@
 """
-agenty.py — Facade de compatibilidade do Aether Memory.
+agenty.py — Facade de compatibilidade do Buds Memory.
 
 Todos os imports e funcionalidades foram movidos para módulos especializados:
 

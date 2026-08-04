@@ -1,5 +1,5 @@
 """
-cognitive/memory.py — Sistema de memória hierárquica do Aether Memory.
+cognitive/memory.py — Sistema de memória hierárquica do Buds Memory.
 
 Três níveis:
   - short   → expira em 24 horas (contexto da sessão)

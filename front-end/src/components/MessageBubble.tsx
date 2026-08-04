@@ -30,7 +30,7 @@ function highlightCode(code: string, lang: string): string {
       suffix = String.fromCharCode(65 + (value % 26)) + suffix
       value = Math.floor(value / 26) - 1
     } while (value >= 0)
-    return `___AETHER_PLACEHOLDER_${suffix}___`
+    return `___BUDS_PLACEHOLDER_${suffix}___`
   }
 
   function pushPlaceholder(text: string, className: string): string {
@@ -228,32 +228,32 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
       <div
         className={`message-avatar mt-0.5 flex size-[30px] shrink-0 items-center justify-center rounded-[7px] border bg-[rgba(var(--accent-hot-rgb)/0.1)] font-mono text-[10px] font-bold max-[760px]:hidden ${
           isUser
-            ? 'border-[var(--liquid-border)] text-aether-text'
+            ? 'border-[var(--liquid-border)] text-buds-text'
             : 'border-[rgba(255,209,102,0.42)] text-[var(--jarvis-hot)]'
         }`}
       >
-        {isUser ? 'VG' : 'AM'}
+        {isUser ? 'VG' : 'BM'}
       </div>
 
       <div
         className="message-stack grid min-w-0 justify-items-start gap-[5px] max-[760px]:max-w-[min(calc(100vw-40px),560px)]"
       >
         <div
-          className={`message-bubble min-w-0 max-w-[min(760px,78vw)] overflow-hidden rounded-3xl border px-[15px] py-[13px] text-sm leading-[1.62] text-aether-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] ![backdrop-filter:none] [transform:translateZ(0)] max-[760px]:max-w-full max-[760px]:break-words max-[760px]:[overflow-wrap:anywhere] max-[760px]:rounded-[18px] max-[760px]:px-[13px] max-[760px]:py-2.5 max-[760px]:text-[15px] max-[760px]:leading-[1.45] ${
+          className={`message-bubble min-w-0 max-w-[min(760px,78vw)] overflow-hidden rounded-3xl border px-[15px] py-[13px] text-sm leading-[1.62] text-buds-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] ![backdrop-filter:none] [transform:translateZ(0)] max-[760px]:max-w-full max-[760px]:break-words max-[760px]:[overflow-wrap:anywhere] max-[760px]:rounded-[18px] max-[760px]:px-[13px] max-[760px]:py-2.5 max-[760px]:text-[15px] max-[760px]:leading-[1.45] ${
             isUser
               ? 'border-[rgba(var(--accent-hot-rgb)/0.16)] [background:linear-gradient(135deg,rgba(var(--accent-hot-rgb)/0.18),transparent_52%),rgba(var(--accent-hot-rgb)/0.09)] max-[760px]:rounded-bl-md max-[760px]:border-[#0a84ff] max-[760px]:bg-[#0a84ff] max-[760px]:text-white'
               : 'border-[var(--liquid-border)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_42%),var(--liquid-panel-soft)] max-[760px]:rounded-bl-md max-[760px]:border-[var(--line)] max-[760px]:[background:color-mix(in_srgb,var(--surface-3)_86%,white_6%)]'
           } ${
             message.streaming && !isThinking
-              ? "streaming-cursor after:ml-0.5 after:animate-[blink_0.7s_ease_infinite] after:text-aether-cyan after:content-['▌'] platform-windows:after:![animation:none]"
+              ? "streaming-cursor after:ml-0.5 after:animate-[blink_0.7s_ease_infinite] after:text-buds-cyan after:content-['▌'] platform-windows:after:![animation:none]"
               : ''
           }`}
         >
           {isThinking ? (
             <div className="thinking-dots flex min-h-5 items-center gap-[5px]">
-              <span className="size-[7px] animate-[thinking_1.1s_ease_infinite] rounded-full bg-aether-cyan platform-windows:![animation:none]" />
-              <span className="size-[7px] animate-[thinking_1.1s_ease_0.16s_infinite] rounded-full bg-aether-violet platform-windows:![animation:none]" />
-              <span className="size-[7px] animate-[thinking_1.1s_ease_0.32s_infinite] rounded-full bg-aether-teal platform-windows:![animation:none]" />
+              <span className="size-[7px] animate-[thinking_1.1s_ease_infinite] rounded-full bg-buds-cyan platform-windows:![animation:none]" />
+              <span className="size-[7px] animate-[thinking_1.1s_ease_0.16s_infinite] rounded-full bg-buds-violet platform-windows:![animation:none]" />
+              <span className="size-[7px] animate-[thinking_1.1s_ease_0.32s_infinite] rounded-full bg-buds-teal platform-windows:![animation:none]" />
             </div>
           ) : (
             <>
@@ -278,13 +278,13 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
           )}
         </div>
 
-        <div className="message-meta flex items-center justify-self-start gap-2 text-[11px] text-aether-muted max-[760px]:opacity-[.72]">
+        <div className="message-meta flex items-center justify-self-start gap-2 text-[11px] text-buds-muted max-[760px]:opacity-[.72]">
           {time && <span>{time}</span>}
           {!isUser && !isThinking && message.text.trim() && (
             <button
               type="button"
               onClick={speakMessage}
-              className="inline-flex items-center gap-[5px] rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-2 py-[3px] text-aether-text hover:border-[rgba(255,209,102,0.46)] hover:bg-[rgba(245,158,11,0.12)] hover:text-[var(--jarvis-hot)]"
+              className="inline-flex items-center gap-[5px] rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-2 py-[3px] text-buds-text hover:border-[rgba(255,209,102,0.46)] hover:bg-[rgba(245,158,11,0.12)] hover:text-[var(--jarvis-hot)]"
             >
               <Volume2 size={11} />
               Ouvir

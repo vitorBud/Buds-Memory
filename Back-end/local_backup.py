@@ -1,7 +1,7 @@
 """
 local_backup.py — exportação e importação portátil da memória local.
 
-O Aether Memory é local-first: tudo fica no SQLite. Este módulo cria um backup
+O Buds Memory é local-first: tudo fica no SQLite. Este módulo cria um backup
 JSON autocontido para mover conversas, memórias, documentos, RAG, grafo e perfil
 entre computadores sem depender de banco externo.
 """
@@ -22,7 +22,8 @@ from database_v2 import get_db_connection, now_iso
 from storage import get_data_dir, get_database_path, get_output_dir
 
 
-BACKUP_FORMAT = "aether_memory_backup"
+BACKUP_FORMAT = "buds_memory_backup"
+LEGACY_BACKUP_FORMATS = {"aether_memory_backup"}
 BACKUP_VERSION = 2
 CLEAR_CONFIRMATION = "APAGAR TUDO"
 
@@ -66,12 +67,14 @@ IMPORT_ORDER = [
     "ingestion_cache",
 ]
 
-IMPORT_MAP_TABLE = "aether_backup_import_map"
+IMPORT_MAP_TABLE = "buds_backup_import_map"
+LEGACY_IMPORT_MAP_TABLE = "aether_backup_import_map"
 
 # Apaga primeiro as tabelas dependentes e deixa sessões por último. A lista é
 # explícita para não apagar configurações técnicas ou tabelas futuras por engano.
 CLEAR_ORDER = [
     IMPORT_MAP_TABLE,
+    LEGACY_IMPORT_MAP_TABLE,
     "embeddings",
     "ingestion_cache",
     "codebase_index",
@@ -149,7 +152,7 @@ def export_backup() -> dict:
     return {
         "format": BACKUP_FORMAT,
         "version": BACKUP_VERSION,
-        "app": "Aether Memory",
+        "app": "Buds Memory",
         "exported_at": now_iso(),
         "counts": counts,
         "tables": tables,
@@ -178,7 +181,7 @@ def get_status() -> dict:
 
 
 def clear_local_data(confirmation: str) -> dict:
-    """Apaga somente dados gerados pelo Aether após confirmação explícita."""
+    """Apaga somente dados gerados pelo Buds após confirmação explícita."""
     if confirmation != CLEAR_CONFIRMATION:
         raise ValueError(f'Digite exatamente "{CLEAR_CONFIRMATION}" para confirmar.')
 
@@ -256,8 +259,8 @@ def import_backup(payload: dict) -> dict:
     """
     if not isinstance(payload, dict):
         raise ValueError("Arquivo de backup inválido.")
-    if payload.get("format") != BACKUP_FORMAT:
-        raise ValueError("Este arquivo não parece ser um backup do Aether Memory.")
+    if payload.get("format") not in {BACKUP_FORMAT, *LEGACY_BACKUP_FORMATS}:
+        raise ValueError("Este arquivo não parece ser um backup do Buds Memory.")
 
     version = payload.get("version", 1)
     if not isinstance(version, int) or version < 1 or version > BACKUP_VERSION:
@@ -358,7 +361,7 @@ def import_backup(payload: dict) -> dict:
 
 def make_backup_filename() -> str:
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    return f"aether-memory-backup-{stamp}.json"
+    return f"buds-memory-backup-{stamp}.json"
 
 
 def _table_exists(conn, table: str) -> bool:
@@ -393,6 +396,13 @@ def _create_import_map_table(conn) -> None:
             PRIMARY KEY (backup_key, table_name, source_key)
         )
     """)
+    if _table_exists(conn, LEGACY_IMPORT_MAP_TABLE):
+        conn.execute(f"""
+            INSERT OR IGNORE INTO {_quote_identifier(IMPORT_MAP_TABLE)}
+              (backup_key, table_name, source_key, target_key, imported_at)
+            SELECT backup_key, table_name, source_key, target_key, imported_at
+            FROM {_quote_identifier(LEGACY_IMPORT_MAP_TABLE)}
+        """)
 
 
 def _backup_fingerprint(payload: dict) -> str:

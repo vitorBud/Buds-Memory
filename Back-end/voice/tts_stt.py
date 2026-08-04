@@ -1,5 +1,5 @@
 """
-voice/tts_stt.py — Síntese e reconhecimento de voz do Aether Memory.
+voice/tts_stt.py — Síntese e reconhecimento de voz do Buds Memory.
 
 Responsabilidades extraídas de agenty.py:
   - TTS via Piper (offline, local)
@@ -98,9 +98,9 @@ def _resolve_piper_command() -> list[str]:
     Resolve o executável do Piper de forma cross-platform.
 
     O projeto antigo trazia apenas piper.exe, que é Windows. No macOS/Linux,
-    preferimos AETHER_PIPER_BIN ou um binário `piper` instalado no PATH.
+    preferimos BUDS_PIPER_BIN ou um binário `piper` instalado no PATH.
     """
-    explicit_bin = os.getenv("AETHER_PIPER_BIN", "").strip()
+    explicit_bin = os.getenv("BUDS_PIPER_BIN", os.getenv("AETHER_PIPER_BIN", "")).strip()
     if explicit_bin:
         explicit_path = Path(explicit_bin).expanduser()
         if explicit_path.exists():
@@ -108,7 +108,7 @@ def _resolve_piper_command() -> list[str]:
         resolved = shutil.which(explicit_bin)
         if resolved:
             return [resolved]
-        raise FileNotFoundError(f"AETHER_PIPER_BIN aponta para um Piper inexistente: {explicit_bin}")
+        raise FileNotFoundError(f"BUDS_PIPER_BIN aponta para um Piper inexistente: {explicit_bin}")
 
     # O app desktop empacotado reutiliza o próprio executável Python congelado
     # como entrada para o CLI do Piper. Assim não dependemos de um shebang ou
@@ -141,7 +141,7 @@ def _resolve_piper_command() -> list[str]:
 
     raise FileNotFoundError(
         "Piper nativo não encontrado. No Mac, instale com `ambiente/bin/python -m pip install piper-tts` "
-        "ou defina AETHER_PIPER_BIN com o caminho do binário Piper."
+        "ou defina BUDS_PIPER_BIN com o caminho do binário Piper."
     )
 
 

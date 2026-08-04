@@ -1,5 +1,5 @@
 """
-cognitive/summarizer.py — Sistema de Resumos Automáticos do Aether Memory.
+cognitive/summarizer.py — Sistema de Resumos Automáticos do Buds Memory.
 
 Gera resumos de:
   - Sessões individuais de chat

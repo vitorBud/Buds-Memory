@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import Speech
 
-public final class AetherSpeechRecognizer: @unchecked Sendable {
+public final class BudsSpeechRecognizer: @unchecked Sendable {
     public typealias UpdateHandler = @Sendable (_ transcript: String, _ isFinal: Bool, _ volume: Double) -> Void
 
     private let stateLock = NSLock()
@@ -24,7 +24,7 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
         let authorization = await Self.requestAuthorization()
         guard authorization == .authorized else {
             throw NSError(
-                domain: "AetherSpeech",
+                domain: "BudsSpeech",
                 code: 1,
                 userInfo: [NSLocalizedDescriptionKey: "Permita o reconhecimento de fala nos Ajustes do iPhone."]
             )
@@ -45,7 +45,7 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
             guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)),
                   recognizer.isAvailable else {
                 throw NSError(
-                    domain: "AetherSpeech",
+                    domain: "BudsSpeech",
                     code: 2,
                     userInfo: [NSLocalizedDescriptionKey: "O reconhecimento de fala não está disponível agora."]
                 )
@@ -63,7 +63,7 @@ public final class AetherSpeechRecognizer: @unchecked Sendable {
             let format = input.outputFormat(forBus: 0)
             guard format.sampleRate > 0, format.channelCount > 0 else {
                 throw NSError(
-                    domain: "AetherSpeech",
+                    domain: "BudsSpeech",
                     code: 3,
                     userInfo: [NSLocalizedDescriptionKey: "O microfone não forneceu um formato de áudio válido."]
                 )

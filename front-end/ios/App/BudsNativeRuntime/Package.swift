@@ -2,10 +2,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "AetherNativeRuntime",
+    name: "BudsNativeRuntime",
     platforms: [.iOS(.v16)],
     products: [
-        .library(name: "AetherNativeRuntime", targets: ["AetherNativeRuntime"]),
+        .library(name: "BudsNativeRuntime", targets: ["BudsNativeRuntime"]),
     ],
     targets: [
         .binaryTarget(
@@ -13,7 +13,7 @@ let package = Package(
             path: "Vendor/llama.xcframework"
         ),
         .target(
-            name: "AetherNativeRuntime",
+            name: "BudsNativeRuntime",
             dependencies: ["llama"],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),

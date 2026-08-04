@@ -49,9 +49,9 @@ test('buffer preserva começo, meio e fim de uma frase longa', async () => {
   const buffer = new RecordingChunkBuffer(recordingId)
   buffer.append(recordingId, new Blob(['Hoje eu fui trabalhar, ']))
   buffer.append(recordingId, new Blob(['depois voltei para casa ']))
-  buffer.append(recordingId, new Blob(['e quero continuar desenvolvendo o Aether.']))
+  buffer.append(recordingId, new Blob(['e quero continuar desenvolvendo o Buds.']))
   const result = buffer.finalize(recordingId, 'audio/test')
-  assert.equal(await result?.text(), 'Hoje eu fui trabalhar, depois voltei para casa e quero continuar desenvolvendo o Aether.')
+  assert.equal(await result?.text(), 'Hoje eu fui trabalhar, depois voltei para casa e quero continuar desenvolvendo o Buds.')
 })
 
 test('buffers de gravações consecutivas não se misturam', async () => {

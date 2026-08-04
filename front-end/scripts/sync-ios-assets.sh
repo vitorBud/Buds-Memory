@@ -17,4 +17,4 @@ cp "$SPLASH_SOURCE" "$SPLASH_DIR/splash-2732x2732.png"
 cp "$SPLASH_SOURCE" "$SPLASH_DIR/splash-2732x2732-1.png"
 cp "$SPLASH_SOURCE" "$SPLASH_DIR/splash-2732x2732-2.png"
 
-echo "Assets do Aether Memory sincronizados com o projeto iOS."
+echo "Assets do Buds Memory sincronizados com o projeto iOS."

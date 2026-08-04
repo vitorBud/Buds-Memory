@@ -51,7 +51,7 @@ def post_stream(base_url: str, text: str, diagnostics: bool, model: Optional[str
                 break
 
     return {
-        "mode": "aether_stream",
+        "mode": "buds_stream",
         "first_event_ms": first_event_ms,
         "first_token_ms": first_token_ms,
         "total_ms": round((time.perf_counter() - started) * 1000, 2),
@@ -118,8 +118,8 @@ def main() -> None:
     parser.add_argument("text", help="Pergunta enviada ao chat")
     parser.add_argument("--url", default="http://127.0.0.1:5050", help="URL base do backend")
     parser.add_argument("--ollama-url", default="http://127.0.0.1:11434", help="URL base do Ollama")
-    parser.add_argument("--model", default=None, help="Modelo usado no Aether ou no Ollama direto")
-    parser.add_argument("--direct-ollama", action="store_true", help="Compara chamando o Ollama sem pipeline Aether")
+    parser.add_argument("--model", default=None, help="Modelo usado no Buds ou no Ollama direto")
+    parser.add_argument("--direct-ollama", action="store_true", help="Compara chamando o Ollama sem pipeline Buds")
     parser.add_argument("--diagnostics", action="store_true", help="Inclui trace detalhado no evento done")
     args = parser.parse_args()
 

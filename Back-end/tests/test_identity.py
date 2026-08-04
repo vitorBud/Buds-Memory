@@ -5,8 +5,8 @@ from llm.prompt_builder import build_prompt
 from performance import STANDARD_PATH
 
 
-class AetherIdentityTests(unittest.TestCase):
-    def test_direct_reply_keeps_aether_identity_with_deepseek_runtime(self):
+class BudsIdentityTests(unittest.TestCase):
+    def test_direct_reply_keeps_buds_identity_with_deepseek_runtime(self):
         reply = get_direct_reply(
             "voce e o deepseek?",
             session_id=None,
@@ -15,7 +15,7 @@ class AetherIdentityTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(reply)
-        self.assertIn("Aether Memory", reply)
+        self.assertIn("Buds Memory", reply)
         self.assertIn("deepseek-r1:14b", reply)
         self.assertIn("motor local", reply.lower())
         self.assertNotIn("Vitor", reply)
@@ -30,7 +30,7 @@ class AetherIdentityTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(reply)
-        self.assertIn("Aether Memory", reply)
+        self.assertIn("Buds Memory", reply)
         self.assertIn("Vitor", reply)
 
     def test_life_question_does_not_repeat_creator_or_model_brand(self):
@@ -55,7 +55,7 @@ class AetherIdentityTests(unittest.TestCase):
         )
 
         self.assertIsNotNone(reply)
-        self.assertIn("Aether Memory", reply)
+        self.assertIn("Buds Memory", reply)
         self.assertIn("qwen2.5:7b", reply)
         self.assertNotIn("Vitor", reply)
         self.assertNotIn("Pipeline", reply)
@@ -67,7 +67,7 @@ class AetherIdentityTests(unittest.TestCase):
             selected_model="deepseek-r1:14b",
         )
 
-        self.assertIn("Aether Memory", prompt)
+        self.assertIn("Buds Memory", prompt)
         self.assertIn("criado por Vitor", prompt)
         self.assertIn("deepseek-r1:14b", prompt)
         self.assertIn("apenas o motor local", prompt)

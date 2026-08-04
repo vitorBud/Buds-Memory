@@ -95,7 +95,7 @@ export function AcessoCelular({ config }: AcessoCelularProps) {
                 <Smartphone size={15} />
                 Acesso local compartilhado
               </span>
-              <h1 className={mobileAccessStyles.title}>Use o Aether no seu celular.</h1>
+              <h1 className={mobileAccessStyles.title}>Use o Buds no seu celular.</h1>
               <p className={mobileAccessStyles.description}>
                 O processamento, as conversas e as memórias continuam no computador.
                 O celular funciona como uma interface segura conectada pela mesma rede Wi-Fi.

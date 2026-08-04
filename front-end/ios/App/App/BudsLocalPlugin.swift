@@ -1,11 +1,11 @@
-import AetherNativeRuntime
+import BudsNativeRuntime
 import Capacitor
 import Foundation
 
-@objc(AetherLocalPlugin)
-public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
-    public let identifier = "AetherLocalPlugin"
-    public let jsName = "AetherLocal"
+@objc(BudsLocalPlugin)
+public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "BudsLocalPlugin"
+    public let jsName = "BudsLocal"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "downloadModel", returnType: CAPPluginReturnPromise),
@@ -28,8 +28,8 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stopGeneration", returnType: CAPPluginReturnPromise),
     ]
 
-    private let runtime = AetherLocalRuntime.shared
-    private let speechRecognizer = AetherSpeechRecognizer()
+    private let runtime = BudsLocalRuntime.shared
+    private let speechRecognizer = BudsSpeechRecognizer()
 
     @objc func status(_ call: CAPPluginCall) {
         call.resolve(statusPayload(runtime.status()))
@@ -43,8 +43,8 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                     DispatchQueue.main.async {
                         self?.notifyListeners("modelDownloadProgress", data: [
                             "progress": progress,
-                            "downloadedBytes": Int64(progress * Double(AetherStorageGuard.modelBytes)),
-                            "totalBytes": AetherStorageGuard.modelBytes,
+                            "downloadedBytes": Int64(progress * Double(BudsStorageGuard.modelBytes)),
+                            "totalBytes": BudsStorageGuard.modelBytes,
                         ])
                     }
                 }
@@ -244,7 +244,7 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                 var payload: [String: Any] = [
                     "generationId": generationId,
                     "text": result.text,
-                    "model": AetherModelManager.modelName,
+                    "model": BudsModelManager.modelName,
                 ]
                 if let session = result.session {
                     payload["session"] = sessionPayload(session)
@@ -272,7 +272,7 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    private func statusPayload(_ status: AetherRuntimeStatus) -> [String: Any] {
+    private func statusPayload(_ status: BudsRuntimeStatus) -> [String: Any] {
         [
             "databaseReady": status.databaseReady,
             "modelInstalled": status.modelInstalled,
@@ -291,11 +291,11 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         ]
     }
 
-    private func sessionPayload(_ session: AetherSessionRecord) -> [String: Any] {
+    private func sessionPayload(_ session: BudsSessionRecord) -> [String: Any] {
         ["id": session.id, "title": session.title, "created_at": session.createdAt]
     }
 
-    private func messagePayload(_ message: AetherMessageRecord) -> [String: Any] {
+    private func messagePayload(_ message: BudsMessageRecord) -> [String: Any] {
         [
             "id": message.id,
             "session_id": message.sessionId,
@@ -305,7 +305,7 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         ]
     }
 
-    private func memoryPayload(_ memory: AetherMemoryRecord) -> [String: Any] {
+    private func memoryPayload(_ memory: BudsMemoryRecord) -> [String: Any] {
         var payload: [String: Any] = [
             "id": memory.id,
             "content": memory.content,
@@ -324,7 +324,7 @@ public final class AetherLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         return payload
     }
 
-    private func generationMetricsPayload(_ metrics: AetherGenerationMetrics) -> [String: Any] {
+    private func generationMetricsPayload(_ metrics: BudsGenerationMetrics) -> [String: Any] {
         [
             "stage": "llm_generation",
             "generation_id": metrics.generationId,

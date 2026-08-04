@@ -1,4 +1,4 @@
-# Aether Memory no iPhone
+# Buds Memory no iPhone
 
 O aplicativo iOS reaproveita a interface React/Tailwind pelo Capacitor, mas o
 chat principal agora funciona de forma nativa e local no aparelho. Ele usa o
@@ -38,7 +38,7 @@ O comando `ios:open` baixa e valida o XCFramework oficial do `llama.cpp`, gera o
 frontend e sincroniza o projeto iOS. No Xcode:
 
 1. selecione o projeto `App` e a sua conta em `Signing & Capabilities > Team`;
-2. mantenha o bundle ID `com.vitor.aethermemory`;
+2. mantenha o bundle ID `com.vitor.budsmemory`;
 3. selecione o iPhone conectado como destino;
 4. pressione `Run`.
 
@@ -47,7 +47,7 @@ app se quiser preservar o banco e o modelo já baixado.
 
 ## Primeira abertura e modelo 7B
 
-Na primeira abertura, o Aether mostra o estado do armazenamento e solicita o
+Na primeira abertura, o Buds mostra o estado do armazenamento e solicita o
 download do modelo oficial de aproximadamente 4,7 GB. O download apresenta o
 progresso e só conclui a instalação depois de validar o SHA-256 do arquivo.
 
@@ -90,7 +90,7 @@ npm run ios:doctor # diagnóstico do ambiente iOS
 
 O XCFramework é baixado de forma reproduzível pelo script
 `scripts/setup-ios-llama.sh`; versão e SHA-256 ficam fixados no projeto. A pasta
-binária `AetherNativeRuntime/Vendor` é ignorada pelo Git.
+binária `BudsNativeRuntime/Vendor` é ignorada pelo Git.
 
 ## Privacidade
 

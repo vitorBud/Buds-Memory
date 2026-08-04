@@ -1,5 +1,5 @@
 """
-cognitive/projects.py — Modo Projeto do Aether Memory.
+cognitive/projects.py — Modo Projeto do Buds Memory.
 
 Gerencia entidades de projeto: criação, status, vinculação com sessões
 e documentos, geração de contexto para o LLM.

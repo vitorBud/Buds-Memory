@@ -1,5 +1,5 @@
 """
-cognitive_api.py — Blueprint Flask da Camada Cognitiva do Aether Memory.
+cognitive_api.py — Blueprint Flask da Camada Cognitiva do Buds Memory.
 
 Todos os endpoints prefixados com /api/cognitive
 Registra o Blueprint em app.py com: app.register_blueprint(cognitive_bp)

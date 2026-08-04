@@ -6,6 +6,7 @@ const { pathToFileURL } = require('node:url')
 
 const BACKEND_URL = 'http://127.0.0.1:5050'
 const API_HEALTH_URL = `${BACKEND_URL}/api/health`
+const LEGACY_DATA_DIR_NAME = 'Aether Memory'
 
 let mainWindow = null
 let splashWindow = null
@@ -13,7 +14,7 @@ let backendProcess = null
 let backendStartedByElectron = false
 let backendLogTail = []
 
-app.setName('Aether Memory')
+app.setName('Buds Memory')
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('ignore-gpu-blocklist')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
@@ -34,6 +35,23 @@ protocol.registerSchemesAsPrivileged([
 
 function resolveDataDir() {
   return process.env.NEXUS_DATA_DIR || app.getPath('userData')
+}
+
+function migrateLegacyDataDir() {
+  if (process.env.NEXUS_DATA_DIR) return
+
+  const legacyDir = path.join(app.getPath('appData'), LEGACY_DATA_DIR_NAME)
+  const currentDir = app.getPath('userData')
+  if (legacyDir === currentDir || !fs.existsSync(legacyDir)) return
+
+  fs.mkdirSync(currentDir, { recursive: true })
+  for (const entry of fs.readdirSync(legacyDir)) {
+    const source = path.join(legacyDir, entry)
+    const destination = path.join(currentDir, entry)
+    if (!fs.existsSync(destination)) {
+      fs.cpSync(source, destination, { recursive: true, errorOnExist: false })
+    }
+  }
 }
 
 function logLine(...parts) {
@@ -139,7 +157,7 @@ function createSplash() {
 <body>
   <div class="logo">⚡</div>
   <div style="text-align:center;gap:6px;display:flex;flex-direction:column;align-items:center">
-    <h1>Aether Memory</h1>
+    <h1>Buds Memory</h1>
     <p>Iniciando o servidor…</p>
   </div>
   <div class="bar-wrap"><div class="bar"></div></div>
@@ -175,7 +193,7 @@ async function isBackendReady() {
 
 function resolveBackendDir() {
   if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'AetherBackend')
+    return path.join(process.resourcesPath, 'BudsBackend')
   }
   return path.resolve(__dirname, '..', '..', 'Back-end')
 }
@@ -212,7 +230,7 @@ function resolvePythonExecutable(backendDir) {
 function resolveBackendRuntime() {
   const backendDir = resolveBackendDir()
   if (app.isPackaged) {
-    const executable = path.join(backendDir, 'aether-backend')
+    const executable = path.join(backendDir, 'buds-backend')
     return {
       command: executable,
       args: [],
@@ -248,14 +266,14 @@ function syncEnvFileToDataDir() {
       fs.chmodSync(dataEnv, 0o600)
     }
   } catch (error) {
-    console.warn('[Aether Backend] não consegui preparar .env do app:', error)
+    console.warn('[Buds Backend] não consegui preparar .env do app:', error)
   }
 }
 
 async function startBackend() {
   // Backend já está rodando (iniciado manualmente ou por outra instância)
   if (await isBackendReady()) {
-    logLine('[Aether Backend] usando backend já ativo em 127.0.0.1:5050')
+    logLine('[Buds Backend] usando backend já ativo em 127.0.0.1:5050')
     return true
   }
 
@@ -267,7 +285,7 @@ async function startBackend() {
   )
 
   if (!runtime.exists) {
-    logLine('[Aether Backend] runtime não encontrado:', runtime.description)
+    logLine('[Buds Backend] runtime não encontrado:', runtime.description)
     await dialog.showMessageBox({
       type: 'error',
       title: 'Backend não encontrado',
@@ -281,7 +299,7 @@ async function startBackend() {
 
   syncEnvFileToDataDir()
   backendLogTail = []
-  logLine('[Aether Backend] iniciando', runtime.description, 'cwd=', runtime.cwd)
+  logLine('[Buds Backend] iniciando', runtime.description, 'cwd=', runtime.cwd)
   backendStartedByElectron = true
   const mobileAccessEnabled = (
     process.platform === 'darwin'
@@ -295,7 +313,7 @@ async function startBackend() {
         ...process.env,
         NEXUS_DATA_DIR: resolveDataDir(),
         // No macOS, o desktop também hospeda a API para o app iOS. O modo LAN
-        // sempre exige o token gerado dentro do diretório de dados do Aether.
+        // sempre exige o token gerado dentro do diretório de dados do Buds.
         // Windows preserva o caminho loopback atual e pode optar pelo fluxo
         // mobile executando app.py diretamente.
         NEXUS_HOST: mobileAccessEnabled ? '0.0.0.0' : '127.0.0.1',
@@ -305,7 +323,7 @@ async function startBackend() {
       stdio: ['ignore', 'pipe', 'pipe'],
     })
   } catch (error) {
-    logLine('[Aether Backend] spawn falhou:', error)
+    logLine('[Buds Backend] spawn falhou:', error)
     backendProcess = null
     return false
   }
@@ -315,12 +333,12 @@ async function startBackend() {
   backendProcess.stderr.on('data', chunk => rememberBackendLog(chunk))
 
   backendProcess.on('exit', code => {
-    logLine(`[Aether Backend] encerrado com código ${code}`)
+    logLine(`[Buds Backend] encerrado com código ${code}`)
     backendProcess = null
   })
 
   backendProcess.on('error', error => {
-    logLine('[Aether Backend] erro no processo:', error)
+    logLine('[Buds Backend] erro no processo:', error)
     backendProcess = null
   })
 
@@ -335,7 +353,7 @@ async function startBackend() {
   await dialog.showMessageBox({
     type: hasLocalEnv ? 'warning' : 'error',
     title: 'Backend não iniciou',
-    message: 'O Aether Memory não conseguiu ligar o backend automaticamente.',
+    message: 'O Buds Memory não conseguiu ligar o backend automaticamente.',
     detail: [
       `Backend: ${runtime.cwd}`,
       `Runtime: ${runtime.description}`,
@@ -359,7 +377,7 @@ function createWindow() {
     height: 860,
     minWidth: 1040,
     minHeight: 720,
-    title: 'Aether Memory',
+    title: 'Buds Memory',
     backgroundColor: '#050607',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 18 },
@@ -450,7 +468,7 @@ ipcMain.handle('nexus:get-remote-token', () => {
 
 function stopBackend() {
   if (backendStartedByElectron && backendProcess) {
-    logLine('[Aether Backend] encerrando processo filho…')
+    logLine('[Buds Backend] encerrando processo filho…')
     backendProcess.kill('SIGTERM')
     backendProcess = null
   }
@@ -465,6 +483,11 @@ process.on('unhandledRejection', error => {
 })
 
 app.whenReady().then(async () => {
+  try {
+    migrateLegacyDataDir()
+  } catch (error) {
+    console.warn('[Buds] não foi possível migrar os dados da instalação anterior:', error)
+  }
   logLine('[Electron] app pronto. packaged=', app.isPackaged, 'resources=', process.resourcesPath)
   registerAssetProtocol()
 
@@ -474,7 +497,7 @@ app.whenReady().then(async () => {
   try {
     await startBackend()
   } catch (error) {
-    logLine('[Aether Backend] falha ao iniciar:', error)
+    logLine('[Buds Backend] falha ao iniciar:', error)
   }
 
   // Abre janela principal (a splash fecha automaticamente via ready-to-show)

@@ -1,6 +1,6 @@
 import Foundation
 
-public enum AetherNativeError: LocalizedError {
+public enum BudsNativeError: LocalizedError {
     case insufficientStorage(available: Int64, required: Int64)
     case databaseUnavailable(String)
     case modelMissing
@@ -39,7 +39,7 @@ public enum AetherNativeError: LocalizedError {
     }
 }
 
-public struct AetherStorageStatus: Sendable {
+public struct BudsStorageStatus: Sendable {
     public let availableBytes: Int64
     public let usedBytes: Int64
     public let databaseBytes: Int64
@@ -64,8 +64,8 @@ public struct AetherStorageStatus: Sendable {
     }
 }
 
-public struct AetherRuntimeStatus: Sendable {
-    public let storage: AetherStorageStatus
+public struct BudsRuntimeStatus: Sendable {
+    public let storage: BudsStorageStatus
     public let databaseReady: Bool
     public let modelInstalled: Bool
     public let modelBytes: Int64
@@ -74,7 +74,7 @@ public struct AetherRuntimeStatus: Sendable {
     public let lowPowerMode: Bool
 
     public init(
-        storage: AetherStorageStatus,
+        storage: BudsStorageStatus,
         databaseReady: Bool,
         modelInstalled: Bool,
         modelBytes: Int64,
@@ -92,13 +92,13 @@ public struct AetherRuntimeStatus: Sendable {
     }
 }
 
-public struct AetherSessionRecord: Sendable {
+public struct BudsSessionRecord: Sendable {
     public let id: String
     public let title: String
     public let createdAt: String
 }
 
-public struct AetherMessageRecord: Sendable {
+public struct BudsMessageRecord: Sendable {
     public let id: Int64
     public let sessionId: String
     public let sender: String
@@ -106,7 +106,7 @@ public struct AetherMessageRecord: Sendable {
     public let createdAt: String
 }
 
-public struct AetherMemoryRecord: Sendable {
+public struct BudsMemoryRecord: Sendable {
     public let id: Int64
     public let content: String
     public let importance: Double
@@ -116,7 +116,7 @@ public struct AetherMemoryRecord: Sendable {
     public let sessionId: String?
 }
 
-public struct AetherGenerationMetrics: Sendable {
+public struct BudsGenerationMetrics: Sendable {
     public let generationId: String
     public let modelName: String
     public let promptCharacters: Int
@@ -139,7 +139,7 @@ public struct AetherGenerationMetrics: Sendable {
     public let thermalStateEnd: String
 }
 
-struct AetherEngineResult {
+struct BudsEngineResult {
     let text: String
     let promptTokens: Int
     let outputTokens: Int

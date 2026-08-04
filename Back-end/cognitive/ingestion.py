@@ -1,5 +1,5 @@
 """
-cognitive/ingestion.py — Pipeline de ingestão de documentos do Aether Memory.
+cognitive/ingestion.py — Pipeline de ingestão de documentos do Buds Memory.
 
 Responsabilidades extraídas de app.py (funções de domínio que não pertencem
 à camada de rota HTTP):
@@ -277,7 +277,7 @@ def fetch_url_text(url: str) -> str:
     response = requests.get(
         url,
         timeout=15,
-        headers={"User-Agent": "AetherMemory/1.0"},
+        headers={"User-Agent": "BudsMemory/1.0"},
     )
     response.raise_for_status()
 

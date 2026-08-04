@@ -1,5 +1,5 @@
 """
-cognitive/detector.py — Detector Cognitivo do Aether Memory com Filtro de Relevância.
+cognitive/detector.py — Detector Cognitivo do Buds Memory com Filtro de Relevância.
 
 Analisa pares (usuário, IA) de cada conversa e:
   1. Calcula score de relevância (0–100)

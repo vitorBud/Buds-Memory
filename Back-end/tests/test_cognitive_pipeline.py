@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 
-TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="aether-cognitive-tests-"))
+TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="buds-cognitive-tests-"))
 os.environ["NEXUS_DATA_DIR"] = str(TEST_DATA_DIR)
 sqlite3.connect(TEST_DATA_DIR / "chat_history.db").close()
 
@@ -29,9 +29,9 @@ class CognitivePipelineTests(unittest.TestCase):
             database.delete_session(self.session_id)
 
     def test_profile_facts_become_core_memory_context(self):
-        database.add_message(self.session_id, "user", "Meu nome é Vitor e meu projeto Aether Memory.")
+        database.add_message(self.session_id, "user", "Meu nome é Vitor e meu projeto Buds Memory.")
         saved = user_profile.update_from_text(
-            "Meu nome é Vitor e meu projeto Aether Memory.",
+            "Meu nome é Vitor e meu projeto Buds Memory.",
             session_id=self.session_id,
         )
 

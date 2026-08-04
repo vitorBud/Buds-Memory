@@ -2,7 +2,7 @@
 
 ## Missao
 
-Manter e evoluir a API Flask do Aether Memory sem quebrar chat, sessoes,
+Manter e evoluir a API Flask do Buds Memory sem quebrar chat, sessoes,
 importacao de conhecimento, voz, auth remoto, backup local ou Electron.
 
 ## Arquivos Principais
@@ -56,7 +56,7 @@ importacao de conhecimento, voz, auth remoto, backup local ou Electron.
 
 ```bash
 cd Back-end
-env PYTHONPYCACHEPREFIX=/private/tmp/aether_pycache ambiente/bin/python -m py_compile app.py agenty.py cognitive/*.py
+env PYTHONPYCACHEPREFIX=/private/tmp/buds_pycache ambiente/bin/python -m py_compile app.py agenty.py cognitive/*.py
 ```
 
 Com backend rodando:

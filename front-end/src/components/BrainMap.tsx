@@ -363,7 +363,7 @@ function buildMemoryGraph(
       addNode({
         id: topicId,
         label: compactLabel(topic, 'Tópico indexado', 48),
-        summary: `Tópico indexado a partir dos documentos e memórias do Aether.`,
+        summary: `Tópico indexado a partir dos documentos e memórias do Buds.`,
         kind: 'topico',
         weight: 6 + (topicIndex % 3),
         createdAt: parseDate(source.created_at),
@@ -711,13 +711,13 @@ function ObsidianMemoryGraph({
       <div className="obsidian-graph-empty" role="status">
         <Network size={28} />
         <strong>Nenhum conhecimento neste período</strong>
-        <p>Converse com o Aether ou importe um documento para criar memórias e relações reais.</p>
+        <p>Converse com o Buds ou importe um documento para criar memórias e relações reais.</p>
       </div>
     )
   }
 
   return (
-    <div className="obsidian-graph-viewport" aria-label="Grafo interativo das memórias do Aether Memory">
+    <div className="obsidian-graph-viewport" aria-label="Grafo interativo das memórias do Buds Memory">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`}
@@ -978,7 +978,7 @@ export function BrainMap({
       <header className="obsidian-graph-topbar">
         <div>
           <span className="eyebrow">Visualização em gráfico</span>
-          <strong>{selectedNode?.label ?? 'Memórias do Aether'}</strong>
+          <strong>{selectedNode?.label ?? 'Memórias do Buds'}</strong>
         </div>
         <div className="obsidian-graph-actions">
           {PERIODS.map(option => (
@@ -1090,7 +1090,7 @@ export function BrainMap({
           >
             <div className="brain-stats-popover-head">
               <div>
-                <span className="eyebrow">Aether · Second Brain</span>
+                <span className="eyebrow">Buds · Second Brain</span>
                 <strong>Painel de memória</strong>
               </div>
               <button type="button" onClick={() => setIsStatsOpen(false)} aria-label="Fechar" title="Fechar">

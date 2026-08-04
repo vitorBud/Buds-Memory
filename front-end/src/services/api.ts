@@ -30,7 +30,7 @@ import {
   updateIOSLocalSessionTitle,
 } from './iosLocal'
 
-type AetherBridge = {
+type BudsBridge = {
   apiBase?: string
   isDesktop?: boolean
   getRemoteToken?: () => Promise<string>
@@ -46,7 +46,7 @@ export function isNativeIOSRuntime(): boolean {
  * preload do Electron já injetou a bridge antes da primeira chamada de API.
  */
 export function getBase(): string {
-  const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
+  const bridge = (window as unknown as { nexus?: BudsBridge }).nexus
   return bridge?.apiBase || import.meta.env.VITE_API_BASE_URL || '/api'
 }
 
@@ -75,7 +75,7 @@ export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Pro
 }
 
 function isDesktop(): boolean {
-  return Boolean((window as unknown as { nexus?: AetherBridge }).nexus?.isDesktop)
+  return Boolean((window as unknown as { nexus?: BudsBridge }).nexus?.isDesktop)
 }
 
 function getAudioUploadName(blob: Blob): string {
@@ -120,7 +120,7 @@ function humanizeError(err: unknown): Error {
 
   if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
     return new Error(
-      'Não foi possível conectar ao servidor local. Verifique se o backend do Aether está rodando na porta 5050.',
+      'Não foi possível conectar ao servidor local. Verifique se o backend do Buds está rodando na porta 5050.',
     )
   }
   return err instanceof Error ? err : new Error(String(err))
@@ -153,7 +153,7 @@ export async function getBackendConfig(): Promise<BackendConfig> {
       models: [status.modelName],
       ollama_url: 'iphone://local',
       google_search_available: false,
-      data_dir: 'iphone://application-support/AetherMemory',
+      data_dir: 'iphone://application-support/BudsMemory',
     }
   }
   return fetchJsonWithStartupRetry<BackendConfig>(`${getBase()}/config`)
@@ -184,7 +184,7 @@ export async function loginLocal(): Promise<{ access_token?: string; success: bo
 }
 
 export async function getLocalDeviceToken(): Promise<string> {
-  const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
+  const bridge = (window as unknown as { nexus?: BudsBridge }).nexus
   if (bridge?.getRemoteToken) {
     return bridge.getRemoteToken()
   }
@@ -230,7 +230,7 @@ export async function getLocalBackupStatus(): Promise<LocalBackupStatus> {
     ])
     return {
       mode: 'iphone-local',
-      device_id: 'aether-iphone',
+      device_id: 'buds-iphone',
       local_records: { sessions: sessions.length },
       storage: {
         used_bytes: status.storage.usedBytes,
@@ -249,7 +249,7 @@ export async function clearLocalStorage(confirmation: string): Promise<LocalBack
     const status = await clearIOSLocalData(confirmation)
     return {
       mode: 'iphone-local',
-      device_id: 'aether-iphone',
+      device_id: 'buds-iphone',
       local_records: { sessions: 0 },
       storage: {
         used_bytes: status.storage.usedBytes,
@@ -300,7 +300,7 @@ export async function exportLocalMemoryBackup(): Promise<void> {
   const blob = await res.blob()
   const disposition = res.headers.get('Content-Disposition') || ''
   const filenameMatch = disposition.match(/filename="?([^";]+)"?/i)
-  const filename = filenameMatch?.[1] || `aether-memory-backup-${new Date().toISOString().slice(0, 10)}.json`
+  const filename = filenameMatch?.[1] || `buds-memory-backup-${new Date().toISOString().slice(0, 10)}.json`
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
@@ -498,7 +498,7 @@ export async function importKnowledge(
 ): Promise<KnowledgeSource> {
   if (isNativeIOSRuntime()) {
     if (payload.file) {
-      throw new Error('PDFs continuam sendo indexados pelo Aether no Mac; no iPhone você pode salvar textos diretamente na memória.')
+      throw new Error('PDFs continuam sendo indexados pelo Buds no Mac; no iPhone você pode salvar textos diretamente na memória.')
     }
     const content = (payload.text || payload.url || payload.query || '').trim()
     if (!content) throw new Error('Digite o conteúdo que deseja salvar na memória.')

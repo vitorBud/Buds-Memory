@@ -2,7 +2,7 @@
 
 ## Missao
 
-Garantir que o Aether Memory funcione como app desktop plug and play, como PWA
+Garantir que o Buds Memory funcione como app desktop plug and play, como PWA
 mobile e em acesso remoto, preservando dados locais e oferecendo backup portatil
 da memoria.
 
@@ -53,7 +53,7 @@ Mobile remoto:
 Backup:
 
 - `GET /api/local-backup/status` mostra contagem de registros locais.
-- `GET /api/local-backup/export` baixa `aether-memory-backup-*.json`.
+- `GET /api/local-backup/export` baixa `buds-memory-backup-*.json`.
 - `POST /api/local-backup/import` importa backup em modo merge.
 
 ## Pontos Sensíveis

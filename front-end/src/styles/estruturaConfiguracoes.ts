@@ -8,27 +8,27 @@ export const settingsLayoutStyles = {
   headerCopy:
     'grid gap-0.5',
   eyebrow:
-    'text-[11px] tracking-normal text-aether-muted',
+    'text-[11px] tracking-normal text-buds-muted',
   title:
     'text-[clamp(22px,3vw,34px)] tracking-normal',
   close:
-    'grid size-[42px] min-h-[42px] cursor-pointer place-items-center rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] text-aether-muted transition-[background,border-color,color,transform] duration-160 hover:-translate-y-px hover:border-[color-mix(in_srgb,var(--liquid-border),var(--accent)_36%)] hover:bg-[color-mix(in_srgb,var(--liquid-panel),var(--accent)_10%)] hover:text-aether-text platform-windows:transition-none platform-windows:hover:translate-y-0',
+    'grid size-[42px] min-h-[42px] cursor-pointer place-items-center rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] text-buds-muted transition-[background,border-color,color,transform] duration-160 hover:-translate-y-px hover:border-[color-mix(in_srgb,var(--liquid-border),var(--accent)_36%)] hover:bg-[color-mix(in_srgb,var(--liquid-panel),var(--accent)_10%)] hover:text-buds-text platform-windows:transition-none platform-windows:hover:translate-y-0',
   nav:
     'sticky top-[calc(106px+env(safe-area-inset-top))] col-start-1 row-start-2 grid gap-[9px] rounded-[22px] border border-[var(--liquid-border)] p-2.5 shadow-[0_22px_64px_color-mix(in_srgb,var(--shadow),transparent_82%)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_56%),color-mix(in_srgb,var(--liquid-panel-soft),transparent_5%)] [backdrop-filter:blur(28px)_saturate(150%)] platform-windows:shadow-none platform-windows:[backdrop-filter:none] max-[860px]:static max-[860px]:col-start-1 max-[860px]:row-start-2 max-[860px]:flex max-[860px]:gap-2 max-[860px]:overflow-x-auto max-[860px]:[scroll-snap-type:x_mandatory] platform-ios:!rounded-[18px] platform-ios:!bg-[var(--surface)] platform-ios:!shadow-none platform-ios:![backdrop-filter:none]',
   navButton:
-    'group grid min-h-16 cursor-pointer grid-cols-[34px_minmax(0,1fr)] items-center gap-2.5 rounded-[15px] border border-transparent bg-transparent px-2.5 py-2 text-left text-aether-muted transition-[background,border-color,color,transform] duration-160 hover:-translate-y-px hover:border-[color-mix(in_srgb,var(--liquid-border),var(--accent)_36%)] hover:bg-[color-mix(in_srgb,var(--liquid-panel),var(--accent)_10%)] hover:text-aether-text platform-windows:transition-none platform-windows:hover:translate-y-0 max-[860px]:min-w-[178px] max-[860px]:grid-cols-[28px_minmax(112px,1fr)] max-[860px]:[scroll-snap-align:start]',
+    'group grid min-h-16 cursor-pointer grid-cols-[34px_minmax(0,1fr)] items-center gap-2.5 rounded-[15px] border border-transparent bg-transparent px-2.5 py-2 text-left text-buds-muted transition-[background,border-color,color,transform] duration-160 hover:-translate-y-px hover:border-[color-mix(in_srgb,var(--liquid-border),var(--accent)_36%)] hover:bg-[color-mix(in_srgb,var(--liquid-panel),var(--accent)_10%)] hover:text-buds-text platform-windows:transition-none platform-windows:hover:translate-y-0 max-[860px]:min-w-[178px] max-[860px]:grid-cols-[28px_minmax(112px,1fr)] max-[860px]:[scroll-snap-align:start]',
   navButtonActive:
-    '-translate-y-px border-[color-mix(in_srgb,var(--liquid-border),var(--accent)_36%)] bg-[color-mix(in_srgb,var(--liquid-panel),var(--accent)_10%)] text-aether-text platform-windows:translate-y-0',
+    '-translate-y-px border-[color-mix(in_srgb,var(--liquid-border),var(--accent)_36%)] bg-[color-mix(in_srgb,var(--liquid-panel),var(--accent)_10%)] text-buds-text platform-windows:translate-y-0',
   navIcon:
-    'size-[34px] rounded-[11px] border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--surface),transparent_12%)] p-2 text-aether-icon group-hover:border-[var(--liquid-border-strong)] group-hover:text-aether-text max-[860px]:size-7 max-[860px]:p-1.5',
+    'size-[34px] rounded-[11px] border border-[var(--liquid-border)] bg-[color-mix(in_srgb,var(--surface),transparent_12%)] p-2 text-buds-icon group-hover:border-[var(--liquid-border-strong)] group-hover:text-buds-text max-[860px]:size-7 max-[860px]:p-1.5',
   navIconActive:
-    'border-transparent !bg-aether-action !text-aether-action-ink group-hover:!bg-aether-action group-hover:!text-aether-action-ink',
+    'border-transparent !bg-buds-action !text-buds-action-ink group-hover:!bg-buds-action group-hover:!text-buds-action-ink',
   navCopy:
     'grid min-w-0 gap-0.5',
   navLabel:
-    'text-[13px] text-aether-text',
+    'text-[13px] text-buds-text',
   navHint:
-    'text-[11px] leading-[1.2] text-aether-muted',
+    'text-[11px] leading-[1.2] text-buds-muted',
   content:
     'col-start-2 row-start-2 grid min-w-0 w-full max-w-[920px] content-start gap-4 [&>.settings-section]:hidden [&>.settings-section]:flex-col [&>.settings-section]:gap-[18px] [&>.settings-section]:overflow-hidden [&>.settings-section]:rounded-[22px] [&>.settings-section]:border [&>.settings-section]:border-[var(--liquid-border)] [&>.settings-section]:p-[clamp(18px,2.3vw,26px)] [&>.settings-section]:[background:linear-gradient(135deg,var(--liquid-highlight),transparent_52%),color-mix(in_srgb,var(--liquid-panel-soft),transparent_4%)] [&>.settings-section]:shadow-[0_22px_64px_color-mix(in_srgb,var(--shadow),transparent_78%)] [&>.settings-section]:m-0 [&>.settings-section]:min-h-[520px] [&>.settings-section]:w-full [&>.settings-section]:max-w-none max-[860px]:col-start-1 max-[860px]:row-start-3 max-[860px]:max-w-none max-[860px]:[&>.settings-section]:min-h-0',
 } as const

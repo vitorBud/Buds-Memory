@@ -104,7 +104,7 @@ export function useRecorder({
             : (await cancelIOSSpeechRecognition(recordingId), { text: '', recordingId })
           if (!operationGateRef.current.isActive(recordingId) || result.recordingId !== recordingId) return
           const transcript = (result.text || nativeTranscriptRef.current).trim()
-          console.info('[AetherPerf]', {
+          console.info('[BudsPerf]', {
             stage: 'voice_capture', recording_id: recordingId, capture_ms: captureMs,
             transcription_chars: transcript.length, emitted: Boolean(emit && transcript),
           })
@@ -216,7 +216,7 @@ export function useRecorder({
         const blob = chunkBuffer.finalize(recordingId, mimeType) ?? new Blob([], { type: mimeType })
         const shouldEmit = emitByOperationRef.current.get(recordingId) !== false
         const isCurrent = operationGateRef.current.isActive(recordingId)
-        console.info('[AetherPerf]', {
+        console.info('[BudsPerf]', {
           stage: 'voice_capture', recording_id: recordingId,
           capture_ms: Math.round(performance.now() - startedAtRef.current),
           chunks: chunkCount, audio_bytes: blob.size, emitted: shouldEmit && isCurrent,

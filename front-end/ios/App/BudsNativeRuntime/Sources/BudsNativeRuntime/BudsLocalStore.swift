@@ -1,16 +1,32 @@
 import Foundation
 import SQLite3
 
-public final class AetherLocalStore: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "com.aethermemory.ios.sqlite")
+public final class BudsLocalStore: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "com.budsmemory.ios.sqlite")
     private var database: OpaquePointer?
     private let databaseURL: URL
 
     public init() throws {
-        try AetherStorageGuard.requireDatabaseSpace()
-        databaseURL = try AetherStorageGuard.appSupportDirectory()
-            .appendingPathComponent("aether-memory-iphone.sqlite3")
+        try BudsStorageGuard.requireDatabaseSpace()
+        let supportDirectory = try BudsStorageGuard.appSupportDirectory()
+        try Self.migrateLegacyDatabase(in: supportDirectory)
+        databaseURL = supportDirectory.appendingPathComponent("buds-memory-iphone.sqlite3")
         try open()
+    }
+
+    private static func migrateLegacyDatabase(in directory: URL) throws {
+        let manager = FileManager.default
+        let currentName = "buds-memory-iphone.sqlite3"
+        let legacyName = "aether-memory-iphone.sqlite3"
+        guard !manager.fileExists(atPath: directory.appendingPathComponent(currentName).path) else { return }
+
+        for suffix in ["", "-wal", "-shm"] {
+            let source = directory.appendingPathComponent(legacyName + suffix)
+            let destination = directory.appendingPathComponent(currentName + suffix)
+            if manager.fileExists(atPath: source.path) {
+                try manager.moveItem(at: source, to: destination)
+            }
+        }
     }
 
     deinit {
@@ -19,14 +35,14 @@ public final class AetherLocalStore: @unchecked Sendable {
         }
     }
 
-    public func listSessions() throws -> [AetherSessionRecord] {
+    public func listSessions() throws -> [BudsSessionRecord] {
         try queue.sync {
             let sql = "SELECT id, title, created_at FROM sessions ORDER BY created_at DESC"
             let statement = try prepare(sql)
             defer { sqlite3_finalize(statement) }
-            var records: [AetherSessionRecord] = []
+            var records: [BudsSessionRecord] = []
             while sqlite3_step(statement) == SQLITE_ROW {
-                records.append(AetherSessionRecord(
+                records.append(BudsSessionRecord(
                     id: text(statement, 0),
                     title: text(statement, 1),
                     createdAt: text(statement, 2)
@@ -36,14 +52,14 @@ public final class AetherLocalStore: @unchecked Sendable {
         }
     }
 
-    public func getSession(id: String) throws -> AetherSessionRecord? {
+    public func getSession(id: String) throws -> BudsSessionRecord? {
         try queue.sync { try session(id: id) }
     }
 
-    public func createSession(title: String?) throws -> AetherSessionRecord {
+    public func createSession(title: String?) throws -> BudsSessionRecord {
         try queue.sync {
             try ensureWritable()
-            let record = AetherSessionRecord(
+            let record = BudsSessionRecord(
                 id: UUID().uuidString.lowercased(),
                 title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "Nova conversa",
                 createdAt: Self.now()
@@ -58,7 +74,7 @@ public final class AetherLocalStore: @unchecked Sendable {
         }
     }
 
-    public func updateSessionTitle(id: String, title: String) throws -> AetherSessionRecord {
+    public func updateSessionTitle(id: String, title: String) throws -> BudsSessionRecord {
         try queue.sync {
             try ensureWritable()
             let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -68,7 +84,7 @@ public final class AetherLocalStore: @unchecked Sendable {
             bind(id, statement, 2)
             try stepDone(statement)
             guard let record = try session(id: id) else {
-                throw AetherNativeError.databaseUnavailable("Conversa não encontrada.")
+                throw BudsNativeError.databaseUnavailable("Conversa não encontrada.")
             }
             return record
         }
@@ -111,7 +127,7 @@ public final class AetherLocalStore: @unchecked Sendable {
         }
     }
 
-    public func messages(sessionId: String, limit: Int = 200) throws -> [AetherMessageRecord] {
+    public func messages(sessionId: String, limit: Int = 200) throws -> [BudsMessageRecord] {
         try queue.sync {
             let sql = """
                 SELECT id, session_id, sender, text, created_at
@@ -122,9 +138,9 @@ public final class AetherLocalStore: @unchecked Sendable {
             defer { sqlite3_finalize(statement) }
             bind(sessionId, statement, 1)
             sqlite3_bind_int(statement, 2, Int32(max(1, min(limit, 500))))
-            var records: [AetherMessageRecord] = []
+            var records: [BudsMessageRecord] = []
             while sqlite3_step(statement) == SQLITE_ROW {
-                records.append(AetherMessageRecord(
+                records.append(BudsMessageRecord(
                     id: sqlite3_column_int64(statement, 0),
                     sessionId: text(statement, 1),
                     sender: text(statement, 2),
@@ -137,7 +153,7 @@ public final class AetherLocalStore: @unchecked Sendable {
     }
 
     @discardableResult
-    public func addMessage(sessionId: String, sender: String, text: String) throws -> AetherMessageRecord {
+    public func addMessage(sessionId: String, sender: String, text: String) throws -> BudsMessageRecord {
         try queue.sync {
             try ensureWritable()
             let createdAt = Self.now()
@@ -150,7 +166,7 @@ public final class AetherLocalStore: @unchecked Sendable {
             bind(text, statement, 3)
             bind(createdAt, statement, 4)
             try stepDone(statement)
-            let record = AetherMessageRecord(
+            let record = BudsMessageRecord(
                 id: sqlite3_last_insert_rowid(database),
                 sessionId: sessionId,
                 sender: sender,
@@ -166,16 +182,16 @@ public final class AetherLocalStore: @unchecked Sendable {
         }
     }
 
-    public func memories(limit: Int = 40) throws -> [AetherMemoryRecord] {
+    public func memories(limit: Int = 40) throws -> [BudsMemoryRecord] {
         try queue.sync {
             let statement = try prepare(
                 "SELECT id, content, importance, is_core, created_at, scope, session_id FROM memories ORDER BY is_core DESC, importance DESC, id DESC LIMIT ?"
             )
             defer { sqlite3_finalize(statement) }
             sqlite3_bind_int(statement, 1, Int32(max(1, min(limit, 200))))
-            var records: [AetherMemoryRecord] = []
+            var records: [BudsMemoryRecord] = []
             while sqlite3_step(statement) == SQLITE_ROW {
-                records.append(AetherMemoryRecord(
+                records.append(BudsMemoryRecord(
                     id: sqlite3_column_int64(statement, 0),
                     content: text(statement, 1),
                     importance: sqlite3_column_double(statement, 2),
@@ -189,7 +205,7 @@ public final class AetherLocalStore: @unchecked Sendable {
         }
     }
 
-    public func memoriesForPrompt(sessionId: String, limit: Int = 16) throws -> [AetherMemoryRecord] {
+    public func memoriesForPrompt(sessionId: String, limit: Int = 16) throws -> [BudsMemoryRecord] {
         try queue.sync {
             let statement = try prepare(
                 """
@@ -202,9 +218,9 @@ public final class AetherLocalStore: @unchecked Sendable {
             defer { sqlite3_finalize(statement) }
             bind(sessionId, statement, 1)
             sqlite3_bind_int(statement, 2, Int32(max(1, min(limit, 80))))
-            var records: [AetherMemoryRecord] = []
+            var records: [BudsMemoryRecord] = []
             while sqlite3_step(statement) == SQLITE_ROW {
-                records.append(AetherMemoryRecord(
+                records.append(BudsMemoryRecord(
                     id: sqlite3_column_int64(statement, 0),
                     content: text(statement, 1),
                     importance: sqlite3_column_double(statement, 2),
@@ -218,12 +234,12 @@ public final class AetherLocalStore: @unchecked Sendable {
         }
     }
 
-    public func createMemory(content: String, importance: Double = 0.75) throws -> AetherMemoryRecord {
+    public func createMemory(content: String, importance: Double = 0.75) throws -> BudsMemoryRecord {
         try queue.sync {
             try ensureWritable()
             let clean = content.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let value = clean.nonEmpty else {
-                throw AetherNativeError.databaseUnavailable("A memória não pode ficar vazia.")
+                throw BudsNativeError.databaseUnavailable("A memória não pode ficar vazia.")
             }
             let statement = try prepare(
                 "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id) VALUES (?, ?, 0, ?, 'global', NULL)"
@@ -239,17 +255,17 @@ public final class AetherLocalStore: @unchecked Sendable {
             bind(String(value.prefix(2_000)), lookup, 1)
             guard sqlite3_step(lookup) == SQLITE_ROW,
                   let created = try memory(id: sqlite3_column_int64(lookup, 0)) else {
-                throw AetherNativeError.databaseUnavailable("Não foi possível recuperar a memória salva.")
+                throw BudsNativeError.databaseUnavailable("Não foi possível recuperar a memória salva.")
             }
             return created
         }
     }
 
-    public func updateMemory(id: Int64, content: String?, importance: Double?) throws -> AetherMemoryRecord {
+    public func updateMemory(id: Int64, content: String?, importance: Double?) throws -> BudsMemoryRecord {
         try queue.sync {
             try ensureWritable()
             guard let current = try memory(id: id) else {
-                throw AetherNativeError.databaseUnavailable("Memória não encontrada.")
+                throw BudsNativeError.databaseUnavailable("Memória não encontrada.")
             }
             let cleanContent = content?.trimmingCharacters(in: .whitespacesAndNewlines)
             let nextContent = cleanContent?.nonEmpty ?? current.content
@@ -261,13 +277,13 @@ public final class AetherLocalStore: @unchecked Sendable {
             sqlite3_bind_int64(statement, 3, id)
             try stepDone(statement)
             guard let updated = try memory(id: id) else {
-                throw AetherNativeError.databaseUnavailable("Memória não encontrada após a atualização.")
+                throw BudsNativeError.databaseUnavailable("Memória não encontrada após a atualização.")
             }
             return updated
         }
     }
 
-    public func setCoreMemory(id: Int64, enabled: Bool) throws -> AetherMemoryRecord {
+    public func setCoreMemory(id: Int64, enabled: Bool) throws -> BudsMemoryRecord {
         try queue.sync {
             try ensureWritable()
             let statement = try prepare(
@@ -281,7 +297,7 @@ public final class AetherLocalStore: @unchecked Sendable {
             sqlite3_bind_int64(statement, 5, id)
             try stepDone(statement)
             guard let updated = try memory(id: id) else {
-                throw AetherNativeError.databaseUnavailable("Memória não encontrada.")
+                throw BudsNativeError.databaseUnavailable("Memória não encontrada.")
             }
             return updated
         }
@@ -292,7 +308,7 @@ public final class AetherLocalStore: @unchecked Sendable {
             try ensureWritable()
             guard let current = try memory(id: id) else { return }
             if current.isCore && !force {
-                throw AetherNativeError.databaseUnavailable("Desfixe a Core Memory antes de excluí-la.")
+                throw BudsNativeError.databaseUnavailable("Desfixe a Core Memory antes de excluí-la.")
             }
             let statement = try prepare("DELETE FROM memories WHERE id = ?")
             defer { sqlite3_finalize(statement) }
@@ -307,7 +323,7 @@ public final class AetherLocalStore: @unchecked Sendable {
         guard sqlite3_open_v2(databaseURL.path, &handle, flags, nil) == SQLITE_OK, let handle else {
             let message = handle.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "erro desconhecido"
             if let handle { sqlite3_close_v2(handle) }
-            throw AetherNativeError.databaseUnavailable(message)
+            throw BudsNativeError.databaseUnavailable(message)
         }
         database = handle
         sqlite3_busy_timeout(handle, 4_000)
@@ -342,7 +358,7 @@ public final class AetherLocalStore: @unchecked Sendable {
 
     private func ensureWritable() throws {
         do {
-            try AetherStorageGuard.requireDatabaseSpace()
+            try BudsStorageGuard.requireDatabaseSpace()
         } catch {
             if let database {
                 sqlite3_wal_checkpoint_v2(database, nil, SQLITE_CHECKPOINT_PASSIVE, nil, nil)
@@ -351,26 +367,26 @@ public final class AetherLocalStore: @unchecked Sendable {
         }
     }
 
-    private func session(id: String) throws -> AetherSessionRecord? {
+    private func session(id: String) throws -> BudsSessionRecord? {
         let statement = try prepare("SELECT id, title, created_at FROM sessions WHERE id = ? LIMIT 1")
         defer { sqlite3_finalize(statement) }
         bind(id, statement, 1)
         guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
-        return AetherSessionRecord(
+        return BudsSessionRecord(
             id: text(statement, 0),
             title: text(statement, 1),
             createdAt: text(statement, 2)
         )
     }
 
-    private func memory(id: Int64) throws -> AetherMemoryRecord? {
+    private func memory(id: Int64) throws -> BudsMemoryRecord? {
         let statement = try prepare(
             "SELECT id, content, importance, is_core, created_at, scope, session_id FROM memories WHERE id = ? LIMIT 1"
         )
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, id)
         guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
-        return AetherMemoryRecord(
+        return BudsMemoryRecord(
             id: sqlite3_column_int64(statement, 0),
             content: text(statement, 1),
             importance: sqlite3_column_double(statement, 2),
@@ -515,7 +531,7 @@ public final class AetherLocalStore: @unchecked Sendable {
 
     private func prepare(_ sql: String) throws -> OpaquePointer {
         guard let database else {
-            throw AetherNativeError.databaseUnavailable("conexão fechada")
+            throw BudsNativeError.databaseUnavailable("conexão fechada")
         }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
@@ -526,29 +542,29 @@ public final class AetherLocalStore: @unchecked Sendable {
 
     private func execute(_ sql: String) throws {
         guard let database else {
-            throw AetherNativeError.databaseUnavailable("conexão fechada")
+            throw BudsNativeError.databaseUnavailable("conexão fechada")
         }
         var errorPointer: UnsafeMutablePointer<CChar>?
         let code = sqlite3_exec(database, sql, nil, nil, &errorPointer)
         guard code == SQLITE_OK else {
             let message = errorPointer.map { String(cString: $0) } ?? String(cString: sqlite3_errmsg(database))
             sqlite3_free(errorPointer)
-            throw AetherNativeError.databaseUnavailable(message)
+            throw BudsNativeError.databaseUnavailable(message)
         }
     }
 
     private func stepDone(_ statement: OpaquePointer) throws {
         let code = sqlite3_step(statement)
         if code == SQLITE_FULL {
-            throw AetherNativeError.insufficientStorage(
-                available: AetherStorageGuard.availableBytes(),
-                required: AetherStorageGuard.databaseMinimumBytes
+            throw BudsNativeError.insufficientStorage(
+                available: BudsStorageGuard.availableBytes(),
+                required: BudsStorageGuard.databaseMinimumBytes
             )
         }
         guard code == SQLITE_DONE else { throw databaseError() }
     }
 
-    private func databaseError() -> AetherNativeError {
+    private func databaseError() -> BudsNativeError {
         guard let database else { return .databaseUnavailable("conexão fechada") }
         return .databaseUnavailable(String(cString: sqlite3_errmsg(database)))
     }
@@ -570,7 +586,7 @@ public final class AetherLocalStore: @unchecked Sendable {
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
     private static func now() -> String {
-        ISO8601DateFormatter.aether.string(from: Date())
+        ISO8601DateFormatter.buds.string(from: Date())
     }
 }
 
@@ -579,7 +595,7 @@ private extension String {
 }
 
 private extension ISO8601DateFormatter {
-    static let aether: ISO8601DateFormatter = {
+    static let buds: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter

@@ -35,7 +35,7 @@ function lanApiGuard(): Plugin {
   let remoteModeEnabled = false
 
   return {
-    name: 'aether-lan-api-guard',
+    name: 'buds-lan-api-guard',
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {
         const pathname = new URL(request.url || '/', 'http://127.0.0.1').pathname

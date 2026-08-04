@@ -102,7 +102,7 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: strin
   { id: 'system', label: 'Sistema', hint: 'Pipeline e sessão', icon: Cpu },
 ]
 
-type AetherBridge = {
+type BudsBridge = {
   pickFolder?: () => Promise<string | null>
   isDesktop?: boolean
 }
@@ -148,7 +148,7 @@ export function StatusPanel({
   const nativeIOS = isNativeIOSRuntime()
 
   const pickCodebaseFolder = async () => {
-    const bridge = (window as unknown as { nexus?: AetherBridge }).nexus
+    const bridge = (window as unknown as { nexus?: BudsBridge }).nexus
     if (!bridge?.pickFolder) return
     const path = await bridge.pickFolder()
     if (path) setCodebasePath(path)
@@ -176,7 +176,7 @@ export function StatusPanel({
     <aside className={`settings-page-panel ${settingsLayoutStyles.pagePanel}`}>
       <div className={settingsLayoutStyles.header}>
         <div className={settingsLayoutStyles.headerCopy}>
-          <span className={settingsLayoutStyles.eyebrow}>Painel Aether</span>
+          <span className={settingsLayoutStyles.eyebrow}>Painel Buds</span>
           <strong className={settingsLayoutStyles.title}>
             Configurações do sistema
           </strong>
@@ -220,7 +220,7 @@ export function StatusPanel({
           <SlidersHorizontal size={15} />
         </div>
         <p className={settingsControlStyles.sectionCopy}>
-          Ajuste a aparência geral do Aether Memory.
+          Ajuste a aparência geral do Buds Memory.
         </p>
 
         <div className={settingsControlStyles.themeGrid} aria-label="Tema do sistema">
@@ -248,7 +248,7 @@ export function StatusPanel({
           <UserRound size={15} />
         </div>
         <p className={settingsControlStyles.sectionCopy}>
-          O Aether Memory usa banco local. Seus chats, PDFs, memórias e grafo ficam neste dispositivo até você exportar um backup.
+          O Buds Memory usa banco local. Seus chats, PDFs, memórias e grafo ficam neste dispositivo até você exportar um backup.
         </p>
         <div className={settingsControlStyles.statusCard}>
           <div
@@ -258,7 +258,7 @@ export function StatusPanel({
           </div>
           <div className={settingsControlStyles.statusCardCopy}>
             <strong className={settingsControlStyles.statusCardLabel}>
-              {authEmail || (authMode === 'local' ? 'Modo local' : 'Sessão Aether')}
+              {authEmail || (authMode === 'local' ? 'Modo local' : 'Sessão Buds')}
             </strong>
             <span className={settingsControlStyles.statusCardHint}>
               {authMode === 'remote'
@@ -306,7 +306,7 @@ export function StatusPanel({
 
       <div className="settings-section settings-voice-block">
         <div className={settingsControlStyles.panelHeading}>
-          <span>Voz do Aether</span>
+          <span>Voz do Buds</span>
           <Volume2 size={15} />
         </div>
         <p className={settingsControlStyles.sectionCopy}>
@@ -349,10 +349,10 @@ export function StatusPanel({
           <Code2 size={15} />
         </div>
         <p className={settingsControlStyles.sectionCopy}>
-          Ensine uma pasta de projeto para o Aether Memory responder sobre arquivos, funções, rotas e dependências.
+          Ensine uma pasta de projeto para o Buds Memory responder sobre arquivos, funções, rotas e dependências.
         </p>
         <div className={settingsControlStyles.codebaseCard}>
-          <span className={settingsControlStyles.codebaseTitle}>Ensinar um projeto ao Aether</span>
+          <span className={settingsControlStyles.codebaseTitle}>Ensinar um projeto ao Buds</span>
           <div className={settingsControlStyles.codebaseInputRow}>
             <input
               className={settingsControlStyles.codebaseInput}
@@ -390,7 +390,7 @@ export function StatusPanel({
           <HardDrive size={15} />
         </div>
         <p className={settingsControlStyles.sectionCopy}>
-          Baixe um arquivo com toda a memória do Aether ou insira esse backup em outro computador para continuar com o mesmo histórico.
+          Baixe um arquivo com toda a memória do Buds ou insira esse backup em outro computador para continuar com o mesmo histórico.
         </p>
 
         <div className={settingsControlStyles.statusCard}>
@@ -429,7 +429,7 @@ export function StatusPanel({
           className={settingsControlStyles.primaryButton}
           onClick={onExportBackup}
           disabled={isBackupBusy}
-          title="Baixa um backup completo da memória local do Aether."
+          title="Baixa um backup completo da memória local do Buds."
         >
           <CloudDownload size={14} />
           <span>{isBackupBusy ? 'Preparando backup' : 'Baixar memória'}</span>
@@ -464,7 +464,7 @@ export function StatusPanel({
           <Database size={15} />
         </div>
         <p className={settingsControlStyles.sectionCopy}>
-          Espaço ocupado pelos dados locais do Aether neste dispositivo. Os valores são atualizados ao abrir as configurações.
+          Espaço ocupado pelos dados locais do Buds neste dispositivo. Os valores são atualizados ao abrir as configurações.
         </p>
 
         <div className={settingsControlStyles.metricsGrid}>
@@ -480,7 +480,7 @@ export function StatusPanel({
           </div>
           <div className={settingsControlStyles.metric}>
             <BrainCircuit size={13} />
-            <span className={settingsControlStyles.metricLabel}>{nativeIOS ? 'Modelo local 7B' : 'Modelo dentro do Aether'}</span>
+            <span className={settingsControlStyles.metricLabel}>{nativeIOS ? 'Modelo local 7B' : 'Modelo dentro do Buds'}</span>
             <strong className={settingsControlStyles.metricValue}>{formatBytes(backupStatus?.storage?.model_bytes)}</strong>
           </div>
           <div className={settingsControlStyles.metric}>
@@ -495,7 +495,7 @@ export function StatusPanel({
           <span>
             {nativeIOS
               ? 'Apaga conversas, memórias e o modelo 7B deste iPhone. Para usar a IA novamente, será necessário baixar o modelo de novo.'
-              : 'Apaga conversas, memórias, documentos, grafo e áudios do Aether. Os modelos do Ollama instalados fora do aplicativo permanecem no MacBook.'}
+              : 'Apaga conversas, memórias, documentos, grafo e áudios do Buds. Os modelos do Ollama instalados fora do aplicativo permanecem no MacBook.'}
           </span>
         </div>
 
@@ -527,7 +527,7 @@ export function StatusPanel({
               className={settingsControlStyles.dangerButton}
               disabled={storageConfirmation !== 'APAGAR TUDO' || isStorageBusy || !['idle', 'error'].includes(aiState)}
               onClick={() => {
-                const accepted = window.confirm('Apagar definitivamente todos os dados locais do Aether neste dispositivo?')
+                const accepted = window.confirm('Apagar definitivamente todos os dados locais do Buds neste dispositivo?')
                 if (accepted) onClearStorage(storageConfirmation)
               }}
             >

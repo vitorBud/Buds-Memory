@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Indice e regras globais para agentes de codigo trabalhando no Aether Memory.
+Indice e regras globais para agentes de codigo trabalhando no Buds Memory.
 
 Este projeto nao deve ser recriado do zero. Ele ja possui backend Flask,
 frontend React/Vite, app desktop Electron, memoria cognitiva, RAG, Obsidian,
@@ -29,17 +29,18 @@ Graph + Frontend Liquid Glass.
 
 ## Identidade do Produto
 
-- Nome publico atual: `Aether Memory`.
-- Nome curto permitido: `Aether`.
-- A IA deve se apresentar como Aether Memory/Aether.
-- O Aether Memory foi criado por Vitor, mas isso nao deve ser repetido em toda
+- Nome publico atual: `Buds Memory`.
+- Nome curto permitido: `Buds`.
+- A IA deve se apresentar como Buds Memory/Buds.
+- O Buds Memory foi criado por Vitor, mas isso nao deve ser repetido em toda
   resposta. Cite Vitor somente quando a pergunta for diretamente sobre criador,
   origem, autoria ou dono do projeto.
-- Ao explicar o nome, use: Aether vem do eter, o quinto elemento da filosofia
-  grega, associado ao espaco e ao conhecimento.
+- Ao explicar o nome, use: Buds remete a brotos que crescem e criam novas
+  conexoes, representando uma memoria viva que evolui com as conversas e o
+  conhecimento do usuario.
 - Ao perguntarem modelo, versao ou runtime, explique que DeepSeek, Qwen, Llama
   ou outro nome do Ollama e apenas o motor local usado para gerar texto naquela
-  execucao; nao e a identidade publica do Aether.
+  execucao; nao e a identidade publica do Buds.
 - Ao perguntarem diferencial, explique o conjunto do produto: assistente
   local-first com memoria SQLite, RAG, Knowledge Graph, Core Memory, Obsidian
   visual, documentos/codebase, voz e backup portatil.
@@ -55,9 +56,13 @@ alterados sem migracao cuidadosa:
 - Pasta empacotada `NexusAssets`.
 - Chaves antigas de `localStorage` com prefixo `nexus-*`.
 
+Referencias a `Aether` so podem permanecer dentro de migracoes marcadas como
+legadas e no bundle id do iOS. O bundle id antigo permite que o Buds atualize o
+app ja instalado sem perder o container que guarda modelo, chats e memorias.
+
 ## Visao Rapida
 
-O Aether Memory e um assistente local-first:
+O Buds Memory e um assistente local-first:
 
 - LLM local via Ollama.
 - Historico e conhecimento em SQLite.
@@ -76,12 +81,12 @@ ambientes da mesma forma.
 
 Mudancas que devem valer para ambas as plataformas:
 
-- Identidade, nome, personalidade e estilo do Aether.
+- Identidade, nome, personalidade e estilo do Buds.
 - Prompt, regras de resposta, seguranca contra vazamento de prompt e qualidade
   de conversa.
 - Memoria, RAG, perfil do usuario, Knowledge Graph, Core Memory e Obsidian como
   conceito de produto.
-- Regras de modelo: separar identidade publica do Aether do motor local Ollama
+- Regras de modelo: separar identidade publica do Buds do motor local Ollama
   em uso.
 - Correcoes de bugs logicos, dados, banco, rotas, contratos de API e testes que
   nao dependem de comportamento especifico do sistema operacional.
@@ -218,7 +223,7 @@ Validacao Python sem escrever cache fora do workspace:
 
 ```bash
 cd Back-end
-env PYTHONPYCACHEPREFIX=/private/tmp/aether_pycache ambiente/bin/python -m py_compile app.py agenty.py cognitive/*.py
+env PYTHONPYCACHEPREFIX=/private/tmp/buds_pycache ambiente/bin/python -m py_compile app.py agenty.py cognitive/*.py
 ```
 
 ## Dependencias
@@ -363,7 +368,7 @@ Responsabilidades:
 - Encontrar Python dentro de `ambiente`, `venv`, `.venv` ou sistema.
 - Copiar `.env` para o diretorio de dados do app se necessario.
 - Iniciar backend em `127.0.0.1:5050`.
-- Abrir janela desktop com Aether Memory.
+- Abrir janela desktop com Buds Memory.
 
 Ao mexer no Electron:
 
@@ -494,7 +499,7 @@ Para mudancas de backend:
 
 ```bash
 cd Back-end
-env PYTHONPYCACHEPREFIX=/private/tmp/aether_pycache ambiente/bin/python -m py_compile app.py agenty.py cognitive/*.py
+env PYTHONPYCACHEPREFIX=/private/tmp/buds_pycache ambiente/bin/python -m py_compile app.py agenty.py cognitive/*.py
 ```
 
 No Windows, prefira:
@@ -546,5 +551,5 @@ necessidade. Identifique e pare o processo antigo somente com permissao clara.
 - Porta backend padrao: `5050`.
 - Porta mobile frontend padrao: `5174`.
 - Tema desktop tende a iniciar em `black`; web padrao usa `silver`.
-- Produto publico: `Aether Memory`.
+- Produto publico: `Buds Memory`.
 - Compatibilidade tecnica legada ainda usa alguns nomes `NEXUS_*`.

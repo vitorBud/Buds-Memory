@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Aether Memory</string>
+        <string>Buds Memory</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -30,11 +30,11 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>O Aether Memory usa a rede local para conectar este iPhone ao modelo e às memórias armazenadas no seu Mac.</string>
+	<string>O Buds Memory usa a rede local para conectar este iPhone ao modelo e às memórias armazenadas no seu Mac.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>O Aether Memory usa o microfone somente quando você inicia uma conversa por voz.</string>
+	<string>O Buds Memory usa o microfone somente quando você inicia uma conversa por voz.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>O Aether Memory transforma sua fala em texto localmente para conversar com o motor 7B.</string>
+	<string>O Buds Memory transforma sua fala em texto localmente para conversar com o motor 7B.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIApplicationSceneManifest</key>

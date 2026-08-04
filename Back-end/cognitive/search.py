@@ -1,5 +1,5 @@
 """
-cognitive/search.py — Busca Global Unificada do Aether Memory.
+cognitive/search.py — Busca Global Unificada do Buds Memory.
 
 Pesquisa em paralelo em todas as fontes:
   sessions, messages, knowledge_sources, memories,

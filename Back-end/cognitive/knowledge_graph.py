@@ -1,12 +1,12 @@
 """
-cognitive/knowledge_graph.py — Grafo de Conhecimento do Aether Memory.
+cognitive/knowledge_graph.py — Grafo de Conhecimento do Buds Memory.
 
 Representa entidades (tecnologias, projetos, conceitos, pessoas, eventos)
 e relações entre elas, armazenado em tabelas de adjacência no SQLite.
 
 Exemplo:
   React ─[uses]→ useState
-  Aether Memory ─[part_of]→ Python
+  Buds Memory ─[part_of]→ Python
   useState ─[learned_in]→ Projeto ProgressDay
 """
 

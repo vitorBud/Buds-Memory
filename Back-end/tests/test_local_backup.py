@@ -494,7 +494,7 @@ class LocalBackupTests(unittest.TestCase):
             target_db = Path(temp_dir) / "legacy-scope.db"
             create_full_schema(target_db)
             payload = {
-                "format": local_backup.BACKUP_FORMAT,
+                "format": next(iter(local_backup.LEGACY_BACKUP_FORMATS)),
                 "version": 1,
                 "tables": {
                     "sessions": [{

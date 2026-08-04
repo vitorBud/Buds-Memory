@@ -92,14 +92,14 @@ app.register_blueprint(cognitive_bp)
 # Pool compartilhado para background cognition — evita acúmulo de threads daemon
 _COGNITION_POOL = concurrent.futures.ThreadPoolExecutor(
     max_workers=1 if IS_WINDOWS else 2,
-    thread_name_prefix="aether-cognition",
+    thread_name_prefix="buds-cognition",
 )
 
 # Pool dedicado ao TTS — roda Piper em paralelo ao streaming de tokens
 # max_workers=2 cobre sobreposição de sentenças sem saturar CPU no M1
 _TTS_POOL = concurrent.futures.ThreadPoolExecutor(
     max_workers=1 if IS_WINDOWS else 2,
-    thread_name_prefix="aether-tts",
+    thread_name_prefix="buds-tts",
 )
 
 
@@ -117,7 +117,7 @@ def enforce_api_security():
         user_agent=request.headers.get("User-Agent", ""),
     ):
         return jsonify({
-            "error": "Origem não autorizada para acessar a API do Aether Memory.",
+            "error": "Origem não autorizada para acessar a API do Buds Memory.",
         }), 403
 
     if request.method == "OPTIONS":
@@ -312,11 +312,11 @@ def get_direct_profile_reply(user_text: str, session_id: Optional[str]) -> Optio
     lower = clean.lower()
 
     asks_identity = bool(re.search(
-        r"\b(quem (?:é|e) você|quem (?:é|e) voce|qual (?:é|e) (?:o )?seu nome|como você se chama|como voce se chama|quem é o aether|quem e o aether)\b",
+        r"\b(quem (?:é|e) você|quem (?:é|e) voce|qual (?:é|e) (?:o )?seu nome|como você se chama|como voce se chama|quem é o buds|quem e o buds)\b",
         lower,
     ))
     if asks_identity:
-        return _aether_identity_reply()
+        return _buds_identity_reply()
 
     facts = user_profile.update_from_text(clean, session_id=session_id)
     name_fact = next((fact for fact in facts if fact.get("fact_key") == "name"), None)
@@ -352,7 +352,7 @@ def _model_personality(model: str) -> tuple[str, str]:
         return "Padrão", "equilibra qualidade e velocidade para conversas, código e explicações moderadas."
     if "3b" in model_lower:
         return "Rápido", "mais leve para respostas curtas, menor consumo de RAM/CPU/GPU e menor aquecimento."
-    return "Personalizado", "modelo local do Ollama selecionado no Aether Memory."
+    return "Personalizado", "modelo local do Ollama selecionado no Buds Memory."
 
 
 def _pipeline_description(pipeline: str) -> str:
@@ -364,7 +364,7 @@ def _pipeline_description(pipeline: str) -> str:
     return labels.get(pipeline, pipeline or "pipeline padrão")
 
 
-def _aether_identity_reply(
+def _buds_identity_reply(
     selected_model: str = "",
     pipeline: str = "",
     *,
@@ -373,15 +373,15 @@ def _aether_identity_reply(
     include_difference: bool = False,
     include_runtime: bool = False,
 ) -> str:
-    first_line = "Eu sou o Aether Memory, ou Aether."
+    first_line = "Eu sou o Buds Memory, ou Buds."
     if include_creator:
         first_line += " Fui criado pelo Vitor."
 
     lines = [first_line]
     if include_name:
         lines.append(
-            "Meu nome vem de Aether, o éter: o quinto elemento da filosofia grega, "
-            "associado ao espaço, ao conhecimento e ao campo onde memórias e conexões podem existir."
+            "Buds remete a brotos que crescem e criam novas conexões. O nome representa uma memória "
+            "viva, que evolui junto com as conversas e o conhecimento do usuário."
         )
     if include_difference:
         lines.append(
@@ -400,12 +400,12 @@ def _aether_identity_reply(
 
 
 def get_direct_self_reply(user_text: str, selected_model: str, pipeline: str) -> Optional[str]:
-    """Responde dúvidas sobre o próprio Aether sem depender do LLM."""
+    """Responde dúvidas sobre o próprio Buds sem depender do LLM."""
     clean = re.sub(r"\s+", " ", user_text or "").strip()
     lower = clean.lower()
 
     asks_identity = bool(re.search(
-        r"\b(quem (?:é|e) voc[eê]|quem (?:é|e) voce|quem (?:é|e) o aether|quem e o aether|qual (?:é|e) (?:o )?seu nome|como voc[eê] se chama|como voce se chama|que ia (?:é|e) voc[eê]|que ia (?:é|e) voce)\b",
+        r"\b(quem (?:é|e) voc[eê]|quem (?:é|e) voce|quem (?:é|e) o buds|quem e o buds|qual (?:é|e) (?:o )?seu nome|como voc[eê] se chama|como voce se chama|que ia (?:é|e) voc[eê]|que ia (?:é|e) voce)\b",
         lower,
     ))
     asks_creator = bool(re.search(
@@ -413,7 +413,7 @@ def get_direct_self_reply(user_text: str, selected_model: str, pipeline: str) ->
         lower,
     ))
     asks_name_meaning = bool(re.search(
-        r"\b(por que .{0,25}(nome|chama|aether)|porque .{0,25}(nome|chama|aether)|significado .{0,25}(nome|aether)|o que significa aether|explica .{0,25}nome)\b",
+        r"\b(por que .{0,25}(nome|chama|buds)|porque .{0,25}(nome|chama|buds)|significado .{0,25}(nome|buds)|o que significa buds|explica .{0,25}nome)\b",
         lower,
     ))
     asks_difference = bool(re.search(
@@ -431,13 +431,13 @@ def get_direct_self_reply(user_text: str, selected_model: str, pipeline: str) ->
 
     if asks_life:
         return (
-            "Não tenho vida própria nem consciência. Eu funciono como o Aether Memory: "
+            "Não tenho vida própria nem consciência. Eu funciono como o Buds Memory: "
             "um assistente local que conversa, usa memória/contexto do projeto e responde pelo motor do Ollama quando precisa gerar texto."
         )
 
     if asks_identity or asks_creator or asks_name_meaning or asks_difference or mentions_base_model_as_identity:
         include_runtime = mentions_base_model_as_identity or "modelo" in lower or "ollama" in lower or "vers" in lower
-        return _aether_identity_reply(
+        return _buds_identity_reply(
             selected_model,
             pipeline,
             include_creator=asks_creator,
@@ -456,8 +456,8 @@ def get_direct_self_reply(user_text: str, selected_model: str, pipeline: str) ->
     if asks_model:
         label, hint = _model_personality(selected_model)
         return (
-            f"Sou o Aether Memory. Agora estou usando o modelo Ollama `{selected_model}` como motor local de texto. "
-            f"No Aether, isso está no modo **{label}**: {hint}"
+            f"Sou o Buds Memory. Agora estou usando o modelo Ollama `{selected_model}` como motor local de texto. "
+            f"No Buds, isso está no modo **{label}**: {hint}"
         )
 
     asks_obsidian = "obsidian" in lower and bool(re.search(
@@ -466,13 +466,13 @@ def get_direct_self_reply(user_text: str, selected_model: str, pipeline: str) ->
     ))
     if asks_obsidian:
         return (
-            "A Obsidian do Aether é o meu mapa visual de memória, inspirado em um segundo cérebro. "
+            "A Obsidian do Buds é o meu mapa visual de memória, inspirado em um segundo cérebro. "
             "Ela não é só decoração: mostra aquilo que eu salvei e relacionei localmente.\n\n"
             "- Cada ponto pode representar uma memória, documento, entidade, tópico, projeto ou item da codebase.\n"
             "- As conexões representam relações do Knowledge Graph, como assuntos relacionados, tecnologias usadas e aprendizados vindos de PDFs/textos.\n"
             "- Quando você importa PDFs, textos ou ensina uma codebase, esses conteúdos viram fontes, chunks, tópicos e entidades que podem aparecer no grafo.\n"
             "- Ao clicar em memórias, você consegue ver origem, importância, tags e controlar o que fica fixado como Core Memory.\n\n"
-            "Em resumo: o chat conversa, a memória guarda, e a Obsidian mostra o cérebro do Aether se formando."
+            "Em resumo: o chat conversa, a memória guarda, e a Obsidian mostra o cérebro do Buds se formando."
         )
 
     return None
@@ -697,7 +697,7 @@ def auth_login():
 
 @app.route('/api/auth/local', methods=['POST'])
 def auth_local():
-    """Cria uma sessão local do Aether Memory sem exigir token técnico."""
+    """Cria uma sessão local do Buds Memory sem exigir token técnico."""
     session = remote_access.create_session_token(
         label=str((request.get_json(silent=True) or {}).get("label", "local")),
         auth_mode="local",
@@ -734,7 +734,7 @@ def get_config():
 
 @app.route('/api/local-backup/export', methods=['GET'])
 def export_local_backup():
-    """Baixa um backup JSON com toda a memória local do Aether."""
+    """Baixa um backup JSON com toda a memória local do Buds."""
     try:
         payload = local_backup.export_backup()
         body = json.dumps(payload, ensure_ascii=False)
@@ -753,7 +753,7 @@ def export_local_backup():
 
 @app.route('/api/local-backup/status', methods=['GET'])
 def get_local_backup_status():
-    """Retorna contagem e espaço usado pelos dados locais do Aether."""
+    """Retorna contagem e espaço usado pelos dados locais do Buds."""
     try:
         return jsonify(local_backup.get_status()), 200
     except Exception as exc:
@@ -768,7 +768,7 @@ def clear_local_storage():
         status = local_backup.clear_local_data(str(payload.get("confirmation") or ""))
         return jsonify({
             "success": True,
-            "message": "Dados locais do Aether apagados.",
+            "message": "Dados locais do Buds apagados.",
             "status": status,
         }), 200
     except ValueError as exc:
@@ -779,7 +779,7 @@ def clear_local_storage():
 
 @app.route('/api/local-backup/import', methods=['POST'])
 def import_local_backup():
-    """Importa um backup JSON do Aether em modo merge, sem apagar dados locais."""
+    """Importa um backup JSON do Buds em modo merge, sem apagar dados locais."""
     try:
         if "file" in request.files:
             raw = request.files["file"].read()
@@ -1348,7 +1348,7 @@ if __name__ == "__main__":
     )
     print("")
     if remote_access.REMOTE_MODE:
-        print("Aether Memory Mobile Remote ligado")
+        print("Buds Memory Mobile Remote ligado")
         print(f"Mesma Wi-Fi - Front: {config['frontend_dev_url']}")
         print(f"Mesma Wi-Fi - Backend/API: {config['local_url']}")
         if config.get("public_frontend_url"):
@@ -1360,7 +1360,7 @@ if __name__ == "__main__":
         print("Use a URL do Backend/API apenas para testar /api/health ou acessar o build servido pelo Flask.")
         print(f"Token: {mobile_token}")
     else:
-        print("Aether Memory em modo local")
+        print("Buds Memory em modo local")
         print(f"Mac/local: http://127.0.0.1:{config['port']}")
         print("")
         print("O modo local foi solicitado explicitamente por variáveis de ambiente.")

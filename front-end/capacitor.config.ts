@@ -1,8 +1,9 @@
 import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
+  // Mantido para atualizar o app instalado e conservar o container local do iOS.
   appId: 'com.vitor.aethermemory',
-  appName: 'Aether Memory',
+  appName: 'Buds Memory',
   webDir: 'dist',
   backgroundColor: '#090a0d',
   loggingBehavior: 'debug',

@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-enum AetherPerformanceMonitor {
+enum BudsPerformanceMonitor {
     private static let peakLock = NSLock()
     private nonisolated(unsafe) static var observedPeakBytes: UInt64 = 0
 

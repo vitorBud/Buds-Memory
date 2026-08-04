@@ -1,5 +1,5 @@
 """
-performance.py — Instrumentação e roteamento de performance do Aether Memory.
+performance.py — Instrumentação e roteamento de performance do Buds Memory.
 
 Este módulo é deliberadamente pequeno e sem dependências externas. Ele mede o
 tempo de cada etapa crítica do chat e define um orçamento de contexto por tipo
@@ -31,36 +31,42 @@ def _platform_default(windows_value: str, mac_value: str) -> str:
     return mac_value
 
 
+def _brand_env(name: str, default: str) -> str:
+    """Lê a configuração Buds e aceita a variável da instalação anterior."""
+    legacy_name = name.replace("BUDS_", "AETHER_", 1)
+    return os.getenv(name, os.getenv(legacy_name, default))
+
+
 PIPELINE_BUDGETS = {
     FAST_PATH: {
-        "history_messages": int(os.getenv("AETHER_FAST_HISTORY", _platform_default("3", "4"))),
-        "context_chars": int(os.getenv("AETHER_FAST_CONTEXT_CHARS", "0")),
-        "num_ctx": int(os.getenv("AETHER_FAST_NUM_CTX", "2048")),
-        "num_predict": int(os.getenv("AETHER_FAST_NUM_PREDICT", _platform_default("90", "120"))),
+        "history_messages": int(_brand_env("BUDS_FAST_HISTORY", _platform_default("3", "4"))),
+        "context_chars": int(_brand_env("BUDS_FAST_CONTEXT_CHARS", "0")),
+        "num_ctx": int(_brand_env("BUDS_FAST_NUM_CTX", "2048")),
+        "num_predict": int(_brand_env("BUDS_FAST_NUM_PREDICT", _platform_default("90", "120"))),
         "retrieval": False,
         "reflection": False,
     },
     STANDARD_PATH: {
-        "history_messages": int(os.getenv("AETHER_STANDARD_HISTORY", _platform_default("5", "8"))),
-        "context_chars": int(os.getenv("AETHER_STANDARD_CONTEXT_CHARS", _platform_default("3200", "5200"))),
-        "num_ctx": int(os.getenv("AETHER_STANDARD_NUM_CTX", _platform_default("3072", "4096"))),
-        "num_predict": int(os.getenv("AETHER_STANDARD_NUM_PREDICT", _platform_default("280", "420"))),
+        "history_messages": int(_brand_env("BUDS_STANDARD_HISTORY", _platform_default("5", "8"))),
+        "context_chars": int(_brand_env("BUDS_STANDARD_CONTEXT_CHARS", _platform_default("3200", "5200"))),
+        "num_ctx": int(_brand_env("BUDS_STANDARD_NUM_CTX", _platform_default("3072", "4096"))),
+        "num_predict": int(_brand_env("BUDS_STANDARD_NUM_PREDICT", _platform_default("280", "420"))),
         "retrieval": True,
         "reflection": False,
     },
     DEEP_PATH: {
-        "history_messages": int(os.getenv("AETHER_DEEP_HISTORY", _platform_default("8", "12"))),
-        "context_chars": int(os.getenv("AETHER_DEEP_CONTEXT_CHARS", _platform_default("6200", "9000"))),
-        "num_ctx": int(os.getenv("AETHER_DEEP_NUM_CTX", _platform_default("6144", "8192"))),
-        "num_predict": int(os.getenv("AETHER_DEEP_NUM_PREDICT", _platform_default("700", "1100"))),
+        "history_messages": int(_brand_env("BUDS_DEEP_HISTORY", _platform_default("8", "12"))),
+        "context_chars": int(_brand_env("BUDS_DEEP_CONTEXT_CHARS", _platform_default("6200", "9000"))),
+        "num_ctx": int(_brand_env("BUDS_DEEP_NUM_CTX", _platform_default("6144", "8192"))),
+        "num_predict": int(_brand_env("BUDS_DEEP_NUM_PREDICT", _platform_default("700", "1100"))),
         "retrieval": True,
         "reflection": os.getenv("NEXUS_ENABLE_REFLECTION", "0").lower() in {"1", "true", "yes", "sim"},
     },
 }
 
 
-FAST_MODEL = os.getenv("AETHER_FAST_MODEL", "qwen2.5-coder:3b")
-USE_FAST_MODEL = os.getenv("AETHER_USE_FAST_MODEL", "0").lower() in {"1", "true", "yes", "sim"}
+FAST_MODEL = _brand_env("BUDS_FAST_MODEL", "qwen2.5-coder:3b")
+USE_FAST_MODEL = _brand_env("BUDS_USE_FAST_MODEL", "0").lower() in {"1", "true", "yes", "sim"}
 
 
 class PerfTrace:
@@ -119,7 +125,7 @@ class PerfTrace:
         }
 
     def log(self) -> None:
-        if self.diagnostics or os.getenv("AETHER_PERF_LOG", "0").lower() in {"1", "true", "yes", "sim"}:
+        if self.diagnostics or _brand_env("BUDS_PERF_LOG", "0").lower() in {"1", "true", "yes", "sim"}:
             print(f"[PerfTrace] {self.as_dict()}")
 
 
@@ -130,6 +136,7 @@ def diagnostics_requested(args=None, headers=None) -> bool:
     value = (
         args.get("diagnostics")
         or args.get("debug")
+        or headers.get("X-Buds-Diagnostics")
         or headers.get("X-Aether-Diagnostics")
         or headers.get("X-Nexus-Diagnostics")
         or ""

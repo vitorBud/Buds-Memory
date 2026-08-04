@@ -1,6 +1,6 @@
 {
-  "name": "Aether Memory",
-  "short_name": "Aether",
+  "name": "Buds Memory",
+  "short_name": "Buds",
   "description": "Segundo cérebro local-first conectado ao Mac.",
   "start_url": "/#chat",
   "scope": "/",

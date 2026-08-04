@@ -26,7 +26,7 @@ export function KnowledgeImportPanel({
       <div className="knowledge-import-main grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[7px]">
         <button
           type="button"
-          className="knowledge-file-button inline-flex min-h-[34px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-[rgb(var(--accent-rgb)/0.22)] bg-[rgba(12,8,4,0.78)] px-3 text-xs text-[rgba(255,237,213,0.72)] transition-[background,border-color,color,transform,box-shadow] duration-180 hover:not-disabled:-translate-y-px hover:not-disabled:border-[var(--liquid-border-strong)] hover:not-disabled:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:not-disabled:text-aether-text hover:not-disabled:shadow-[0_10px_34px_rgba(var(--accent-hot-rgb)/0.12)] disabled:cursor-not-allowed disabled:opacity-50 theme-light:bg-[rgba(248,250,252,0.92)] theme-light:text-slate-700 max-[760px]:[&>span]:hidden"
+          className="knowledge-file-button inline-flex min-h-[34px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-[rgb(var(--accent-rgb)/0.22)] bg-[rgba(12,8,4,0.78)] px-3 text-xs text-[rgba(255,237,213,0.72)] transition-[background,border-color,color,transform,box-shadow] duration-180 hover:not-disabled:-translate-y-px hover:not-disabled:border-[var(--liquid-border-strong)] hover:not-disabled:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:not-disabled:text-buds-text hover:not-disabled:shadow-[0_10px_34px_rgba(var(--accent-hot-rgb)/0.12)] disabled:cursor-not-allowed disabled:opacity-50 theme-light:bg-[rgba(248,250,252,0.92)] theme-light:text-slate-700 max-[760px]:[&>span]:hidden"
           onClick={() => fileRef.current?.click()}
           disabled={isImporting}
           title="Importar PDF, TXT ou Markdown"
@@ -53,13 +53,13 @@ export function KnowledgeImportPanel({
           }}
           placeholder="Cole uma URL, pesquisa ou texto para a IA aprender"
           disabled={isImporting}
-          className="min-h-[34px] min-w-0 rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 text-xs text-aether-text outline-none placeholder:text-aether-faint theme-light:bg-[rgba(248,250,252,0.92)] theme-light:text-slate-700 theme-light:placeholder:text-slate-500"
+          className="min-h-[34px] min-w-0 rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 text-xs text-buds-text outline-none placeholder:text-buds-faint theme-light:bg-[rgba(248,250,252,0.92)] theme-light:text-slate-700 theme-light:placeholder:text-slate-500"
         />
         <button
           type="button"
           onClick={onImportText}
           disabled={isImporting || !value.trim()}
-          className="inline-flex min-h-[34px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-[rgb(var(--accent-rgb)/0.22)] bg-[rgba(12,8,4,0.78)] px-3 text-xs text-[rgba(255,237,213,0.72)] transition-[background,border-color,color,transform,box-shadow] duration-180 hover:not-disabled:-translate-y-px hover:not-disabled:border-[var(--liquid-border-strong)] hover:not-disabled:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:not-disabled:text-aether-text hover:not-disabled:shadow-[0_10px_34px_rgba(var(--accent-hot-rgb)/0.12)] disabled:cursor-not-allowed disabled:opacity-50 theme-light:bg-[rgba(248,250,252,0.92)] theme-light:text-slate-700"
+          className="inline-flex min-h-[34px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-[rgb(var(--accent-rgb)/0.22)] bg-[rgba(12,8,4,0.78)] px-3 text-xs text-[rgba(255,237,213,0.72)] transition-[background,border-color,color,transform,box-shadow] duration-180 hover:not-disabled:-translate-y-px hover:not-disabled:border-[var(--liquid-border-strong)] hover:not-disabled:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:not-disabled:text-buds-text hover:not-disabled:shadow-[0_10px_34px_rgba(var(--accent-hot-rgb)/0.12)] disabled:cursor-not-allowed disabled:opacity-50 theme-light:bg-[rgba(248,250,252,0.92)] theme-light:text-slate-700"
         >
           {isImporting ? 'Lendo...' : 'Aprender'}
         </button>
@@ -70,7 +70,7 @@ export function KnowledgeImportPanel({
           <strong
             key={source.id}
             title={source.summary}
-            className="max-w-[190px] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-2 py-1 text-[11px] font-semibold text-aether-text theme-light:bg-[rgba(248,250,252,0.92)] theme-light:text-slate-700"
+            className="max-w-[190px] overflow-hidden text-ellipsis whitespace-nowrap rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-2 py-1 text-[11px] font-semibold text-buds-text theme-light:bg-[rgba(248,250,252,0.92)] theme-light:text-slate-700"
           >
             {source.title}
           </strong>

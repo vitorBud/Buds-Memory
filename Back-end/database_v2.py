@@ -1,5 +1,5 @@
 """
-database_v2.py — Migração não-destrutiva do banco cognitivo Aether Memory.
+database_v2.py — Migração não-destrutiva do banco cognitivo Buds Memory.
 
 Adiciona as tabelas do Second Brain sem tocar nas tabelas existentes
 (sessions, messages, knowledge_sources). Seguro para rodar múltiplas vezes.
@@ -226,7 +226,7 @@ def _create_ingestion_cache(conn):
 def _create_backup_import_map(conn):
     """Mapa interno usado para reimportações de backup idempotentes."""
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS aether_backup_import_map (
+        CREATE TABLE IF NOT EXISTS buds_backup_import_map (
             backup_key TEXT NOT NULL,
             table_name TEXT NOT NULL,
             source_key TEXT NOT NULL,

@@ -281,7 +281,7 @@ def detect_intent(text: str, interpretation: Optional[dict] = None) -> dict:
             "bug", "erro", "arquivo usa", "onde está", "onde esta",
         ],
         "PROJECT_QUERY": [
-            "projeto", "objetivo", "roadmap", "feature", "tarefa", "nexus", "aether",
+            "projeto", "objetivo", "roadmap", "feature", "tarefa", "nexus", "buds",
             "arquitetura", "implementar",
         ],
         "TIMELINE_QUERY": [
@@ -855,7 +855,7 @@ def format_context(
         for block in core_blocks[:8]:
             lines.append(f"- {block['content']}")
 
-    lines.append("Pipeline cognitivo local do Aether Memory:")
+    lines.append("Pipeline cognitivo local do Buds Memory:")
     lines.append(f"Intenção detectada: {intent['primary']} ({', '.join(intent.get('active') or [])})")
     if interpretation.get("normalized") and interpretation["normalized"] != (user_text or "").strip():
         lines.append(f"Interpretação corrigida internamente: {interpretation['normalized']}")
@@ -907,7 +907,7 @@ def maybe_refine_response(user_text: str, draft: str, context: str, llm_call) ->
     """
     Reflection Layer opcional.
 
-    llm_call deve receber um prompt e devolver texto. Por padrão, o Aether Memory não
+    llm_call deve receber um prompt e devolver texto. Por padrão, o Buds Memory não
     chama esta etapa para evitar latência extra no Mac M1.
     """
     enabled = os.getenv("NEXUS_ENABLE_REFLECTION", "0").lower() in {"1", "true", "yes", "sim"}
@@ -917,7 +917,7 @@ def maybe_refine_response(user_text: str, draft: str, context: str, llm_call) ->
         return draft
 
     prompt = (
-        "Você é o Reflection Layer local do Aether Memory.\n"
+        "Você é o Reflection Layer local do Buds Memory.\n"
         "Revise a resposta abaixo usando apenas a pergunta e o contexto fornecidos.\n"
         "Objetivo: corrigir contradições, remover invenções e deixar a resposta mais direta.\n"
         "Se a resposta já estiver boa, devolva a mesma resposta melhor formatada.\n\n"

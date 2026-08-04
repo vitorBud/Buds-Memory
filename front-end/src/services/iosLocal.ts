@@ -61,7 +61,7 @@ interface IOSLocalPlugin {
   ): Promise<PluginListenerHandle>
 }
 
-const native = registerPlugin<IOSLocalPlugin>('AetherLocal')
+const native = registerPlugin<IOSLocalPlugin>('BudsLocal')
 
 export function getIOSLocalStatus() {
   return native.status()
@@ -182,7 +182,7 @@ export async function streamIOSLocalChat(
       onEvent({ type: 'replace_response', content: result.text, model: result.model })
     }
     if (result.session) onEvent({ type: 'session_update', session: result.session })
-    if (result.metrics) console.info('[AetherPerf]', result.metrics)
+    if (result.metrics) console.info('[BudsPerf]', result.metrics)
     onEvent({ type: 'done', model: result.model, pipeline: 'IPHONE_LOCAL' })
   } finally {
     signal?.removeEventListener('abort', abort)
