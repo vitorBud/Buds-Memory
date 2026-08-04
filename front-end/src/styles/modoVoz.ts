@@ -23,8 +23,6 @@ export const voiceModeStyles = {
     'size-[34%] bg-[radial-gradient(circle,color-mix(in_srgb,var(--voice-c)_72%,transparent),transparent_58%)] opacity-[calc(0.32+(var(--voice-volume)*0.42))] blur-2xl platform-windows:blur-none',
   grid:
     'size-[calc(var(--core-size)*0.92)] rounded-full opacity-20 [background:linear-gradient(90deg,transparent_49%,color-mix(in_srgb,var(--voice-c)_10%,transparent)_50%,transparent_51%),linear-gradient(0deg,transparent_49%,color-mix(in_srgb,var(--voice-c)_10%,transparent)_50%,transparent_51%)] [background-size:34px_34px] [mask-image:radial-gradient(circle,#000_42%,transparent_72%)]',
-  particles:
-    'relative size-[calc(var(--core-size)*1.24)]',
   status:
     'mt-7 grid min-h-14 items-center justify-items-center gap-1.5 text-center max-[760px]:mt-[18px] max-[760px]:min-h-[52px] max-[760px]:max-w-[min(330px,calc(100vw-28px))] [&>strong]:text-[clamp(24px,3vw,34px)] [&>strong]:font-semibold [&>strong]:tracking-normal [&>strong]:text-buds-text max-[760px]:[&>strong]:text-[clamp(22px,7vw,30px)] [&>span]:text-xs [&>span]:font-bold [&>span]:uppercase [&>span]:tracking-[0.12em] [&>span]:text-buds-muted max-[760px]:[&>span]:max-w-[280px] max-[760px]:[&>span]:text-[11px] max-[760px]:[&>span]:leading-[1.35] max-[760px]:[&>span]:tracking-[0.08em]',
   controls:

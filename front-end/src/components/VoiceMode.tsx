@@ -3,7 +3,6 @@ import type { CSSProperties } from 'react'
 import { Mic, MicOff, PhoneOff, Square, Volume2 } from 'lucide-react'
 import type { AiState, ThemeMode } from '../types'
 import { voiceHaloStateStyles, voiceModeStyles, voiceRingStateStyles } from '../styles/modoVoz'
-import { isIOSRuntime } from '../utils/runtime'
 
 export type VoiceSilenceMode = 'fast' | 'balanced' | 'patient'
 
@@ -71,7 +70,6 @@ export function VoiceMode({
   const volume = Math.max(0.04, Math.min(1, micVolume))
   const status = STATUS_LABEL[aiState]
   const canInterrupt = isProcessing || aiState === 'speaking' || aiState === 'thinking'
-  const particleCount = isIOSRuntime() ? 6 : 18
   const voiceOptions = useMemo(() => {
     const ptVoices = availableVoices.filter(voice => voice.lang.toLowerCase().startsWith('pt'))
     return ptVoices.length ? ptVoices : availableVoices
@@ -128,11 +126,6 @@ export function VoiceMode({
             <b className={`${voiceModeStyles.orbLayer} ${voiceModeStyles.glow}`} />
           </span>
           <span className={`voice-core-grid ${voiceModeStyles.coreLayer} ${voiceModeStyles.grid}`} />
-          <span className={`voice-core-particles ${voiceModeStyles.coreLayer} ${voiceModeStyles.particles}`}>
-            {Array.from({ length: particleCount }).map((_, index) => (
-              <em className={voiceModeStyles.particle} key={index} style={{ '--p': index } as CSSProperties} />
-            ))}
-          </span>
         </button>
 
         <div className={`voice-status ${voiceModeStyles.status}`} aria-live="polite">

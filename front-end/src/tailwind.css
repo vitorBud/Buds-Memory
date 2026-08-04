@@ -468,8 +468,7 @@
     backdrop-filter: none !important;
   }
 
-  :root[data-platform="ios"] .voice-ambient,
-  :root[data-platform="ios"] .voice-core-particles {
+  :root[data-platform="ios"] .voice-ambient {
     display: none !important;
   }
 
@@ -606,11 +605,6 @@
 @keyframes voice-core-flow {
   0%, 100% { opacity: 0.45; transform: scale(0.9) rotate(0deg); }
   50% { opacity: 0.78; transform: scale(calc(1.05 + (var(--voice-volume) * 0.18))) rotate(110deg); }
-}
-
-@keyframes voice-particle {
-  0%, 100% { filter: blur(0); opacity: 0.18; }
-  50% { filter: blur(1px); opacity: calc(0.36 + (var(--voice-volume) * 0.5)); }
 }
 
 @keyframes voice-ambient-drift {
