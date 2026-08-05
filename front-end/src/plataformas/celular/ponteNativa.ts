@@ -177,7 +177,7 @@ export async function streamIOSLocalChat(
   const listener = await native.addListener('chatToken', event => {
     if (event.generationId !== generationId || !event.content) return
     streamedText += event.content
-    onEvent({ type: 'token', content: event.content, model: 'qwen2.5-coder:7b' })
+    onEvent({ type: 'token', content: event.content, model: 'qwen2.5-coder:3b' })
   })
   const abort = () => { void native.stopGeneration({ generationId }) }
   signal?.addEventListener('abort', abort, { once: true })

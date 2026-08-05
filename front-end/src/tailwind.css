@@ -320,9 +320,7 @@
  * transições curtas de tela continuam ativas para manter sensação nativa.
  */
 @layer utilities {
-  :root[data-platform="ios"] .view-nav,
   :root[data-platform="ios"] .workspace,
-  :root[data-platform="ios"] .composer,
   :root[data-platform="ios"] .settings-section,
   :root[data-platform="ios"] .brain-stats-popover,
   :root[data-platform="ios"] .obsidian-memory-card,
@@ -332,6 +330,14 @@
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
     filter: none !important;
+  }
+
+  :root[data-platform="ios"] button:active,
+  :root[data-platform="ios"] a:active,
+  :root[data-platform="ios"] .touch-action-scale:active {
+    opacity: 0.75 !important;
+    transform: scale(0.96) !important;
+    transition: transform 60ms cubic-bezier(0.25, 1, 0.5, 1), opacity 60ms ease-out !important;
   }
 
   :root[data-platform="ios"] .scroll-experience {

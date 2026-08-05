@@ -18,13 +18,13 @@ public enum BudsNativeError: LocalizedError {
         case let .databaseUnavailable(message):
             return "O banco local não pôde ser aberto: \(message)"
         case .modelMissing:
-            return "O modelo local 7B ainda não foi instalado neste iPhone."
+            return "O modelo local 3B ainda não foi instalado neste iPhone."
         case .modelIntegrity:
-            return "O arquivo do modelo 7B está incompleto ou não passou na verificação de integridade."
+            return "O arquivo do modelo 3B está incompleto ou não passou na verificação de integridade."
         case let .modelDownload(message):
-            return "Falha ao baixar o modelo 7B: \(message)"
+            return "Falha ao baixar o modelo 3B: \(message)"
         case let .modelLoad(message):
-            return "Falha ao carregar o modelo 7B: \(message)"
+            return "Falha ao carregar o modelo 3B: \(message)"
         case let .inference(message):
             return "Falha durante a resposta local: \(message)"
         case .thermalBlocked:

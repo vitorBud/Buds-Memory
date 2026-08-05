@@ -519,7 +519,7 @@ export function StatusPanel({
           </div>
           <div className={settingsControlStyles.metric}>
             <BrainCircuit size={13} />
-            <span className={settingsControlStyles.metricLabel}>{nativeIOS ? 'Modelo local 7B' : 'Modelo dentro do Buds'}</span>
+            <span className={settingsControlStyles.metricLabel}>{nativeIOS ? 'Modelo local 3B' : 'Modelo dentro do Buds'}</span>
             <strong className={settingsControlStyles.metricValue}>{formatBytes(backupStatus?.storage?.model_bytes)}</strong>
           </div>
           <div className={settingsControlStyles.metric}>
@@ -588,7 +588,7 @@ export function StatusPanel({
           <strong>Zona de exclusão total</strong>
           <span>
             {nativeIOS
-              ? 'Apaga todas as conversas, memórias e o modelo 7B deste iPhone. Para usar a IA novamente, será necessário baixar o modelo de novo.'
+              ? 'Apaga todas as conversas, memórias e o modelo 3B deste iPhone. Para usar a IA novamente, será necessário baixar o modelo de novo.'
               : 'Apaga conversas, memórias, documentos, grafo e áudios do Buds. Os modelos do Ollama instalados fora do aplicativo permanecem no MacBook.'}
           </span>
         </div>

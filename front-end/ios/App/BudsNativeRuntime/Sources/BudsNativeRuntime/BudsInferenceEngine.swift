@@ -77,18 +77,21 @@ final class BudsInferenceEngine: @unchecked Sendable {
         for _ in 0..<maxOutput {
             try checkRuntimeLimits()
             
-            // Adaptive Thermal Pacing (Micro-pausas para esfriar o iPhone)
+            // Adaptive Thermal Pacing Otimizado (Velocidade vs Calor)
             let thermal = ProcessInfo.processInfo.thermalState
-            if thermal == .serious {
-                Thread.sleep(forTimeInterval: 0.050) // 50ms de pausa por token
+            if thermal == .critical {
+                Thread.sleep(forTimeInterval: 0.300) 
+                configureThreads()
+            } else if thermal == .serious {
+                Thread.sleep(forTimeInterval: 0.100) // Freia, mas menos que antes
                 configureThreads()
             } else if thermal == .fair {
-                Thread.sleep(forTimeInterval: 0.015) // 15ms
+                Thread.sleep(forTimeInterval: 0.020) // 20ms garante pelo menos 50 tokens/segundo de teto
                 configureThreads()
             } else if ProcessInfo.processInfo.isLowPowerModeEnabled {
-                Thread.sleep(forTimeInterval: 0.010) // 10ms
+                Thread.sleep(forTimeInterval: 0.010) 
             } else {
-                Thread.sleep(forTimeInterval: 0.002) // 2ms (respiro base)
+                Thread.sleep(forTimeInterval: 0.001) // 1ms (Aceleração total quando frio)
             }
 
             let token = llama_sampler_sample(sampler, context, -1)
@@ -169,8 +172,8 @@ final class BudsInferenceEngine: @unchecked Sendable {
         contextParameters.n_ubatch = 128
         contextParameters.n_seq_max = 1
         contextParameters.offload_kqv = true
-        contextParameters.n_threads = 4
-        contextParameters.n_threads_batch = 6
+        contextParameters.n_threads = 3
+        contextParameters.n_threads_batch = 4
         guard let loadedContext = llama_init_from_model(loadedModel, contextParameters) else {
             llama_model_free(loadedModel)
             model = nil
@@ -204,10 +207,10 @@ final class BudsInferenceEngine: @unchecked Sendable {
     private func threadConfiguration() -> (Int, Int) {
         let state = ProcessInfo.processInfo.thermalState
         if state == .serious || state == .critical {
-            return (1, 2)
+            return (1, 1) // Modo emergência
         }
         let constrained = ProcessInfo.processInfo.isLowPowerModeEnabled || state == .fair
-        return constrained ? (2, 4) : (4, 6)
+        return constrained ? (2, 2) : (3, 4) // Mais velocidade quando frio (nominal = 3/4)
     }
 
     private static var thermalStateName: String {
@@ -297,13 +300,32 @@ final class BudsInferenceEngine: @unchecked Sendable {
             var offset = 0
             while offset < buffer.count {
                 try checkRuntimeLimits()
-                let amount = min(256, buffer.count - offset)
+                
+                let thermal = ProcessInfo.processInfo.thermalState
+                
+                // Lotes dinâmicos: Lê blocos grandes se estiver frio, blocos pequenos se estiver quente
+                let maxBatchSize = (thermal == .nominal) ? 512 : (thermal == .fair || ProcessInfo.processInfo.isLowPowerModeEnabled) ? 128 : 64
+                
+                let amount = min(maxBatchSize, buffer.count - offset)
                 let batch = llama_batch_get_one(base.advanced(by: offset), Int32(amount))
                 let result = llama_decode(context, batch)
                 guard result == 0 else {
                     throw BudsNativeError.inference("llama_decode retornou \(result)")
                 }
                 offset += amount
+                
+                // Resfriamento dinâmico otimizado (rápido quando frio, freia quando quente)
+                if thermal == .critical {
+                    Thread.sleep(forTimeInterval: 0.500)
+                } else if thermal == .serious {
+                    Thread.sleep(forTimeInterval: 0.150)
+                } else if thermal == .fair {
+                    Thread.sleep(forTimeInterval: 0.040) // 40ms é o "sweet spot" de velocidade vs calor
+                } else if ProcessInfo.processInfo.isLowPowerModeEnabled {
+                    Thread.sleep(forTimeInterval: 0.020)
+                } else {
+                    Thread.sleep(forTimeInterval: 0.005) // Quase sem pausa quando frio
+                }
             }
         }
     }

@@ -242,7 +242,7 @@ export default function App() {
   const viewTransition: Transition = isWindowsUi
     ? { duration: 0 }
     : isIOSUi
-      ? { duration: 0.18, ease: [0.22, 1, 0.36, 1] }
+      ? { type: 'spring', damping: 24, stiffness: 280, mass: 0.9, restDelta: 0.001 }
       : { duration: 0.28, ease: 'easeOut' }
   const viewMotionProps = isWindowsUi
     ? {
