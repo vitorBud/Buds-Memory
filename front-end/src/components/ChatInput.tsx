@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { ChevronDown, Mic, MicOff, Send, Square } from 'lucide-react'
 import type { DensityMode } from '../types'
-import { isIOSRuntime, isWindowsRuntime } from '../utils/runtime'
+import { isIOSRuntime, isWindowsRuntime } from '../plataformas'
 import { chatInputStyles } from '../styles/entradaChat'
 
 interface ChatInputProps {

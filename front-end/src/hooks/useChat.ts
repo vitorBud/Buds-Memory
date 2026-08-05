@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { streamChat } from '../services/api'
 import type { Message, AiState, Session, ChatStreamEvent, VoiceProvider } from '../types'
-import { isWindowsRuntime } from '../utils/runtime'
+import { isWindowsRuntime } from '../plataformas'
 import { createOperationId } from '../utils/controleOperacoes'
 
 interface UseChatOptions {

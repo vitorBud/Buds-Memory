@@ -26,12 +26,12 @@ import { NetworkStatus } from './components/NetworkStatus'
 import type { VoiceSilenceMode } from './components/VoiceMode'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
-import { useMobilePerformanceMonitor } from './hooks/useMobilePerformance'
+import { useMobilePerformanceMonitor } from './plataformas'
 import { useHealthPolling } from './hooks/useHealthPolling'
 import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, getConversationStorage, purgeConversationStorage, exportLocalMemoryBackup, importLocalMemoryBackup, clearLocalStorage, getCognitiveMemories, getKnowledgeGraph, isNativeIOSRuntime } from './services/api'
 import type { AiState, BackendConfig, Session, InterfaceSettings, LocalBackupStatus, ConversationStorageStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
 import { formatSessionDate } from './utils/formatters'
-import { getRuntimePlatform, isIOSRuntime, isWindowsRuntime } from './utils/runtime'
+import { getRuntimePlatform, isIOSRuntime, isWindowsRuntime } from './plataformas'
 import { toastStyles } from './styles/notificacoes'
 import { sidebarStyles } from './styles/barraLateral'
 import { chatSessionStyles } from './styles/sessaoChat'
@@ -274,10 +274,12 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (activeView !== 'chat' || focusMode) return
+    // O contador de uptime é estético na sidebar do chat (invisível no iOS/mobile
+    // com focusMode). No iOS ele só causa re-renders desnecessários a cada segundo.
+    if (activeView !== 'chat' || focusMode || isIOSUi) return
     const t = setInterval(() => setUptimeSeconds(s => s + 1), 1000)
     return () => clearInterval(t)
-  }, [activeView, focusMode])
+  }, [activeView, focusMode, isIOSUi])
 
   useEffect(() => () => {
     if (sidebarCloseTimerRef.current !== null) {
@@ -614,9 +616,13 @@ export default function App() {
 
   const handleSendText = async (text: string) => {
     await sendText(text)
-    window.setTimeout(() => {
-      void refreshCognitiveBrain()
-    }, 1800)
+    // Só atualiza o cérebro cognitivo se a Obsidian estiver visível;
+    // caso contrário, o refresh acontece ao navegar para ela (lazy).
+    if (activeView === 'obsidian') {
+      window.setTimeout(() => {
+        void refreshCognitiveBrain()
+      }, 1800)
+    }
   }
 
   const handleEditCurrentTitle = () => {
@@ -795,6 +801,8 @@ export default function App() {
   const handleOpenObsidian = () => {
     setSettingsOpen(false)
     setActiveView('obsidian')
+    // Refresh lazy: atualiza memórias e grafo ao entrar na Obsidian.
+    void refreshCognitiveBrain()
     window.history.replaceState(null, '', '#obsidian')
     window.scrollTo({ top: 0 })
   }
@@ -910,6 +918,7 @@ export default function App() {
                       theme={settings.theme}
                       aiState={aiState}
                       memoryCount={cognitiveMemories.length}
+                      visible={activeView === 'home'}
                     />
                   </Suspense>
                 </div>

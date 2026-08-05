@@ -22,7 +22,7 @@ import type {
   KnowledgeSource,
   Message,
 } from '../types'
-import { getIOSVisualProfile, isIOSRuntime, isWindowsRuntime } from '../utils/runtime'
+import { getIOSVisualProfile, isIOSRuntime, isWindowsRuntime } from '../plataformas'
 import { brainMapStyles } from '../styles/mapaObsidian'
 
 interface BrainMapProps {

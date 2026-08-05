@@ -31,7 +31,7 @@ import {
   streamIOSLocalChat,
   updateIOSLocalMemory,
   updateIOSLocalSessionTitle,
-} from './iosLocal'
+} from '../plataformas'
 
 type BudsBridge = {
   apiBase?: string

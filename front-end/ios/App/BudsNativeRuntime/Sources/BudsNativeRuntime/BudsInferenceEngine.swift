@@ -76,6 +76,21 @@ final class BudsInferenceEngine: @unchecked Sendable {
 
         for _ in 0..<maxOutput {
             try checkRuntimeLimits()
+            
+            // Adaptive Thermal Pacing (Micro-pausas para esfriar o iPhone)
+            let thermal = ProcessInfo.processInfo.thermalState
+            if thermal == .serious {
+                Thread.sleep(forTimeInterval: 0.050) // 50ms de pausa por token
+                configureThreads()
+            } else if thermal == .fair {
+                Thread.sleep(forTimeInterval: 0.015) // 15ms
+                configureThreads()
+            } else if ProcessInfo.processInfo.isLowPowerModeEnabled {
+                Thread.sleep(forTimeInterval: 0.010) // 10ms
+            } else {
+                Thread.sleep(forTimeInterval: 0.002) // 2ms (respiro base)
+            }
+
             let token = llama_sampler_sample(sampler, context, -1)
             if llama_vocab_is_eog(vocabulary, token) { break }
             outputTokenCount += 1
@@ -125,8 +140,8 @@ final class BudsInferenceEngine: @unchecked Sendable {
 
     private func prepareForGeneration(modelURL: URL) throws {
         let thermal = ProcessInfo.processInfo.thermalState
-        if thermal == .serious || thermal == .critical {
-            if thermal == .critical { unload() }
+        if thermal == .critical {
+            unload()
             throw BudsNativeError.thermalBlocked
         }
 
@@ -187,8 +202,11 @@ final class BudsInferenceEngine: @unchecked Sendable {
     }
 
     private func threadConfiguration() -> (Int, Int) {
-        let constrained = ProcessInfo.processInfo.isLowPowerModeEnabled
-            || ProcessInfo.processInfo.thermalState == .fair
+        let state = ProcessInfo.processInfo.thermalState
+        if state == .serious || state == .critical {
+            return (1, 2)
+        }
+        let constrained = ProcessInfo.processInfo.isLowPowerModeEnabled || state == .fair
         return constrained ? (2, 4) : (4, 6)
     }
 
@@ -216,8 +234,6 @@ final class BudsInferenceEngine: @unchecked Sendable {
         if cancelled { throw BudsNativeError.cancelled }
 
         switch ProcessInfo.processInfo.thermalState {
-        case .serious:
-            throw BudsNativeError.thermalBlocked
         case .critical:
             unload()
             throw BudsNativeError.thermalBlocked

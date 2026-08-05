@@ -10,7 +10,7 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { getBackendConfig } from '../services/api'
 import type { SystemHealth } from '../components/BootScreen'
-import { isIOSRuntime } from '../utils/runtime'
+import { isIOSRuntime } from '../plataformas'
 
 const BASE_INTERVAL_MS = 8_000
 const IOS_INTERVAL_MS = 30_000
@@ -100,13 +100,29 @@ export function useHealthPolling({ enabled, onHealthChange }: UseHealthPollingOp
       }
     }
 
+    // No iOS (WKWebView/Capacitor), visibilitychange nem sempre dispara ao
+    // ir pro background. pagehide/pageshow garantem que o polling pare e o
+    // app não acorde a rede WiFi/celular desnecessariamente.
+    const onPageHide = () => {
+      clearTimer()
+    }
+    const onPageShow = () => {
+      if (!document.hidden) {
+        poll().then(schedule)
+      }
+    }
+
     document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('pageshow', onPageShow)
     schedule()
 
     return () => {
       clearTimer()
       abortRef.current?.abort()
       document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pageshow', onPageShow)
     }
   }, [enabled, poll])
 }

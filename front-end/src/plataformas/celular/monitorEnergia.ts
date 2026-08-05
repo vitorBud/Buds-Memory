@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { isIOSRuntime } from '../utils/runtime'
+import { isIOSRuntime } from '../core/ambiente'
 
 interface BrowserMemorySnapshot {
   usedJSHeapSize?: number
@@ -13,7 +13,9 @@ export function useMobilePerformanceMonitor(surface: string) {
   renderCountRef.current += 1
 
   useEffect(() => {
-    if (!isIOSRuntime()) return
+    // Monitor de performance só roda em dev. Em produção ele desperdiça CPU
+    // e bateria no iPhone com PerformanceObserver + setInterval a cada 30s.
+    if (!isIOSRuntime() || !import.meta.env.DEV) return
     let longTaskCount = 0
     let longTaskMilliseconds = 0
     let expectedTick = performance.now() + 30_000

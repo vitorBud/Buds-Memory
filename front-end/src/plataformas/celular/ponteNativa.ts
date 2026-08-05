@@ -1,6 +1,6 @@
 import { registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
-import type { ChatStreamEvent, CognitiveMemory, ConversationStorageItem, Message, Session } from '../types'
+import type { ChatStreamEvent, CognitiveMemory, ConversationStorageItem, Message, Session } from '../../types'
 
 export interface IOSLocalStorageStatus {
   availableBytes: number

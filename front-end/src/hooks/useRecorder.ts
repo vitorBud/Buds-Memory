@@ -6,7 +6,7 @@ import {
   cancelIOSSpeechRecognition,
   startIOSSpeechRecognition,
   stopIOSSpeechRecognition,
-} from '../services/iosLocal'
+} from '../plataformas'
 import { AsyncOperationGate, RecordingChunkBuffer, VoiceEndpointDetector } from '../utils/controleOperacoes'
 
 interface UseRecorderOptions {

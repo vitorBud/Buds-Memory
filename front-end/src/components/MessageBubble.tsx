@@ -164,7 +164,7 @@ function CodeBlock({ language, code }: CodeBlockProps) {
   const highlightedHtml = highlightCode(code, language)
 
   return (
-    <div className="my-3.5 flex min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-white/8 bg-[rgba(15,15,20,0.65)] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] backdrop-blur-lg">
+    <div className="my-3.5 flex min-w-0 max-w-full flex-col overflow-hidden rounded-xl border border-white/8 bg-[rgba(15,15,20,0.65)] shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] backdrop-blur-lg platform-ios:![backdrop-filter:none]">
       <div className="flex min-w-0 items-center justify-between gap-2 border-b border-white/5 bg-[rgba(10,10,12,0.5)] px-4 py-2 font-[-apple-system,BlinkMacSystemFont,'Segoe_UI',Roboto,sans-serif]">
         <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-semibold tracking-[0.5px] text-white/50">{displayLang}</span>
         <button

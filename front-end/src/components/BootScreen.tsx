@@ -10,8 +10,8 @@ import {
   loginLocal,
   loginRemote,
 } from '../services/api'
-import { downloadIOSLocalModel, getIOSLocalStatus } from '../services/iosLocal'
-import type { IOSLocalStatus } from '../services/iosLocal'
+import { downloadIOSLocalModel, getIOSLocalStatus } from '../plataformas'
+import type { IOSLocalStatus } from '../plataformas'
 import { bootBadgeStyles, bootScreenStyles, bootStepStyles } from '../styles/telaInicializacao'
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -223,8 +223,8 @@ export function BootScreen({ onDone }: BootScreenProps) {
             setStep('ollama', {
               state: 'ok',
               detail: `${status.modelName} no próprio iPhone`,
-              errorMsg: status.thermalState === 'serious' || status.thermalState === 'critical'
-                ? 'O aparelho está quente; as respostas serão pausadas até esfriar.'
+              errorMsg: status.thermalState === 'critical'
+                ? 'O aparelho está criticamente quente. Resfriando...'
                 : '',
             })
           } else {

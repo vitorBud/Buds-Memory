@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js'
 import type { AiState, ThemeMode } from '../types'
-import { getIOSVisualProfile, getWindowsVisualProfile, isIOSRuntime, isWindowsRuntime } from '../utils/runtime'
+import { getIOSVisualProfile, getWindowsVisualProfile, isIOSRuntime, isWindowsRuntime } from '../plataformas'
 import { homeBrainStyles as styles } from '../styles/inicio'
 
 interface HomeBrainProps {
   theme: ThemeMode
   aiState: AiState
   memoryCount: number
+  /** Quando false, o render loop WebGL é pausado para economizar energia. */
+  visible?: boolean
 }
 
 type BudsBridge = { assetBase?: string }
@@ -136,7 +138,7 @@ function disposeObject3D(object: THREE.Object3D) {
   })
 }
 
-export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
+export function HomeBrain({ theme, aiState, memoryCount, visible = true }: HomeBrainProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(true)
 
@@ -144,12 +146,17 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
   const aiStateRef = useRef<AiState>(aiState)
   const themeRef = useRef<ThemeMode>(theme)
   const memoryCountRef = useRef<number>(memoryCount)
+  const visibleRef = useRef(visible)
   const triggerBurstRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
     aiStateRef.current = aiState
     themeRef.current = theme
   }, [aiState, theme])
+
+  useEffect(() => {
+    visibleRef.current = visible
+  }, [visible])
 
   useEffect(() => {
     if (memoryCount > memoryCountRef.current) {
@@ -582,7 +589,7 @@ export function HomeBrain({ theme, aiState, memoryCount }: HomeBrainProps) {
 
     const animate = () => {
       frameId = requestAnimationFrame(animate)
-      if (!isPageVisible || !isCanvasVisible || disposed) {
+      if (!isPageVisible || !isCanvasVisible || !visibleRef.current || disposed) {
         return
       }
       const now = performance.now()
