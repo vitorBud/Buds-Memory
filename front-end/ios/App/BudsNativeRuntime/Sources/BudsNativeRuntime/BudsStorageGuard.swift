@@ -3,7 +3,7 @@ import Foundation
 public enum BudsStorageGuard {
     public static let warningBytes: Int64 = 3 * 1_073_741_824
     public static let databaseMinimumBytes: Int64 = 1_500_000_000
-    public static let modelBytes: Int64 = 2_104_932_800 // Qwen 2.5 Coder 3B
+    public static let modelBytes: Int64 = BudsModelConfig.expectedBytes
     public static let modelSafetyMarginBytes: Int64 = 2 * 1_073_741_824
     public static let modelRequiredBytes = modelBytes + modelSafetyMarginBytes
 

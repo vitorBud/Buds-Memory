@@ -18,13 +18,13 @@ public enum BudsNativeError: LocalizedError {
         case let .databaseUnavailable(message):
             return "O banco local não pôde ser aberto: \(message)"
         case .modelMissing:
-            return "O modelo local 3B ainda não foi instalado neste iPhone."
+            return "O modelo local 4B ainda não foi instalado neste iPhone."
         case .modelIntegrity:
-            return "O arquivo do modelo 3B está incompleto ou não passou na verificação de integridade."
+            return "O arquivo do modelo 4B está incompleto ou não passou na verificação de integridade."
         case let .modelDownload(message):
-            return "Falha ao baixar o modelo 3B: \(message)"
+            return "Falha ao baixar o modelo 4B: \(message)"
         case let .modelLoad(message):
-            return "Falha ao carregar o modelo 3B: \(message)"
+            return "Falha ao carregar o modelo 4B: \(message)"
         case let .inference(message):
             return "Falha durante a resposta local: \(message)"
         case .thermalBlocked:
@@ -69,6 +69,8 @@ public struct BudsRuntimeStatus: Sendable {
     public let databaseReady: Bool
     public let modelInstalled: Bool
     public let modelBytes: Int64
+    public let modelExpectedBytes: Int64
+    public let modelRequiredBytes: Int64
     public let modelName: String
     public let thermalState: String
     public let lowPowerMode: Bool
@@ -78,6 +80,8 @@ public struct BudsRuntimeStatus: Sendable {
         databaseReady: Bool,
         modelInstalled: Bool,
         modelBytes: Int64,
+        modelExpectedBytes: Int64,
+        modelRequiredBytes: Int64,
         modelName: String,
         thermalState: String,
         lowPowerMode: Bool
@@ -86,6 +90,8 @@ public struct BudsRuntimeStatus: Sendable {
         self.databaseReady = databaseReady
         self.modelInstalled = modelInstalled
         self.modelBytes = modelBytes
+        self.modelExpectedBytes = modelExpectedBytes
+        self.modelRequiredBytes = modelRequiredBytes
         self.modelName = modelName
         self.thermalState = thermalState
         self.lowPowerMode = lowPowerMode

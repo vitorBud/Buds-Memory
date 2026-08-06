@@ -20,6 +20,7 @@ interface ChatInputProps {
 }
 
 const MODEL_LABELS: Record<string, { label: string; hint: string }> = {
+  'qwen3.5-4b': { label: 'Local (4B)', hint: 'iOS Nativo' },
   'qwen2.5-coder:3b': { label: 'Rápido', hint: 'leve' },
   'qwen2.5-coder:7b': { label: 'Padrão', hint: 'equilibrado' },
   'qwen2.5-coder:14b': { label: 'Mais potente', hint: 'melhor raciocínio' },

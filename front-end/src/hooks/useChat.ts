@@ -3,6 +3,7 @@ import { streamChat } from '../services/api'
 import type { Message, AiState, Session, ChatStreamEvent, VoiceProvider } from '../types'
 import { isWindowsRuntime } from '../plataformas'
 import { createOperationId } from '../utils/controleOperacoes'
+import { stripInternalReasoning } from '../utils/respostaVisivel'
 
 interface UseChatOptions {
   sessionId: string | null
@@ -142,6 +143,7 @@ export function useChat({
   const pendingTokensRef = useRef<Map<number, string>>(new Map())
   const tokenFlushTimerRef = useRef<number | null>(null)
   const flushingOfflineRef = useRef(false)
+  const spokenLengthRef = useRef(0)
 
   useEffect(() => {
     if (!('speechSynthesis' in window)) return
@@ -285,10 +287,12 @@ export function useChat({
       pending.forEach((token, messageId) => {
         const existing = next.find(msg => msg.id === messageId)
         if (!existing) {
+          const visibleToken = stripInternalReasoning(token, true)
           next = [...next, {
             id: messageId,
             sender: 'ia',
-            text: token,
+            text: visibleToken || '__thinking__',
+            rawText: token,
             streaming: true,
             created_at: new Date().toISOString(),
           }]
@@ -297,8 +301,10 @@ export function useChat({
 
         next = next.map(msg => {
           if (msg.id !== messageId) return msg
-          const text = msg.text === '__thinking__' ? token : msg.text + token
-          return { ...msg, text, streaming: true }
+          const raw = msg.rawText === undefined ? (msg.text === '__thinking__' ? '' : msg.text) : msg.rawText
+          const newRaw = raw + token
+          const clean = stripInternalReasoning(newRaw, true)
+          return { ...msg, text: clean || '__thinking__', streaming: true, rawText: newRaw }
         })
       })
 
@@ -344,11 +350,13 @@ export function useChat({
 
   function replaceStreamingText(messageId: number, text: string) {
     flushStreamingTokens()
-    setMessages(prev => prev.map(msg => (
-      msg.id === messageId
-        ? { ...msg, text: text.trim(), streaming: true }
-        : msg
-    )))
+    setMessages(prev => prev.map(msg => {
+      if (msg.id === messageId) {
+        const clean = stripInternalReasoning(text, true).trim()
+        return { ...msg, text: clean || '__thinking__', streaming: true, rawText: text }
+      }
+      return msg
+    }))
   }
 
   function appendWebSearchStatus(messageId: number, event: ChatStreamEvent) {
@@ -366,7 +374,14 @@ export function useChat({
       const next = prev.map(msg => {
         if (msg.id !== messageId || !msg.streaming) return msg
         finalized = true
-        return { ...msg, text: msg.text === '__thinking__' ? '' : msg.text, streaming: false }
+        const raw = msg.rawText ?? msg.text
+        const clean = stripInternalReasoning(raw).trim()
+        return {
+          ...msg,
+          text: clean === '__thinking__' ? '' : clean,
+          streaming: false,
+          rawText: undefined,
+        }
       }).filter(msg => msg.text || msg.id !== messageId)
 
       if (finalized) {
@@ -409,6 +424,7 @@ export function useChat({
 
     const start = Date.now()
     let streamedText = ''
+    spokenLengthRef.current = 0
     let speechBuffer = ''
     let receivedAudio = false
     const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
@@ -422,10 +438,15 @@ export function useChat({
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
           if (useStreamingBrowserVoice) {
-            speechBuffer += event.content
-            const extracted = extractCompleteSentences(speechBuffer)
-            extracted.sentences.forEach(queueSpeech)
-            speechBuffer = extracted.rest
+            const cleanFullText = stripInternalReasoning(streamedText, true)
+            const cleanDelta = cleanFullText.slice(spokenLengthRef.current)
+            if (cleanDelta.length > 0) {
+              speechBuffer += cleanDelta
+              spokenLengthRef.current = cleanFullText.length
+              const extracted = extractCompleteSentences(speechBuffer)
+              extracted.sentences.forEach(queueSpeech)
+              speechBuffer = extracted.rest
+            }
           }
         } else if (event.type === 'replace_response' && event.content) {
           streamedText = event.content
@@ -443,9 +464,9 @@ export function useChat({
           if (useStreamingBrowserVoice) {
             if (speechBuffer.trim()) queueSpeech(speechBuffer)
           } else if (useBrowserVoice) {
-            speakText(streamedText)
+            speakText(stripInternalReasoning(streamedText))
           } else if (autoPlayAudio && !receivedAudio) {
-            speakText(streamedText)
+            speakText(stripInternalReasoning(streamedText))
           }
           onLatency(Date.now() - start)
         } else if (event.type === 'error') {
@@ -533,6 +554,7 @@ export function useChat({
     const assistantMessageId = createAssistantPlaceholder()
     const start = Date.now()
     let streamedText = ''
+    spokenLengthRef.current = 0
     let speechBuffer = ''
     let receivedAudio = false
     const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
@@ -557,10 +579,15 @@ export function useChat({
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
           if (useStreamingBrowserVoice) {
-            speechBuffer += event.content
-            const extracted = extractCompleteSentences(speechBuffer)
-            extracted.sentences.forEach(queueSpeech)
-            speechBuffer = extracted.rest
+            const cleanFullText = stripInternalReasoning(streamedText, true)
+            const cleanDelta = cleanFullText.slice(spokenLengthRef.current)
+            if (cleanDelta.length > 0) {
+              speechBuffer += cleanDelta
+              spokenLengthRef.current = cleanFullText.length
+              const extracted = extractCompleteSentences(speechBuffer)
+              extracted.sentences.forEach(queueSpeech)
+              speechBuffer = extracted.rest
+            }
           }
         } else if (event.type === 'replace_response' && event.content) {
           streamedText = event.content
@@ -578,9 +605,9 @@ export function useChat({
           if (useStreamingBrowserVoice) {
             if (speechBuffer.trim()) queueSpeech(speechBuffer)
           } else if (useBrowserVoice) {
-            speakText(streamedText)
+            speakText(stripInternalReasoning(streamedText))
           } else if (autoPlayAudio && !receivedAudio) {
-            speakText(streamedText)
+            speakText(stripInternalReasoning(streamedText))
           }
           onLatency(Date.now() - start)
         } else if (event.type === 'error') {
@@ -626,9 +653,16 @@ export function useChat({
       window.clearTimeout(tokenFlushTimerRef.current)
       tokenFlushTimerRef.current = null
     }
-    setMessages(msgs)
-    msgCountRef.current = msgs.length
-    onMsgCountChange(msgs.length)
+    const safeMessages = msgs
+      .map(message => (
+        message.sender === 'ia'
+          ? { ...message, text: stripInternalReasoning(message.text).trim(), rawText: undefined }
+          : message
+      ))
+      .filter(message => message.sender === 'user' || Boolean(message.text))
+    setMessages(safeMessages)
+    msgCountRef.current = safeMessages.length
+    onMsgCountChange(safeMessages.length)
   }, [onMsgCountChange])
 
   return { messages, isProcessing, availableVoices, sendText, sendAudio, stopOutput, clearMessages, loadMessages }

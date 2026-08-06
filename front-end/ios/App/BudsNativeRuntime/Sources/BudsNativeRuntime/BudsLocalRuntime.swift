@@ -30,6 +30,8 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             databaseReady: databaseReady,
             modelInstalled: modelManager.isInstalled,
             modelBytes: modelManager.installedBytes,
+            modelExpectedBytes: BudsStorageGuard.modelBytes,
+            modelRequiredBytes: BudsStorageGuard.modelRequiredBytes,
             modelName: BudsModelManager.modelName,
             thermalState: Self.thermalStateName,
             lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -69,7 +71,18 @@ public final class BudsLocalRuntime: @unchecked Sendable {
     }
 
     public func messages(sessionId: String) throws -> [BudsMessageRecord] {
-        try ensureStore().messages(sessionId: sessionId)
+        try ensureStore().messages(sessionId: sessionId).compactMap { message in
+            guard message.sender == "ia" else { return message }
+            let visibleText = BudsVisibleResponseFilter.sanitize(message.text)
+            guard !visibleText.isEmpty else { return nil }
+            return BudsMessageRecord(
+                id: message.id,
+                sessionId: message.sessionId,
+                sender: message.sender,
+                text: visibleText,
+                createdAt: message.createdAt
+            )
+        }
     }
 
     public func memories(limit: Int) throws -> [BudsMemoryRecord] {

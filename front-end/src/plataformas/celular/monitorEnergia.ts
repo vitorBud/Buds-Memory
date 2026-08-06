@@ -10,7 +10,12 @@ interface BrowserMemorySnapshot {
 export function useMobilePerformanceMonitor(surface: string) {
   const renderCountRef = useRef(0)
   const rendersAtLastSampleRef = useRef(0)
-  renderCountRef.current += 1
+
+  useEffect(() => {
+    if (isIOSRuntime() && import.meta.env.DEV) {
+      renderCountRef.current += 1
+    }
+  })
 
   useEffect(() => {
     // Monitor de performance só roda em dev. Em produção ele desperdiça CPU

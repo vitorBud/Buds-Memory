@@ -20,6 +20,8 @@ export interface Message {
   audio_url?: string | null
   created_at?: string
   streaming?: boolean
+  /** Buffer transitório usado apenas para filtrar raciocínio durante o streaming. */
+  rawText?: string
 }
 
 export interface KnowledgeSource {

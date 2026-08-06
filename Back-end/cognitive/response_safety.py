@@ -14,8 +14,9 @@ import re
 from code_intent import is_code_request
 
 INTERNAL_TAGS = (
-    "thinking", "analysis", "tool", "tools", "context", "system", "developer",
-    "prompt", "scratchpad", "plan", "internal", "doc_external",
+    "think", "thinking", "analysis", "reasoning", "tool", "tools", "context",
+    "system", "developer", "prompt", "scratchpad", "plan", "internal",
+    "doc_external",
 )
 
 def allows_code(user_text: str) -> bool:
@@ -35,8 +36,10 @@ def sanitize_response(
 
     allow_code = allows_code(user_text) if allow_code is None else allow_code
     clean = str(text).replace("\r\n", "\n").replace("\r", "\n")
+    # Tags internas precisam sair antes de procurar marcadores de resposta final;
+    # um marcador escrito dentro de <think> não pode virar conteúdo público.
+    clean = _remove_internal_tags(clean, drop_unclosed=True)
     clean = _extract_final_answer(clean)
-    clean = _remove_internal_tags(clean, drop_unclosed=streaming)
     clean = _remove_internal_sections(clean)
     clean = _handle_json_payload(clean, allow_code=allow_code, streaming=streaming)
     clean = _handle_code_fences(clean, allow_code=allow_code, streaming=streaming)
@@ -77,7 +80,26 @@ def _remove_internal_tags(text: str, *, drop_unclosed: bool) -> str:
             if open_match:
                 clean = clean[:open_match.start()]
         clean = re.sub(rf"<\s*/?\s*{tag}\b[^>]*>", "", clean, flags=re.I)
+    if drop_unclosed:
+        clean = _hold_partial_internal_tag(clean)
     return clean
+
+
+def _hold_partial_internal_tag(text: str) -> str:
+    """Evita transmitir ``<thi`` antes de o restante de ``<think>`` chegar."""
+    last_open = text.rfind("<")
+    if last_open < 0 or ">" in text[last_open:]:
+        return text
+
+    suffix = re.sub(r"\s+", "", text[last_open:]).lower()
+    candidates = tuple(
+        marker
+        for tag in INTERNAL_TAGS
+        for marker in (f"<{tag}", f"</{tag}")
+    )
+    if any(candidate.startswith(suffix) for candidate in candidates):
+        return text[:last_open]
+    return text
 
 
 def _remove_internal_sections(text: str) -> str:

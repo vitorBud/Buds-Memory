@@ -138,6 +138,45 @@ Resposta final: A fatura bruta é R$ 2.795 e o impacto pessoal é R$ 795.
         partial = response_safety.sanitize_response("<analysis>vou pensar\nA resposta", user_text="fatura", streaming=True)
         self.assertEqual(partial, "")
 
+    def test_literal_think_tag_is_removed(self):
+        raw = "<think>isto é raciocínio privado</think>Resposta visível."
+        clean = response_safety.sanitize_response(raw, user_text="responda")
+        self.assertEqual(clean, "Resposta visível.")
+
+    def test_streaming_holds_fragmented_think_opening(self):
+        for partial in ("<", "<t", "<thi", "<think"):
+            with self.subTest(partial=partial):
+                clean = response_safety.sanitize_response(
+                    partial,
+                    user_text="responda",
+                    streaming=True,
+                )
+                self.assertEqual(clean, "")
+
+        clean = response_safety.sanitize_response(
+            "Antes <thi",
+            user_text="responda",
+            streaming=True,
+        )
+        self.assertEqual(clean, "Antes")
+
+    def test_reasoning_alias_is_removed(self):
+        raw = "<reasoning>não mostrar</reasoning>Conclusão."
+        clean = response_safety.sanitize_response(raw, user_text="responda")
+        self.assertEqual(clean, "Conclusão.")
+
+    def test_final_marker_inside_think_does_not_bypass_filter(self):
+        raw = "<think>Final answer: plano secreto</think>Resposta pública."
+        clean = response_safety.sanitize_response(raw, user_text="responda")
+        self.assertEqual(clean, "Resposta pública.")
+
+    def test_unclosed_think_is_removed_in_final_response(self):
+        clean = response_safety.sanitize_response(
+            "<think>raciocínio interrompido",
+            user_text="responda",
+        )
+        self.assertEqual(clean, "")
+
     def test_non_code_markdown_and_latex_are_cleaned(self):
         raw = """
 ### Resumo:

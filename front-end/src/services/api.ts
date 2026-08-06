@@ -595,7 +595,7 @@ export async function streamChat(
   signal?: AbortSignal,
 ): Promise<void> {
   if (isNativeIOSRuntime()) {
-    if (payload.audio) throw new Error('A transcrição de áudio local será adicionada depois do motor 3B.')
+    if (payload.audio) throw new Error('A transcrição de áudio local será adicionada depois do motor 4B.')
     return streamIOSLocalChat(payload, onEvent, signal)
   }
   const attempts = isDesktop() ? 3 : 2

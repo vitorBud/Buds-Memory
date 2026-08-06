@@ -58,6 +58,10 @@ async function timedFetch(url: string, options?: RequestInit): Promise<{ ok: boo
   }
 }
 
+function formatGigabytes(bytes: number) {
+  return (bytes / 1_073_741_824).toFixed(1).replace('.', ',')
+}
+
 // ── Componente principal ───────────────────────────────────────────────────────
 
 export function BootScreen({ onDone }: BootScreenProps) {
@@ -96,8 +100,8 @@ export function BootScreen({ onDone }: BootScreenProps) {
     {
       id: 'ollama',
       icon: nativeIOS ? Smartphone : Bot,
-      label: nativeIOS ? 'Motor local 3B' : 'Motor de IA (Ollama)',
-      detail: nativeIOS ? 'Verificando Qwen2.5-Coder 3B…' : 'Verificando modelo de linguagem…',
+      label: nativeIOS ? 'Motor local 4B' : 'Motor de IA (Ollama)',
+      detail: nativeIOS ? 'Verificando Qwen3.5-4B…' : 'Verificando modelo de linguagem…',
       state: 'pending',
     },
   ])
@@ -146,7 +150,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
     setModelDownloadError('')
     setModelDownloadBusy(true)
     setModelDownloadProgress(0)
-    setStep('ollama', { state: 'loading', detail: 'Baixando Qwen2.5-Coder 3B…', errorMsg: '' })
+    setStep('ollama', { state: 'loading', detail: 'Baixando Qwen3.5-4B…', errorMsg: '' })
     try {
       await downloadIOSLocalModel(progress => {
         setModelDownloadProgress(Math.round(progress * 100))
@@ -184,7 +188,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
 
       if (nativeIOS) {
         setStep('backend', { state: 'loading', detail: 'Verificando espaço e banco SQLite…', errorMsg: '' })
-        setStep('ollama', { state: 'loading', detail: 'Verificando Qwen2.5-Coder 3B…', errorMsg: '' })
+        setStep('ollama', { state: 'loading', detail: 'Verificando Qwen3.5-4B…', errorMsg: '' })
         try {
           const status = await getIOSLocalStatus()
           if (cancelled) return
@@ -230,10 +234,10 @@ export function BootScreen({ onDone }: BootScreenProps) {
           } else {
             setStep('ollama', {
               state: status.storage.modelDownloadAllowed ? 'pending' : 'error',
-              detail: 'Modelo 3B ainda não instalado',
+              detail: 'Modelo 4B ainda não instalado',
               errorMsg: status.storage.modelDownloadAllowed
-                ? 'Baixe 4,68 GB uma vez para usar o Buds totalmente offline.'
-                : 'Libere cerca de 6,7 GB para baixar e instalar o modelo com segurança.',
+                ? `Baixe ${formatGigabytes(status.modelExpectedBytes)} GB uma vez para usar o Buds totalmente offline.`
+                : `Libere cerca de ${formatGigabytes(status.modelRequiredBytes)} GB para baixar e instalar o modelo com segurança.`,
             })
           }
 
@@ -423,9 +427,9 @@ export function BootScreen({ onDone }: BootScreenProps) {
         {nativeIOS && nativeLocalStatus && !nativeLocalStatus.modelInstalled && (
           <div className={bootScreenStyles.authPanel}>
             <div className={bootScreenStyles.authForm}>
-              <strong className={bootScreenStyles.authLabel}>Instalar inteligência local 3B</strong>
+              <strong className={bootScreenStyles.authLabel}>Instalar inteligência local 4B</strong>
               <p className={bootScreenStyles.authCopy}>
-                O download oficial tem cerca de 2,1 GB. Depois de instalado, chat, histórico e memória
+                O download oficial tem cerca de {formatGigabytes(nativeLocalStatus.modelExpectedBytes)} GB. Depois de instalado, chat, histórico e memória
                 funcionam sem Mac, servidor, token ou internet.
               </p>
               {modelDownloadProgress !== null && (
@@ -440,7 +444,7 @@ export function BootScreen({ onDone }: BootScreenProps) {
                 onClick={() => void handleNativeModelDownload()}
               >
                 {modelDownloadBusy ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
-                {modelDownloadBusy ? 'Baixando modelo…' : 'Baixar Qwen 3B no iPhone'}
+                {modelDownloadBusy ? 'Baixando modelo…' : 'Baixar Qwen 4B no iPhone'}
               </button>
               <button
                 className={`${bootScreenStyles.button} ${bootScreenStyles.secondaryButton}`}

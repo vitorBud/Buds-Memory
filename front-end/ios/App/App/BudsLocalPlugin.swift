@@ -258,6 +258,7 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                         self?.notifyListeners("chatToken", data: [
                             "generationId": generationId,
                             "content": token,
+                            "model": BudsModelManager.modelName,
                         ])
                     }
                 }
@@ -297,6 +298,8 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
             "databaseReady": status.databaseReady,
             "modelInstalled": status.modelInstalled,
             "modelBytes": status.modelBytes,
+            "modelExpectedBytes": status.modelExpectedBytes,
+            "modelRequiredBytes": status.modelRequiredBytes,
             "modelName": status.modelName,
             "thermalState": status.thermalState,
             "lowPowerMode": status.lowPowerMode,

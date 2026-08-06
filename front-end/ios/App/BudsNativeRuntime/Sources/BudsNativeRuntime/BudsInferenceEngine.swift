@@ -9,6 +9,7 @@ final class BudsInferenceEngine: @unchecked Sendable {
     private let stateLock = NSLock()
     private var cancellationRequested = false
     private var backendInitialized = false
+    private var appliedThreadConfiguration: (inference: Int, batch: Int)?
 
     deinit {
         unload()
@@ -37,6 +38,7 @@ final class BudsInferenceEngine: @unchecked Sendable {
             self.model = nil
         }
         loadedModelPath = ""
+        appliedThreadConfiguration = nil
     }
 
     func generate(
@@ -69,29 +71,24 @@ final class BudsInferenceEngine: @unchecked Sendable {
 
         try decode(tokens: &promptTokens, context: context)
         let generationStart = ProcessInfo.processInfo.systemUptime
-        var output = ""
+        let responseFilter = BudsVisibleResponseFilter()
         var pendingUTF8 = Data()
         var outputTokenCount = 0
         var firstTokenAt: TimeInterval?
 
         for _ in 0..<maxOutput {
             try checkRuntimeLimits()
-            
-            // Adaptive Thermal Pacing Otimizado (Velocidade vs Calor)
+
+            // Ajusta somente quando o estado muda; reconfigurar o llama a cada token
+            // gerava trabalho desnecessário justamente quando o aparelho aquecia.
+            configureThreads()
             let thermal = ProcessInfo.processInfo.thermalState
-            if thermal == .critical {
-                Thread.sleep(forTimeInterval: 0.300) 
-                configureThreads()
-            } else if thermal == .serious {
-                Thread.sleep(forTimeInterval: 0.100) // Freia, mas menos que antes
-                configureThreads()
+            if thermal == .serious {
+                Thread.sleep(forTimeInterval: 0.100)
             } else if thermal == .fair {
-                Thread.sleep(forTimeInterval: 0.020) // 20ms garante pelo menos 50 tokens/segundo de teto
-                configureThreads()
+                Thread.sleep(forTimeInterval: 0.020)
             } else if ProcessInfo.processInfo.isLowPowerModeEnabled {
-                Thread.sleep(forTimeInterval: 0.010) 
-            } else {
-                Thread.sleep(forTimeInterval: 0.001) // 1ms (Aceleração total quando frio)
+                Thread.sleep(forTimeInterval: 0.010)
             }
 
             let token = llama_sampler_sample(sampler, context, -1)
@@ -101,10 +98,12 @@ final class BudsInferenceEngine: @unchecked Sendable {
 
             pendingUTF8.append(piece(for: token, vocabulary: vocabulary))
             if let text = String(data: pendingUTF8, encoding: .utf8) {
-                if firstTokenAt == nil { firstTokenAt = ProcessInfo.processInfo.systemUptime }
                 pendingUTF8.removeAll(keepingCapacity: true)
-                output += text
-                onToken(text)
+                let visible = responseFilter.consume(text)
+                if !visible.isEmpty {
+                    if firstTokenAt == nil { firstTokenAt = ProcessInfo.processInfo.systemUptime }
+                    onToken(visible)
+                }
             }
 
             var generated = [token]
@@ -112,17 +111,24 @@ final class BudsInferenceEngine: @unchecked Sendable {
         }
 
         if !pendingUTF8.isEmpty {
-            if firstTokenAt == nil { firstTokenAt = ProcessInfo.processInfo.systemUptime }
             let replacement = String(decoding: pendingUTF8, as: UTF8.self)
-            output += replacement
-            onToken(replacement)
+            let visible = responseFilter.consume(replacement)
+            if !visible.isEmpty {
+                if firstTokenAt == nil { firstTokenAt = ProcessInfo.processInfo.systemUptime }
+                onToken(visible)
+            }
+        }
+        let finalVisible = responseFilter.finish()
+        if !finalVisible.isEmpty {
+            if firstTokenAt == nil { firstTokenAt = ProcessInfo.processInfo.systemUptime }
+            onToken(finalVisible)
         }
         let finishedAt = ProcessInfo.processInfo.systemUptime
         let endSnapshot = BudsPerformanceMonitor.snapshot()
         let generationSeconds = max(0.001, finishedAt - generationStart)
         let (inferenceThreads, batchThreads) = threadConfiguration()
         return BudsEngineResult(
-            text: output.trimmingCharacters(in: .whitespacesAndNewlines),
+            text: responseFilter.visibleText.trimmingCharacters(in: .whitespacesAndNewlines),
             promptTokens: promptTokens.count,
             outputTokens: outputTokenCount,
             loadMilliseconds: loadMilliseconds,
@@ -167,9 +173,9 @@ final class BudsInferenceEngine: @unchecked Sendable {
         model = loadedModel
 
         var contextParameters = llama_context_default_params()
-        contextParameters.n_ctx = 4_096
-        contextParameters.n_batch = 512
-        contextParameters.n_ubatch = 128
+        contextParameters.n_ctx = UInt32(BudsModelConfig.maxContextWindow)
+        contextParameters.n_batch = 256
+        contextParameters.n_ubatch = 64
         contextParameters.n_seq_max = 1
         contextParameters.offload_kqv = true
         contextParameters.n_threads = 3
@@ -189,11 +195,11 @@ final class BudsInferenceEngine: @unchecked Sendable {
         var parameters = llama_sampler_chain_default_params()
         parameters.no_perf = true
         guard let chain = llama_sampler_chain_init(parameters) else { return nil }
-        llama_sampler_chain_add(chain, llama_sampler_init_top_k(40))
-        llama_sampler_chain_add(chain, llama_sampler_init_top_p(0.92, 1))
-        llama_sampler_chain_add(chain, llama_sampler_init_min_p(0.05, 1))
-        llama_sampler_chain_add(chain, llama_sampler_init_temp(0.65))
-        llama_sampler_chain_add(chain, llama_sampler_init_penalties(128, 1.08, 0, 0))
+        llama_sampler_chain_add(chain, llama_sampler_init_top_k(BudsModelConfig.topK))
+        llama_sampler_chain_add(chain, llama_sampler_init_top_p(BudsModelConfig.topP, 1))
+        llama_sampler_chain_add(chain, llama_sampler_init_min_p(BudsModelConfig.minP, 1))
+        llama_sampler_chain_add(chain, llama_sampler_init_temp(BudsModelConfig.temperature))
+        llama_sampler_chain_add(chain, llama_sampler_init_penalties(128, BudsModelConfig.repeatPenalty, 0, BudsModelConfig.presencePenalty))
         llama_sampler_chain_add(chain, llama_sampler_init_dist(UInt32.random(in: 1...UInt32.max)))
         return chain
     }
@@ -201,7 +207,12 @@ final class BudsInferenceEngine: @unchecked Sendable {
     private func configureThreads() {
         guard let context else { return }
         let (inferenceThreads, batchThreads) = threadConfiguration()
+        if appliedThreadConfiguration?.inference == inferenceThreads,
+           appliedThreadConfiguration?.batch == batchThreads {
+            return
+        }
         llama_set_n_threads(context, Int32(inferenceThreads), Int32(batchThreads))
+        appliedThreadConfiguration = (inferenceThreads, batchThreads)
     }
 
     private func threadConfiguration() -> (Int, Int) {
@@ -210,7 +221,7 @@ final class BudsInferenceEngine: @unchecked Sendable {
             return (1, 1) // Modo emergência
         }
         let constrained = ProcessInfo.processInfo.isLowPowerModeEnabled || state == .fair
-        return constrained ? (2, 2) : (3, 4) // Mais velocidade quando frio (nominal = 3/4)
+        return constrained ? (2, 2) : (2, 3)
     }
 
     private static var thermalStateName: String {
@@ -225,9 +236,9 @@ final class BudsInferenceEngine: @unchecked Sendable {
 
     private func generationTokenBudget() -> Int {
         if ProcessInfo.processInfo.isLowPowerModeEnabled || ProcessInfo.processInfo.thermalState == .fair {
-            return 320
+            return Int(BudsModelConfig.maxTokensPerGeneration) / 2
         }
-        return 512
+        return Int(BudsModelConfig.maxTokensPerGeneration)
     }
 
     private func checkRuntimeLimits() throws {
@@ -238,7 +249,6 @@ final class BudsInferenceEngine: @unchecked Sendable {
 
         switch ProcessInfo.processInfo.thermalState {
         case .critical:
-            unload()
             throw BudsNativeError.thermalBlocked
         default:
             break
@@ -273,7 +283,7 @@ final class BudsInferenceEngine: @unchecked Sendable {
         _ prompt: String,
         vocabulary: OpaquePointer
     ) throws -> [llama_token] {
-        let maximumPromptTokens = 4_096 - generationTokenBudget() - 8
+        let maximumPromptTokens = Int(BudsModelConfig.maxContextWindow) - generationTokenBudget() - 8
         var tokens = try tokenize(prompt, vocabulary: vocabulary)
         guard tokens.count > maximumPromptTokens else { return tokens }
 
@@ -300,12 +310,12 @@ final class BudsInferenceEngine: @unchecked Sendable {
             var offset = 0
             while offset < buffer.count {
                 try checkRuntimeLimits()
-                
+
                 let thermal = ProcessInfo.processInfo.thermalState
-                
+
                 // Lotes dinâmicos: Lê blocos grandes se estiver frio, blocos pequenos se estiver quente
-                let maxBatchSize = (thermal == .nominal) ? 512 : (thermal == .fair || ProcessInfo.processInfo.isLowPowerModeEnabled) ? 128 : 64
-                
+                let maxBatchSize = (thermal == .nominal) ? 256 : (thermal == .fair || ProcessInfo.processInfo.isLowPowerModeEnabled) ? 128 : 64
+
                 let amount = min(maxBatchSize, buffer.count - offset)
                 let batch = llama_batch_get_one(base.advanced(by: offset), Int32(amount))
                 let result = llama_decode(context, batch)
@@ -313,7 +323,7 @@ final class BudsInferenceEngine: @unchecked Sendable {
                     throw BudsNativeError.inference("llama_decode retornou \(result)")
                 }
                 offset += amount
-                
+
                 // Resfriamento dinâmico otimizado (rápido quando frio, freia quando quente)
                 if thermal == .critical {
                     Thread.sleep(forTimeInterval: 0.500)

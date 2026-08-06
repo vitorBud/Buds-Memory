@@ -1,6 +1,7 @@
 import { registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
 import type { ChatStreamEvent, CognitiveMemory, ConversationStorageItem, Message, Session } from '../../types'
+import { stripInternalReasoning } from '../../utils/respostaVisivel'
 
 export interface IOSLocalStorageStatus {
   availableBytes: number
@@ -15,6 +16,8 @@ export interface IOSLocalStatus {
   databaseReady: boolean
   modelInstalled: boolean
   modelBytes: number
+  modelExpectedBytes: number
+  modelRequiredBytes: number
   modelName: string
   thermalState: 'nominal' | 'fair' | 'serious' | 'critical' | 'unknown'
   lowPowerMode: boolean
@@ -51,7 +54,7 @@ interface IOSLocalPlugin {
   stopGeneration(options: { generationId?: string }): Promise<void>
   addListener(
     eventName: 'chatToken',
-    listener: (event: { generationId: string; content: string }) => void,
+    listener: (event: { generationId: string; content: string; model: string }) => void,
   ): Promise<PluginListenerHandle>
   addListener(
     eventName: 'modelDownloadProgress',
@@ -116,6 +119,10 @@ export async function purgeIOSConversation(id: string): Promise<ConversationStor
 
 export async function getIOSLocalMessages(sessionId: string): Promise<Message[]> {
   return (await native.getMessages({ sessionId })).messages
+    .map(message => message.sender === 'ia'
+      ? { ...message, text: stripInternalReasoning(message.text).trim() }
+      : message)
+    .filter(message => message.sender === 'user' || Boolean(message.text))
 }
 
 export async function getIOSLocalMemories(limit: number): Promise<CognitiveMemory[]> {
@@ -173,11 +180,23 @@ export async function streamIOSLocalChat(
   if (!text || !sessionId) throw new Error('Mensagem e conversa são obrigatórias no modo local do iPhone.')
 
   const generationId = crypto.randomUUID()
-  let streamedText = ''
+  let rawStreamedText = ''
+  let visibleStreamedText = ''
   const listener = await native.addListener('chatToken', event => {
     if (event.generationId !== generationId || !event.content) return
-    streamedText += event.content
-    onEvent({ type: 'token', content: event.content, model: 'qwen2.5-coder:3b' })
+    rawStreamedText += event.content
+    const nextVisibleText = stripInternalReasoning(rawStreamedText, true)
+    if (nextVisibleText === visibleStreamedText) return
+    if (nextVisibleText.startsWith(visibleStreamedText)) {
+      onEvent({
+        type: 'token',
+        content: nextVisibleText.slice(visibleStreamedText.length),
+        model: event.model,
+      })
+    } else {
+      onEvent({ type: 'replace_response', content: nextVisibleText, model: event.model })
+    }
+    visibleStreamedText = nextVisibleText
   })
   const abort = () => { void native.stopGeneration({ generationId }) }
   signal?.addEventListener('abort', abort, { once: true })
@@ -188,8 +207,9 @@ export async function streamIOSLocalChat(
     if (signal?.aborted || result.generationId !== generationId) {
       throw new DOMException('Operação cancelada', 'AbortError')
     }
-    if (!streamedText && result.text) {
-      onEvent({ type: 'replace_response', content: result.text, model: result.model })
+    const finalText = stripInternalReasoning(result.text).trim()
+    if (finalText && finalText !== visibleStreamedText) {
+      onEvent({ type: 'replace_response', content: finalText, model: result.model })
     }
     if (result.session) onEvent({ type: 'session_update', session: result.session })
     if (result.metrics) console.info('[BudsPerf]', result.metrics)

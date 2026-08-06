@@ -2,21 +2,21 @@ import CryptoKit
 import Foundation
 
 public final class BudsModelManager: @unchecked Sendable {
-    public static let modelName = "qwen2.5-coder:3b"
-    public static let fileName = "qwen2.5-coder-3b-instruct-q4_k_m.gguf"
-    public static let downloadURL = URL(string:
-        "https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/resolve/main/qwen2.5-coder-3b-instruct-q4_k_m.gguf"
-    )!
+    public static var modelName: String { BudsModelConfig.modelId }
+    public static var fileName: String { BudsModelConfig.modelFileName }
+    public static var downloadURL: URL { BudsModelConfig.downloadURL }
 
     public var modelURL: URL {
-        if let bundleURL = Bundle.main.url(forResource: "qwen2.5-coder-3b-instruct-q4_k_m", withExtension: "gguf") {
+        if let bundleURL = Bundle.main.url(forResource: (Self.fileName as NSString).deletingPathExtension, withExtension: (Self.fileName as NSString).pathExtension) {
             return bundleURL
         }
         return persistentModelURL
     }
-    
+
     private let persistentModelURL: URL
     private let markerURL: URL
+    private let lock = NSLock()
+    private var activeDownloader: BudsModelDownloader?
 
     public init() throws {
         Self.cleanupOrphanedSystemDownloads()
@@ -37,6 +37,10 @@ public final class BudsModelManager: @unchecked Sendable {
         if FileManager.default.fileExists(atPath: orphanedDownload.path) {
             try? FileManager.default.removeItem(at: orphanedDownload)
         }
+
+        // O modelo anterior é mantido até o atual estar comprovadamente pronto.
+        // Assim, uma queda de rede durante a migração nunca deixa o app sem motor.
+        cleanupLegacyModelsIfCurrentInstalled()
     }
 
     private static func cleanupOrphanedSystemDownloads() {
@@ -57,7 +61,7 @@ public final class BudsModelManager: @unchecked Sendable {
     }
 
     public var installedBytes: Int64 {
-        if Bundle.main.url(forResource: "qwen2.5-coder-3b-instruct-q4_k_m", withExtension: "gguf") != nil {
+        if Bundle.main.url(forResource: (Self.fileName as NSString).deletingPathExtension, withExtension: (Self.fileName as NSString).pathExtension) != nil {
             return BudsStorageGuard.modelBytes
         }
         let attributes = try? FileManager.default.attributesOfItem(atPath: persistentModelURL.path)
@@ -65,11 +69,10 @@ public final class BudsModelManager: @unchecked Sendable {
     }
 
     public var isInstalled: Bool {
-        if Bundle.main.url(forResource: "qwen2.5-coder-3b-instruct-q4_k_m", withExtension: "gguf") != nil {
+        if Bundle.main.url(forResource: (Self.fileName as NSString).deletingPathExtension, withExtension: (Self.fileName as NSString).pathExtension) != nil {
             return true
         }
-        // Validação flexível: Qualquer download concluído que chegue perto ou ultrapasse o tamanho esperado
-        return installedBytes >= (BudsStorageGuard.modelBytes - 10_000_000) &&
+        return installedBytes == BudsStorageGuard.modelBytes &&
                FileManager.default.fileExists(atPath: markerURL.path)
     }
 
@@ -91,27 +94,33 @@ public final class BudsModelManager: @unchecked Sendable {
         lock.lock()
         activeDownloader = downloader
         lock.unlock()
+        defer {
+            lock.lock()
+            if activeDownloader === downloader { activeDownloader = nil }
+            lock.unlock()
+        }
 
         do {
             try await downloader.start()
             let size = ((try FileManager.default.attributesOfItem(atPath: temporaryURL.path)[.size]) as? NSNumber)?.int64Value ?? 0
-            guard size >= (BudsStorageGuard.modelBytes - 10_000_000) else {
+            guard size == BudsStorageGuard.modelBytes else {
+                throw BudsNativeError.modelIntegrity
+            }
+            guard try sha256(of: temporaryURL) == BudsModelConfig.expectedSHA256 else {
                 throw BudsNativeError.modelIntegrity
             }
             if FileManager.default.fileExists(atPath: persistentModelURL.path) {
                 try FileManager.default.removeItem(at: persistentModelURL)
             }
             try FileManager.default.moveItem(at: temporaryURL, to: persistentModelURL)
-            try "installed".write(to: markerURL, atomically: true, encoding: .utf8)
+            try "\(BudsModelConfig.expectedSHA256)\n\(size)"
+                .write(to: markerURL, atomically: true, encoding: .utf8)
+            cleanupLegacyModelsIfCurrentInstalled()
             progress(1)
         } catch {
             try? FileManager.default.removeItem(at: temporaryURL)
             throw error
         }
-
-        lock.lock()
-        activeDownloader = nil
-        lock.unlock()
     }
 
     public func cancelDownload() {
@@ -135,6 +144,19 @@ public final class BudsModelManager: @unchecked Sendable {
             try FileManager.default.removeItem(at: persistentModelURL)
         }
         try? FileManager.default.removeItem(at: markerURL)
+    }
+
+    private func cleanupLegacyModelsIfCurrentInstalled() {
+        guard isInstalled else { return }
+        let modelDirectory = persistentModelURL.deletingLastPathComponent()
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: modelDirectory.path) else {
+            return
+        }
+
+        for file in files where !file.hasPrefix(Self.fileName)
+            && (file.hasSuffix(".gguf") || file.hasSuffix(".download") || file.hasSuffix(".installed")) {
+            try? FileManager.default.removeItem(at: modelDirectory.appendingPathComponent(file))
+        }
     }
 
     private func sha256(of url: URL) throws -> String {
