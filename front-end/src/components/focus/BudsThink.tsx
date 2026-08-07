@@ -31,7 +31,7 @@ export function BudsThink() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3 pointer-events-none">
+    <div className="fixed bottom-6 right-6 max-[760px]:bottom-[calc(var(--mobile-nav-height)+24px+env(safe-area-inset-bottom))] max-[760px]:right-4 z-[8000] flex flex-col items-end gap-3 pointer-events-none">
       
       {/* Popover content */}
       {isExpanded && (
