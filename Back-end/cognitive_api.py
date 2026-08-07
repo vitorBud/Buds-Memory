@@ -26,6 +26,7 @@ from cognitive import (
     codebase_indexer,
     user_profile,
     conversation,
+    focus,
 )
 import database_v2 as dbv2
 from database_v2 import get_db_connection
@@ -727,3 +728,158 @@ def analyze_conversation_query():
         "context_preview": result["context"][:3000],
         "results": result["results"][:8],
     })
+
+# ════════════════════════════════════════════════════════════════════════════
+# FOCUS (Produtividade) V2
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/focus")
+def get_focus_tasks():
+    try:
+        tasks = focus.get_focus_tasks()
+        return _ok(tasks)
+    except Exception as e:
+        return _err(str(e), 500)
+
+@cognitive_bp.post("/focus")
+def create_focus_task():
+    body = request.get_json(silent=True) or {}
+    title = body.get("title", "").strip()
+    if not title:
+        return _err("Title is required", 400)
+        
+    try:
+        task = focus.create_focus_task(
+            title=title,
+            category=body.get("category", "other"),
+            priority=body.get("priority", "medium"),
+            is_focus=body.get("is_focus", False),
+            due_date=body.get("due_date")
+        )
+        return _ok(task, 201)
+    except Exception as e:
+        return _err(str(e), 500)
+
+@cognitive_bp.patch("/focus/<int:task_id>")
+def update_focus_task(task_id: int):
+    body = request.get_json(silent=True) or {}
+    try:
+        task = focus.update_focus_task(task_id, body)
+        return _ok(task)
+    except ValueError as e:
+        return _err(str(e), 404)
+    except Exception as e:
+        return _err(str(e), 500)
+
+@cognitive_bp.delete("/focus/<int:task_id>")
+def delete_focus_task(task_id: int):
+    try:
+        success = focus.delete_focus_task(task_id)
+        if not success:
+            return _err("Task not found", 404)
+        return _ok({"success": True})
+    except Exception as e:
+        return _err(str(e), 500)
+
+@cognitive_bp.post("/focus/analyze")
+def analyze_focus_input():
+    body = request.get_json(silent=True) or {}
+    text = body.get("text", "").strip()
+    if not text:
+        return _err("Text is required", 400)
+        
+    try:
+        res = focus.analyze_focus_input(text)
+        return _ok(res)
+    except Exception as e:
+        return _err(str(e), 500)
+
+@cognitive_bp.post("/focus/apply")
+def apply_focus_items():
+    body = request.get_json(silent=True) or {}
+    items = body.get("items", [])
+    
+    results = []
+    try:
+        for item in items:
+            action = item.get("action")
+            if action == "create_task":
+                t = focus.create_focus_task(
+                    title=item.get("content", ""),
+                    category=item.get("category", "other"),
+                    priority=item.get("priority", "medium")
+                )
+                results.append({"type": "task", "id": t["id"]})
+            elif action == "complete_task" and item.get("related_task_id"):
+                t = focus.update_focus_task(item["related_task_id"], {"completed": True})
+                results.append({"type": "task_update", "id": t["id"]})
+            elif action == "save_idea":
+                i = focus.create_focus_idea(content=item.get("content", ""))
+                results.append({"type": "idea", "id": i["id"]})
+            elif action == "save_decision":
+                d = focus.create_focus_decision(content=item.get("content", ""))
+                results.append({"type": "decision", "id": d["id"]})
+                
+        return _ok({"applied": True, "results": results})
+    except Exception as e:
+        return _err(str(e), 500)
+
+@cognitive_bp.post("/focus/think")
+def focus_think():
+    body = request.get_json(silent=True) or {}
+    query = body.get("query", "").strip()
+    if not query:
+        return _err("Query is required", 400)
+        
+    try:
+        suggestion = focus.buds_think(query)
+        return _ok({"suggestion": suggestion})
+    except Exception as e:
+        return _err(str(e), 500)
+
+@cognitive_bp.get("/focus/ideas")
+def get_focus_ideas():
+    return _ok(focus.get_focus_ideas())
+
+@cognitive_bp.get("/focus/decisions")
+def get_focus_decisions():
+    return _ok(focus.get_focus_decisions())
+
+@cognitive_bp.get("/focus/timeline")
+def get_focus_timeline():
+    return _ok(focus.get_focus_timeline())
+
+@cognitive_bp.get("/focus/inbox")
+def get_focus_inbox():
+    return _ok(focus.get_focus_inbox())
+
+@cognitive_bp.patch("/focus/inbox/<int:item_id>")
+def update_focus_inbox(item_id: int):
+    body = request.get_json(silent=True) or {}
+    status = body.get("status")
+    success = focus.update_focus_inbox_status(item_id, status)
+    if success:
+        return _ok({"success": True})
+    return _err("Failed to update status", 400)
+
+# Retrocompatibilidade (opcional)
+@cognitive_bp.post("/focus/braindump")
+def process_brain_dump():
+    body = request.get_json(silent=True) or {}
+    text = body.get("text", "").strip()
+    if not text:
+        return _err("Text is required", 400)
+    try:
+        tasks = focus.process_brain_dump(text)
+        return _ok({"tasks": tasks})
+    except Exception as e:
+        return _err(str(e), 500)
+
+@cognitive_bp.post("/focus/organize")
+def organize_my_day():
+    try:
+        # Repassa para o Buds Think
+        suggestion = focus.buds_think("Por favor, sugira uma ordem para minhas tarefas.")
+        return _ok({"suggestion": suggestion})
+    except Exception as e:
+        return _err(str(e), 500)

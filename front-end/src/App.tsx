@@ -14,6 +14,7 @@ import {
   X,
   House,
   Smartphone,
+  Target,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Transition } from 'framer-motion'
@@ -51,6 +52,7 @@ const KnowledgeImportPanel = lazy(() => import('./components/panels/KnowledgeImp
 const MemoryPanel = lazy(() => import('./components/panels/MemoryPanel').then(module => ({ default: module.MemoryPanel })))
 const FilesPanel = lazy(() => import('./components/panels/FilesPanel').then(module => ({ default: module.FilesPanel })))
 const SummaryPanel = lazy(() => import('./components/panels/SummaryPanel').then(module => ({ default: module.SummaryPanel })))
+const FocusPage = lazy(() => import('./components/focus/FocusPage').then(module => ({ default: module.FocusPage })))
 
 const SETTINGS_KEY = 'buds-interface-settings'
 const DESKTOP_THEME_BOOT_KEY = 'buds-desktop-theme-boot-v1'
@@ -90,7 +92,7 @@ const MOBILE_CHAT_INTRO_KEY = 'buds-mobile-chat-intro-seen-v1'
 const FALLBACK_MODEL = 'qwen2.5-coder:3b'
 const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
-type AppView = 'home' | 'chat' | 'voice' | 'obsidian' | 'mobile'
+type AppView = 'home' | 'chat' | 'voice' | 'obsidian' | 'mobile' | 'focus'
 
 function DeferredSurface({ label = 'Carregando...' }: { label?: string }) {
   return (
@@ -532,6 +534,7 @@ export default function App() {
       if (target === '#voice') setActiveView('voice')
       if (target === '#obsidian') setActiveView('obsidian')
       if (target === '#mobile') setActiveView('mobile')
+      if (target === '#focus') setActiveView('focus')
     })
   }, [])
 
@@ -814,6 +817,13 @@ export default function App() {
     window.scrollTo({ top: 0 })
   }
 
+  const handleOpenFocus = () => {
+    setSettingsOpen(false)
+    setActiveView('focus')
+    window.history.replaceState(null, '', '#focus')
+    window.scrollTo({ top: 0 })
+  }
+
   const hasMessages = messages.length > 0
   const railTabs: Array<{ id: RailTab; label: string; icon: typeof Database }> = [
     { id: 'memory', label: 'Memória', icon: Database },
@@ -834,6 +844,10 @@ export default function App() {
       <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'voice' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenVoice} aria-current={!settingsOpen && activeView === 'voice' ? 'page' : undefined}>
         <Mic2 size={14} />
         <span>Voz</span>
+      </button>
+      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'focus' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenFocus} aria-current={!settingsOpen && activeView === 'focus' ? 'page' : undefined}>
+        <Target size={14} />
+        <span>Focus</span>
       </button>
       <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'obsidian' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenObsidian} aria-current={!settingsOpen && activeView === 'obsidian' ? 'page' : undefined}>
         <BrainCircuit size={14} />
@@ -1254,11 +1268,13 @@ export default function App() {
         )}
 
         {activeView === 'mobile' && (
-          <motion.div key="mobile" {...viewMotionProps}>
-            <Suspense fallback={<DeferredSurface label="Carregando acesso pelo celular..." />}>
-              <AcessoCelular config={backendConfig} />
-            </Suspense>
-          </motion.div>
+          <AcessoCelular config={backendConfig} />
+        )}
+
+        {activeView === 'focus' && (
+          <Suspense fallback={<DeferredSurface label="Carregando Buds Focus..." />}>
+            <FocusPage visible={activeView === 'focus'} />
+          </Suspense>
         )}
       </AnimatePresence>
 

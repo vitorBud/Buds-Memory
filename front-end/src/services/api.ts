@@ -14,6 +14,15 @@ import type {
   LocalBackupImportResult,
   LocalBackupStatus,
   ConversationStorageStatus,
+  FocusTask,
+  FocusTaskCategory,
+  FocusTaskPriority,
+  FocusAnalyzePreview,
+  FocusAnalyzeItem,
+  FocusIdea,
+  FocusDecision,
+  FocusTimelineEvent,
+  FocusInboxItem
 } from '../types'
 import {
   clearIOSLocalData,
@@ -669,4 +678,136 @@ export async function streamChat(
   }
 
   throw humanizeError(lastError) ?? new Error('Falha ao conectar com o chat.')
+}
+
+// ─── Focus (Produtividade) ──────────────────────────────────────────────────
+
+export async function getFocusTasks(): Promise<FocusTask[]> {
+  const res = await authFetch(`${getBase()}/cognitive/focus`, { method: 'GET' })
+  if (!res.ok) throw new Error('Falha ao carregar tarefas.')
+  return await res.json()
+}
+
+export async function createFocusTask(
+  title: string,
+  category: FocusTaskCategory = 'other',
+  priority: FocusTaskPriority = 'medium',
+  is_focus = false,
+  due_date: string | null = null
+): Promise<FocusTask> {
+  const res = await authFetch(`${getBase()}/cognitive/focus`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, category, priority, is_focus, due_date }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Falha ao criar tarefa.')
+  return data
+}
+
+export async function updateFocusTask(
+  taskId: number,
+  updates: Partial<FocusTask>
+): Promise<FocusTask> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/${taskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Falha ao atualizar tarefa.')
+  return data
+}
+
+export async function deleteFocusTask(taskId: number): Promise<void> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/${taskId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Falha ao apagar tarefa.')
+}
+
+export async function analyzeFocusInput(text: string): Promise<FocusAnalyzePreview> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Falha ao analisar input.')
+  return data
+}
+
+export async function applyFocusItems(items: FocusAnalyzeItem[]): Promise<any> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Falha ao aplicar alterações.')
+  return data
+}
+
+export async function getFocusThink(query: string): Promise<string> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/think`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Falha ao consultar Buds Think.')
+  return data.suggestion
+}
+
+export async function getFocusIdeas(): Promise<FocusIdea[]> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/ideas`, { method: 'GET' })
+  if (!res.ok) throw new Error('Falha ao carregar ideias.')
+  return await res.json()
+}
+
+export async function getFocusDecisions(): Promise<FocusDecision[]> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/decisions`, { method: 'GET' })
+  if (!res.ok) throw new Error('Falha ao carregar decisões.')
+  return await res.json()
+}
+
+export async function getFocusTimeline(): Promise<FocusTimelineEvent[]> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/timeline`, { method: 'GET' })
+  if (!res.ok) throw new Error('Falha ao carregar timeline.')
+  return await res.json()
+}
+
+export async function getFocusInbox(): Promise<FocusInboxItem[]> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/inbox`, { method: 'GET' })
+  if (!res.ok) throw new Error('Falha ao carregar inbox.')
+  return await res.json()
+}
+
+export async function updateFocusInboxStatus(itemId: number, status: string): Promise<void> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/inbox/${itemId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })
+  if (!res.ok) throw new Error('Falha ao atualizar status da inbox.')
+}
+
+// Retrocompatibilidade
+export async function processBrainDump(text: string): Promise<any> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/braindump`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Falha ao processar brain dump.')
+  return data
+}
+
+export async function organizeMyDay(): Promise<string> {
+  const res = await authFetch(`${getBase()}/cognitive/focus/organize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || 'Falha ao organizar dia.')
+  return data.suggestion
 }

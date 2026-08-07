@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from cognitive import knowledge_graph, memory, timeline, projects, user_profile
+from cognitive import knowledge_graph, memory, timeline, projects, user_profile, focus
 from database_v2 import get_db_connection, now_iso
 
 
@@ -133,6 +133,14 @@ _FACT_PATTERNS: tuple[re.Pattern, ...] = (
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# PRE-FILTRO FOCUS INBOX
+# ═══════════════════════════════════════════════════════════════════════════════
+_FOCUS_PREFILTER = re.compile(
+    r"\b(preciso\b|tenho que\b|amanh[ãa]\b|tive uma ideia\b|pensei em\b|decidi\b|vou fazer\b|lembrar de\b|não esquecer de\b|n[aã]o posso esquecer\b|vou\b.{0,15}\b(criar|estudar|fazer|ler|ver))",
+    re.IGNORECASE
+)
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # PONTO DE ENTRADA PÚBLICO
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -165,6 +173,24 @@ def _process_chat(session_id: str, user_text: str, ai_text: str) -> None:
         if score < RELEVANCE_THRESHOLD:
             # Mensagem sem valor cognitivo — descarta silenciosamente
             return
+
+        # ── FASE 1.5: Focus Inbox ──────────────────────────────────────────
+        if _FOCUS_PREFILTER.search(user_text):
+            try:
+                # Chama o LLM para classificar (roda em background na thread pool)
+                focus_res = focus.analyze_focus_input(user_text)
+                items = focus_res.get("items", [])
+                for item in items:
+                    item_type = item.get("type")
+                    content = item.get("content")
+                    if item_type in ["TASK", "IDEA", "DECISION"] and content:
+                        focus.create_focus_inbox_item(
+                            item_type=item_type,
+                            content=content,
+                            metadata={"source": "chat", "session_id": session_id}
+                        )
+            except Exception as focus_err:
+                print(f"[Focus Inbox] Erro em background: {focus_err}")
 
         # ── FASE 2: Extração de conhecimento ──────────────────────────────
         combined = f"{user_text}\n{ai_text}"

@@ -44,6 +44,8 @@ def migrate():
         _create_backup_import_map(conn)
         _create_conversation_summaries(conn)
         _create_codebase_index(conn)
+        _create_focus_tasks(conn)
+        _create_focus_v2_tables(conn)
         _migrate_session_retention(conn)
         _migrate_memories_core_columns(conn)
         _migrate_memory_scope(conn)
@@ -58,6 +60,60 @@ def migrate():
         conn.commit()
     print("[DB v2] Migração cognitiva concluída com sucesso.")
 
+
+def _create_focus_tasks(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS focus_tasks (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            title        TEXT    NOT NULL,
+            category     TEXT    DEFAULT 'other',
+            priority     TEXT    DEFAULT 'medium',
+            completed    BOOLEAN DEFAULT 0,
+            is_focus     BOOLEAN DEFAULT 0,
+            created_at   TEXT    NOT NULL,
+            updated_at   TEXT    NOT NULL,
+            due_date     TEXT
+        );
+    """)
+
+def _create_focus_v2_tables(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS focus_ideas (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            content      TEXT    NOT NULL,
+            status       TEXT    DEFAULT 'active',
+            source       TEXT    DEFAULT 'dump',
+            created_at   TEXT    NOT NULL
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS focus_decisions (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            content      TEXT    NOT NULL,
+            source       TEXT    DEFAULT 'dump',
+            created_at   TEXT    NOT NULL
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS focus_timeline (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type   TEXT    NOT NULL,
+            title        TEXT    NOT NULL,
+            details      TEXT    DEFAULT '{}',
+            created_at   TEXT    NOT NULL
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS focus_inbox (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_type    TEXT    NOT NULL,
+            content      TEXT    NOT NULL,
+            metadata     TEXT    DEFAULT '{}',
+            source       TEXT    DEFAULT 'chat',
+            status       TEXT    DEFAULT 'pending',
+            created_at   TEXT    NOT NULL
+        );
+    """)
 
 def _create_memories(conn):
     conn.execute("""

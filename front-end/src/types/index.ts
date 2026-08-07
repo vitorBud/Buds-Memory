@@ -184,3 +184,69 @@ export interface LocalBackupImportResult {
   skipped: Record<string, number>
   total_imported: number
 }
+
+export type FocusTaskPriority = 'low' | 'medium' | 'high'
+export type FocusTaskCategory = 'work' | 'study' | 'personal' | 'project' | 'other'
+
+export interface FocusTask {
+  id: number
+  title: string
+  category: FocusTaskCategory
+  priority: FocusTaskPriority
+  completed: boolean
+  is_focus: boolean
+  created_at: string
+  updated_at: string
+  due_date: string | null
+}
+
+export interface FocusIdea {
+  id: number
+  content: string
+  status: string
+  source: string
+  created_at: string
+}
+
+export interface FocusDecision {
+  id: number
+  content: string
+  source: string
+  created_at: string
+}
+
+export interface FocusTimelineEvent {
+  id: number
+  event_type: string
+  title: string
+  details: string
+  created_at: string
+}
+
+export interface FocusInboxItem {
+  id: number
+  item_type: string
+  content: string
+  metadata: string
+  source: string
+  status: string
+  created_at: string
+}
+
+export type FocusAction = 'complete_task' | 'create_task' | 'save_idea' | 'save_decision' | 'none'
+export type FocusItemType = 'TASK' | 'UPDATE' | 'IDEA' | 'DECISION' | 'NOTE' | 'IGNORE'
+
+export interface FocusAnalyzeItem {
+  type: FocusItemType
+  content: string
+  action: FocusAction
+  related_task_id?: number
+  category?: FocusTaskCategory
+  priority?: FocusTaskPriority
+  confidence?: number
+}
+
+export interface FocusAnalyzePreview {
+  items: FocusAnalyzeItem[]
+}
+

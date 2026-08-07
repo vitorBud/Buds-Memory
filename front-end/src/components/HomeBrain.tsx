@@ -583,7 +583,7 @@ export function HomeBrain({ theme, aiState, memoryCount, visible = true }: HomeB
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     // 11. Render Loop
-    const clock = new THREE.Clock()
+    const startTime = performance.now()
     let frameId: number
     let lastFrameAt = 0
 
@@ -598,7 +598,7 @@ export function HomeBrain({ theme, aiState, memoryCount, visible = true }: HomeB
       }
       lastFrameAt = now
 
-      const time = clock.getElapsedTime()
+      const time = (now - startTime) * 0.001
       const state = aiStateRef.current
       const currentTheme = themeRef.current
       const cCols = getThemeColors(currentTheme)
