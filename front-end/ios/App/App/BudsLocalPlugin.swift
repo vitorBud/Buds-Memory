@@ -1,6 +1,7 @@
 import BudsNativeRuntime
 import Capacitor
 import Foundation
+import UserNotifications
 
 @objc(BudsLocalPlugin)
 public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -23,6 +24,18 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "updateMemory", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setCoreMemory", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteMemory", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listFocusTasks", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "createFocusTask", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateFocusTask", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deleteFocusTask", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "analyzeFocusInput", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "focusThink", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveFocusIdea", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveFocusDecision", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listFocusTimeline", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listFocusInbox", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateFocusInbox", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "syncFocusNotifications", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startSpeechRecognition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopSpeechRecognition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelSpeechRecognition", returnType: CAPPluginReturnPromise),
@@ -190,6 +203,171 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         resolve(call) {
             try runtime.deleteMemory(id: Int64(id), force: call.getBool("force") ?? false)
             return [:]
+        }
+    }
+
+    @objc func listFocusTasks(_ call: CAPPluginCall) {
+        resolve(call) {
+            ["tasks": try runtime.focusTasks().map(focusTaskPayload)]
+        }
+    }
+
+    @objc func createFocusTask(_ call: CAPPluginCall) {
+        guard let title = call.getString("title") else {
+            call.reject("Título da tarefa não informado.")
+            return
+        }
+        resolve(call) {
+            focusTaskPayload(try runtime.createFocusTask(
+                title: title,
+                category: call.getString("category") ?? "other",
+                priority: call.getString("priority") ?? "medium",
+                isFocus: call.getBool("isFocus") ?? false,
+                dueDate: call.getString("dueDate"),
+                itemType: call.getString("itemType") ?? "TASK"
+            ))
+        }
+    }
+
+    @objc func updateFocusTask(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id") else {
+            call.reject("Tarefa não informada.")
+            return
+        }
+        resolve(call) {
+            focusTaskPayload(try runtime.updateFocusTask(
+                id: Int64(id),
+                title: call.getString("title"),
+                category: call.getString("category"),
+                priority: call.getString("priority"),
+                completed: call.getBool("completed"),
+                isFocus: call.getBool("isFocus")
+            ))
+        }
+    }
+
+    @objc func deleteFocusTask(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id") else {
+            call.reject("Tarefa não informada.")
+            return
+        }
+        resolve(call) {
+            try runtime.deleteFocusTask(id: Int64(id))
+            return [:]
+        }
+    }
+
+    @objc func analyzeFocusInput(_ call: CAPPluginCall) {
+        guard let text = call.getString("text")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            call.reject("Escreva uma atualização antes de analisar.")
+            return
+        }
+        Task {
+            do {
+                call.resolve(["items": try await runtime.analyzeFocusInput(text)])
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
+    @objc func focusThink(_ call: CAPPluginCall) {
+        guard let query = call.getString("query")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !query.isEmpty else {
+            call.reject("Pergunta do Focus não informada.")
+            return
+        }
+        Task {
+            do {
+                call.resolve(["suggestion": try await runtime.focusThink(query)])
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
+    @objc func saveFocusIdea(_ call: CAPPluginCall) {
+        guard let content = call.getString("content") else {
+            call.reject("Ideia não informada.")
+            return
+        }
+        resolve(call) {
+            try runtime.createFocusIdea(content: content)
+            return [:]
+        }
+    }
+
+    @objc func saveFocusDecision(_ call: CAPPluginCall) {
+        guard let content = call.getString("content") else {
+            call.reject("Decisão não informada.")
+            return
+        }
+        resolve(call) {
+            try runtime.createFocusDecision(content: content)
+            return [:]
+        }
+    }
+
+    @objc func listFocusTimeline(_ call: CAPPluginCall) {
+        resolve(call) {
+            ["events": try runtime.focusTimeline().map(focusTimelinePayload)]
+        }
+    }
+
+    @objc func listFocusInbox(_ call: CAPPluginCall) {
+        resolve(call) {
+            ["items": try runtime.focusInbox().map(focusInboxPayload)]
+        }
+    }
+
+    @objc func updateFocusInbox(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id"), let status = call.getString("status") else {
+            call.reject("Item e status da Buds Inbox são obrigatórios.")
+            return
+        }
+        resolve(call) {
+            try runtime.updateFocusInbox(id: Int64(id), status: status)
+            return [:]
+        }
+    }
+
+    @objc func syncFocusNotifications(_ call: CAPPluginCall) {
+        let reminders: [BudsFocusTaskRecord]
+        do {
+            reminders = try runtime.focusTasks().filter {
+                !$0.completed && $0.itemType == "REMINDER" && $0.dueDate != nil
+            }
+        } catch {
+            call.reject(error.localizedDescription)
+            return
+        }
+
+        let center = UNUserNotificationCenter.current()
+        if reminders.isEmpty {
+            replaceFocusNotifications([], center: center) { _ in
+                call.resolve(["scheduled": 0, "authorized": false])
+            }
+            return
+        }
+        center.getNotificationSettings { settings in
+            let finish: (Bool) -> Void = { authorized in
+                guard authorized else {
+                    call.resolve(["scheduled": 0, "authorized": false])
+                    return
+                }
+                self.replaceFocusNotifications(reminders, center: center) { count in
+                    call.resolve(["scheduled": count, "authorized": true])
+                }
+            }
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                finish(true)
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound, .badge]) { allowed, _ in finish(allowed) }
+            default:
+                finish(false)
+            }
         }
     }
 
@@ -362,6 +540,105 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         ]
         if let sessionId = memory.sessionId { payload["session_id"] = sessionId }
         return payload
+    }
+
+    private func focusTaskPayload(_ task: BudsFocusTaskRecord) -> [String: Any] {
+        var payload: [String: Any] = [
+            "id": task.id,
+            "title": task.title,
+            "category": task.category,
+            "priority": task.priority,
+            "completed": task.completed,
+            "is_focus": task.isFocus,
+            "created_at": task.createdAt,
+            "updated_at": task.updatedAt,
+        ]
+        payload["due_date"] = task.dueDate ?? NSNull()
+        payload["item_type"] = task.itemType
+        payload["source"] = task.source
+        payload["source_session_id"] = task.sourceSessionId ?? NSNull()
+        payload["source_message_id"] = task.sourceMessageId ?? NSNull()
+        payload["confidence"] = task.confidence
+        return payload
+    }
+
+    private func focusTimelinePayload(_ event: BudsFocusTimelineRecord) -> [String: Any] {
+        [
+            "id": event.id,
+            "event_type": event.eventType,
+            "title": event.title,
+            "details": event.details,
+            "created_at": event.createdAt,
+        ]
+    }
+
+    private func focusInboxPayload(_ item: BudsFocusInboxRecord) -> [String: Any] {
+        [
+            "id": item.id,
+            "item_type": item.itemType,
+            "content": item.content,
+            "metadata": item.metadata,
+            "source": item.source,
+            "status": item.status,
+            "created_at": item.createdAt,
+        ]
+    }
+
+    private func replaceFocusNotifications(
+        _ reminders: [BudsFocusTaskRecord],
+        center: UNUserNotificationCenter,
+        completion: @escaping (Int) -> Void
+    ) {
+        center.getPendingNotificationRequests { existing in
+            let oldIds = existing.map(\.identifier).filter { $0.hasPrefix("buds-focus-") }
+            if !oldIds.isEmpty { center.removePendingNotificationRequests(withIdentifiers: oldIds) }
+
+            let future = reminders.compactMap { task -> (BudsFocusTaskRecord, Date)? in
+                guard let rawDate = task.dueDate, let date = Self.focusReminderDate(rawDate), date > Date() else { return nil }
+                return (task, date)
+            }
+            guard !future.isEmpty else {
+                completion(0)
+                return
+            }
+
+            let group = DispatchGroup()
+            let lock = NSLock()
+            var scheduled = 0
+            for (task, date) in future {
+                let content = UNMutableNotificationContent()
+                content.title = "Buds Focus"
+                content.body = task.title
+                content.sound = .default
+                content.userInfo = ["focusTaskId": task.id]
+                let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+                let request = UNNotificationRequest(
+                    identifier: "buds-focus-\(task.id)",
+                    content: content,
+                    trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+                )
+                group.enter()
+                center.add(request) { error in
+                    if error == nil {
+                        lock.lock(); scheduled += 1; lock.unlock()
+                    }
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) { completion(scheduled) }
+        }
+    }
+
+    private static func focusReminderDate(_ value: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) { return date }
+        }
+        return ISO8601DateFormatter().date(from: value)
     }
 
     private func generationMetricsPayload(_ metrics: BudsGenerationMetrics) -> [String: Any] {

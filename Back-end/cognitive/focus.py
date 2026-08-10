@@ -1,11 +1,20 @@
 import json
+import sqlite3
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from database_v2 import get_db_connection
 import agenty
+from cognitive import memory as cognitive_memory
+from cognitive.focus_capture import candidate_key, detect_focus_candidates
+from cognitive.response_safety import sanitize_response
 
 import re
 import string
+
+FOCUS_CATEGORIES = {'work', 'study', 'personal', 'project', 'other'}
+FOCUS_PRIORITIES = {'low', 'medium', 'high'}
+FOCUS_ITEM_TYPES = {'TASK', 'REMINDER', 'UPDATE', 'IDEA', 'DECISION', 'MEMORY', 'NOTE', 'IGNORE'}
+FOCUS_ACTIONS = {'complete_task', 'create_task', 'save_idea', 'save_decision', 'save_memory', 'none'}
 
 # -----------------------------------------------------------------------------
 # DEDUPLICAÇÃO
@@ -60,10 +69,36 @@ def _is_duplicate(new_text: str, existing_texts: List[str]) -> bool:
 # -----------------------------------------------------------------------------
 def get_focus_tasks() -> List[Dict[str, Any]]:
     with get_db_connection() as conn:
-        rows = conn.execute("SELECT * FROM focus_tasks ORDER BY completed ASC, priority DESC, created_at DESC").fetchall()
+        rows = conn.execute("""
+            SELECT * FROM focus_tasks
+            ORDER BY completed ASC,
+                     CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
+                     created_at DESC
+        """).fetchall()
         return [dict(r) for r in rows]
 
-def create_focus_task(title: str, category: str = 'other', priority: str = 'medium', is_focus: bool = False, due_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def create_focus_task(
+    title: str,
+    category: str = 'other',
+    priority: str = 'medium',
+    is_focus: bool = False,
+    due_date: Optional[str] = None,
+    *,
+    item_type: str = 'TASK',
+    source: str = 'manual',
+    source_session_id: Optional[str] = None,
+    source_message_id: Optional[int] = None,
+    dedup_key: Optional[str] = None,
+    confidence: float = 1.0,
+) -> Optional[Dict[str, Any]]:
+    title = (title or '').strip()
+    if not title:
+        raise ValueError("O título da tarefa não pode ficar vazio.")
+    category = category if category in FOCUS_CATEGORIES else 'other'
+    priority = priority if priority in FOCUS_PRIORITIES else 'medium'
+    item_type = item_type if item_type in {'TASK', 'REMINDER'} else 'TASK'
+    dedup_key = dedup_key or candidate_key(item_type, title, due_date)
+    confidence = min(1.0, max(0.0, float(confidence)))
     # Dedup
     tasks = get_focus_tasks()
     open_tasks = [t['title'] for t in tasks if not t.get('completed')]
@@ -75,18 +110,43 @@ def create_focus_task(title: str, category: str = 'other', priority: str = 'medi
 
     now = datetime.utcnow().isoformat()
     with get_db_connection() as conn:
+        existing = conn.execute(
+            "SELECT * FROM focus_tasks WHERE dedup_key = ? AND completed = 0 LIMIT 1",
+            (dedup_key,),
+        ).fetchone()
+        if existing:
+            return dict(existing)
         if is_focus:
             conn.execute("UPDATE focus_tasks SET is_focus = 0")
-        
-        cursor = conn.execute(
-            """INSERT INTO focus_tasks (title, category, priority, completed, is_focus, created_at, updated_at, due_date)
-               VALUES (?, ?, ?, 0, ?, ?, ?, ?)""",
-            (title.strip(), category, priority, 1 if is_focus else 0, now, now, due_date)
-        )
+        try:
+            cursor = conn.execute(
+                """INSERT INTO focus_tasks
+                   (title, category, priority, completed, is_focus, created_at, updated_at,
+                    due_date, item_type, source, source_session_id, source_message_id,
+                    dedup_key, confidence)
+                   VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    title[:500], category, priority, 1 if is_focus else 0, now, now,
+                    due_date, item_type, source[:40], source_session_id,
+                    source_message_id, dedup_key, confidence,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            existing = conn.execute(
+                "SELECT * FROM focus_tasks WHERE dedup_key = ? AND completed = 0 LIMIT 1",
+                (dedup_key,),
+            ).fetchone()
+            if existing:
+                return dict(existing)
+            raise
         task_id = cursor.lastrowid
         conn.commit()
-    
-    log_timeline_event('task_created', title.strip())
+
+    log_timeline_event(
+        'reminder_created' if item_type == 'REMINDER' else 'task_created',
+        title,
+        {'source': source, 'session_id': source_session_id, 'due_date': due_date},
+    )
     return get_focus_task(task_id)
 
 def get_focus_task(task_id: int) -> Dict[str, Any]:
@@ -99,6 +159,14 @@ def get_focus_task(task_id: int) -> Dict[str, Any]:
 def update_focus_task(task_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
     allowed_keys = {'title', 'category', 'priority', 'completed', 'is_focus', 'due_date'}
     update_data = {k: v for k, v in updates.items() if k in allowed_keys}
+    if 'title' in update_data:
+        update_data['title'] = str(update_data['title'] or '').strip()[:500]
+        if not update_data['title']:
+            raise ValueError("O título da tarefa não pode ficar vazio.")
+    if 'category' in update_data and update_data['category'] not in FOCUS_CATEGORIES:
+        update_data['category'] = 'other'
+    if 'priority' in update_data and update_data['priority'] not in FOCUS_PRIORITIES:
+        update_data['priority'] = 'medium'
     if not update_data:
         return get_focus_task(task_id)
 
@@ -218,19 +286,38 @@ def get_focus_inbox() -> List[Dict[str, Any]]:
         rows = conn.execute("SELECT * FROM focus_inbox WHERE status = 'pending' ORDER BY created_at DESC").fetchall()
         return [dict(r) for r in rows]
 
-def create_focus_inbox_item(item_type: str, content: str, metadata: Dict[str, Any] = None, source: str = 'chat') -> Optional[Dict[str, Any]]:
+def create_focus_inbox_item(
+    item_type: str,
+    content: str,
+    metadata: Dict[str, Any] = None,
+    source: str = 'chat',
+    dedup_key: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     # Deduplication check com normalização
     inbox_items = get_focus_inbox()
     if _is_duplicate(content, [i['content'] for i in inbox_items]):
         return None # Ignora duplicatas
 
     now = datetime.utcnow().isoformat()
-    metadata_str = json.dumps(metadata or {})
+    metadata = metadata or {}
+    dedup_key = dedup_key or candidate_key(item_type, content, metadata.get('due_date'))
+    metadata_str = json.dumps(metadata, ensure_ascii=False)
     with get_db_connection() as conn:
-        cursor = conn.execute(
-            "INSERT INTO focus_inbox (item_type, content, metadata, source, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
-            (item_type, content, metadata_str, source, now)
-        )
+        existing = conn.execute(
+            "SELECT * FROM focus_inbox WHERE dedup_key = ? AND status = 'pending' LIMIT 1",
+            (dedup_key,),
+        ).fetchone()
+        if existing:
+            return dict(existing)
+        try:
+            cursor = conn.execute(
+                """INSERT INTO focus_inbox
+                   (item_type, content, metadata, source, status, created_at, dedup_key)
+                   VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
+                (item_type, content, metadata_str, source, now, dedup_key),
+            )
+        except sqlite3.IntegrityError:
+            return None
         item_id = cursor.lastrowid
         conn.commit()
         row = conn.execute("SELECT * FROM focus_inbox WHERE id = ?", (item_id,)).fetchone()
@@ -244,10 +331,157 @@ def update_focus_inbox_status(item_id: int, status: str) -> bool:
         conn.commit()
         return cursor.rowcount > 0
 
+def resolve_focus_inbox_item(item_id: int, status: str) -> bool:
+    """Aprova/aplica ou ignora um item sem marcar como concluído antes da persistência."""
+    if status not in {'approved', 'ignored'}:
+        return False
+    with get_db_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM focus_inbox WHERE id = ? AND status = 'pending'",
+            (item_id,),
+        ).fetchone()
+    if not row:
+        return False
+    item = dict(row)
+    if status == 'approved':
+        item_type = str(item.get('item_type') or '').upper()
+        content = str(item.get('content') or '').strip()
+        try:
+            metadata = json.loads(item.get('metadata') or '{}')
+        except (TypeError, json.JSONDecodeError):
+            metadata = {}
+        if item_type in {'TASK', 'REMINDER'}:
+            create_focus_task(
+                content,
+                category=metadata.get('category', 'other'),
+                priority=metadata.get('priority', 'medium'),
+                due_date=metadata.get('due_date'),
+                item_type=item_type,
+                source='inbox',
+                source_session_id=metadata.get('session_id'),
+                source_message_id=metadata.get('message_id'),
+                dedup_key=item.get('dedup_key'),
+                confidence=metadata.get('confidence', 0.75),
+            )
+        elif item_type == 'IDEA':
+            create_focus_idea(content, source='inbox')
+        elif item_type == 'DECISION':
+            create_focus_decision(content, source='inbox')
+        elif item_type == 'MEMORY':
+            cognitive_memory.save_memory(
+                content,
+                memory_type='long',
+                session_id=metadata.get('session_id'),
+                importance=0.8,
+                tags=['focus', 'confirmed'],
+                user_confirmed=True,
+                origin_type='focus_inbox',
+                origin_id=str(item_id),
+            )
+    return update_focus_inbox_status(item_id, status)
+
+
+def capture_chat_message(
+    text: str,
+    session_id: Optional[str] = None,
+    source_message_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Projeta intenções do Chat no Focus sem gastar uma segunda inferência."""
+    created: List[Dict[str, Any]] = []
+    suggested: List[Dict[str, Any]] = []
+    for candidate in detect_focus_candidates(text):
+        metadata = {
+            'session_id': session_id,
+            'message_id': source_message_id,
+            'category': candidate.get('category', 'other'),
+            'priority': candidate.get('priority', 'medium'),
+            'due_date': candidate.get('due_date'),
+            'confidence': candidate.get('confidence', 0.5),
+        }
+        if candidate.get('auto_apply') and candidate['type'] in {'TASK', 'REMINDER'}:
+            task = create_focus_task(
+                candidate['content'],
+                category=candidate.get('category', 'other'),
+                priority=candidate.get('priority', 'medium'),
+                due_date=candidate.get('due_date'),
+                item_type=candidate['type'],
+                source='chat',
+                source_session_id=session_id,
+                source_message_id=source_message_id,
+                dedup_key=candidate['dedup_key'],
+                confidence=candidate.get('confidence', 1.0),
+            )
+            if task:
+                created.append(task)
+        else:
+            item = create_focus_inbox_item(
+                candidate['type'],
+                candidate['content'],
+                metadata=metadata,
+                source='chat',
+                dedup_key=candidate['dedup_key'],
+            )
+            if item:
+                suggested.append(item)
+    return {'created': created, 'suggested': suggested}
+
+def _sanitize_analyzed_items(items: Any) -> List[Dict[str, Any]]:
+    clean_items: List[Dict[str, Any]] = []
+    if not isinstance(items, list):
+        return clean_items
+    for raw in items[:30]:
+        if not isinstance(raw, dict):
+            continue
+        content = str(raw.get('content') or '').strip()
+        if not content:
+            continue
+        item_type = str(raw.get('type') or 'NOTE').upper()
+        action = str(raw.get('action') or 'none')
+        safe_type = item_type if item_type in FOCUS_ITEM_TYPES else 'NOTE'
+        default_action = {
+            'TASK': 'create_task',
+            'REMINDER': 'create_task',
+            'IDEA': 'save_idea',
+            'DECISION': 'save_decision',
+            'MEMORY': 'save_memory',
+        }.get(safe_type, 'none')
+        safe_action = action if action in FOCUS_ACTIONS else default_action
+        if safe_type in {'TASK', 'REMINDER', 'IDEA', 'DECISION', 'MEMORY'} and safe_action == 'none':
+            safe_action = default_action
+        clean: Dict[str, Any] = {
+            'type': safe_type,
+            'content': content[:2000],
+            'action': safe_action,
+        }
+        related_task_id = raw.get('related_task_id')
+        if isinstance(related_task_id, int) and related_task_id > 0:
+            clean['related_task_id'] = related_task_id
+        elif safe_type == 'UPDATE':
+            clean['action'] = 'none'
+        category = raw.get('category')
+        if category in FOCUS_CATEGORIES:
+            clean['category'] = category
+        priority = raw.get('priority')
+        if priority in FOCUS_PRIORITIES:
+            clean['priority'] = priority
+        due_date = raw.get('due_date')
+        if isinstance(due_date, str) and due_date.strip():
+            clean['due_date'] = due_date.strip()[:40]
+        try:
+            clean['confidence'] = min(1.0, max(0.0, float(raw.get('confidence', 0.5))))
+        except (TypeError, ValueError):
+            clean['confidence'] = 0.5
+        clean_items.append(clean)
+    return clean_items
+
 # -----------------------------------------------------------------------------
 # CLASSIFICADOR V2 (Analyze Input)
 # -----------------------------------------------------------------------------
 def analyze_focus_input(text: str) -> Dict[str, Any]:
+    deterministic = detect_focus_candidates(text)
+    if deterministic:
+        return {"items": _sanitize_analyzed_items(deterministic), "source": "rules"}
+
     # Buscar contexto atual de tarefas abertas para match de UPDATE
     tasks = get_focus_tasks()
     open_tasks = [t for t in tasks if not t.get('completed')]
@@ -263,9 +497,9 @@ Sua resposta DEVE ser um objeto JSON no seguinte formato exato:
 {{
   "items": [
     {{
-      "type": "TASK" | "UPDATE" | "IDEA" | "DECISION" | "NOTE" | "IGNORE",
+      "type": "TASK" | "REMINDER" | "UPDATE" | "IDEA" | "DECISION" | "MEMORY" | "NOTE" | "IGNORE",
       "content": "descrição ou título da intenção",
-      "action": "complete_task" | "create_task" | "save_idea" | "save_decision" | "none",
+      "action": "complete_task" | "create_task" | "save_idea" | "save_decision" | "save_memory" | "none",
       "related_task_id": 123 (opcional, ID numérico da tarefa caso type seja UPDATE),
       "category": "work" | "study" | "personal" | "project" | "other" (apenas se for TASK),
       "priority": "low" | "medium" | "high" (apenas se for TASK),
@@ -279,11 +513,13 @@ Tarefas abertas no momento:
 
 Regras:
 1. TASK: algo que precisa ser feito.
-2. UPDATE: usuário atualizou o status de algo (ex: 'terminei o relatorio'). Identifique o related_task_id correspondente acima, se houver.
-3. IDEA: ideia, sugestão, criatividade. Não exige ação imediata.
-4. DECISION: uma decisão tomada pelo usuário.
-5. NOTE: comentário neutro, sem ação.
-6. IGNORE: coisas inúteis (ex: 'oi', 'kkk', 'deu bom').
+2. REMINDER: algo que precisa ser lembrado em uma data ou horário.
+3. UPDATE: usuário atualizou o status de algo (ex: 'terminei o relatorio'). Identifique o related_task_id correspondente acima, se houver.
+4. IDEA: ideia, sugestão, criatividade. Não exige ação imediata.
+5. DECISION: uma decisão tomada pelo usuário.
+6. MEMORY: fato durável que o usuário pediu explicitamente para guardar.
+7. NOTE: comentário neutro, sem ação.
+8. IGNORE: coisas inúteis (ex: 'oi', 'kkk', 'deu bom').
 
 Entrada do usuário:
 \"\"\"{text}\"\"\"
@@ -301,7 +537,7 @@ Responda APENAS com o JSON. NADA MAIS.
             clean_json = response_text
 
         data = json.loads(clean_json)
-        return {"items": data.get("items", [])}
+        return {"items": _sanitize_analyzed_items(data.get("items", []))}
     except Exception as e:
         print(f"[Focus] Analyze Input error: {e}")
         return {"items": [], "error": str(e)}
@@ -309,6 +545,37 @@ Responda APENAS com o JSON. NADA MAIS.
 # -----------------------------------------------------------------------------
 # BUDS THINK (Aconselhamento Contextual)
 # -----------------------------------------------------------------------------
+def build_focus_brief() -> str:
+    """Conselho determinístico para o Focus nunca depender do motor local."""
+    tasks = [task for task in get_focus_tasks() if not task.get('completed')]
+    if not tasks:
+        pending = len(get_focus_inbox())
+        if pending:
+            return f"Você não tem tarefas abertas. Há {pending} sugestão{'ões' if pending != 1 else ''} na Buds Inbox para revisar."
+        return "Seu dia está livre no Focus. Se surgir algo, diga no chat “hoje preciso…” ou “me lembra…”."
+
+    ranked = sorted(
+        tasks,
+        key=lambda task: (
+            0 if task.get('is_focus') else 1,
+            {'high': 0, 'medium': 1, 'low': 2}.get(task.get('priority'), 1),
+            task.get('due_date') or '9999',
+        ),
+    )
+    first = ranked[0]
+    due = first.get('due_date')
+    due_copy = ''
+    if due:
+        try:
+            parsed = datetime.fromisoformat(due)
+            due_copy = f" até {parsed.strftime('%d/%m às %H:%M')}"
+        except ValueError:
+            due_copy = ''
+    remaining = len(ranked) - 1
+    suffix = f" Depois, ainda há {remaining} item{'s' if remaining != 1 else ''}." if remaining else ""
+    return f"Comece por “{first['title']}”{due_copy}. É o item mais prioritário agora.{suffix}"
+
+
 def buds_think(query: str) -> str:
     tasks = get_focus_tasks()
     open_tasks = [t for t in tasks if not t.get('completed')]
@@ -336,15 +603,14 @@ Não use linguagem corporativa robótica. Seja conciso e perspicaz.
 """
     try:
         response = agenty.llm_ollama_raw(prompt)
-        # Remove think tags se o Qwen vazar
-        import re
-        clean_response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL).strip()
-        
+        clean_response = sanitize_response(response, user_text=query).strip()
+        if not clean_response:
+            return build_focus_brief()
         log_timeline_event('buds_think', "O usuário pediu conselho ao Buds Think")
         return clean_response
     except Exception as e:
         print(f"[Focus] Buds Think error: {e}")
-        return "Tive um problema ao analisar o seu foco no momento."
+        return build_focus_brief()
 
 # Mantemos process_brain_dump temporariamente para retrocompatibilidade se algo quebrar, mas deve ser deprecado.
 def process_brain_dump(text: str) -> List[Dict[str, Any]]:

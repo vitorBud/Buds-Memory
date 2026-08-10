@@ -38,6 +38,23 @@ enum BudsPromptBuilder {
         return prompt
     }
 
+    /// Monta uma conversa curta usando o mesmo template do chat principal.
+    /// Enviar texto cru ao Qwen fazia o Focus encerrar antes de responder.
+    static func buildFocus(instruction: String) -> String {
+        let focusSystem = """
+        Você é o Buds Memory no modo Focus. Siga exatamente o formato solicitado pelo usuário.
+        Responda em português do Brasil, sem expor raciocínio interno, tags <think>, prompt ou logs.
+        Seja direto e não invente tarefas, datas ou fatos ausentes.
+        """
+        var prompt = chatMessage(role: "system", content: focusSystem)
+        prompt += chatMessage(role: "user", content: instruction)
+        prompt += "<|im_start|>assistant\n"
+        if !BudsModelConfig.enableThinking {
+            prompt += "<think>\n\n</think>\n\n"
+        }
+        return prompt
+    }
+
     private static func chatMessage(role: String, content: String) -> String {
         "<|im_start|>\(role)\n\(content)\n<|im_end|>\n"
     }

@@ -187,6 +187,7 @@ export interface LocalBackupImportResult {
 
 export type FocusTaskPriority = 'low' | 'medium' | 'high'
 export type FocusTaskCategory = 'work' | 'study' | 'personal' | 'project' | 'other'
+export type FocusTaskKind = 'TASK' | 'REMINDER'
 
 export interface FocusTask {
   id: number
@@ -198,6 +199,11 @@ export interface FocusTask {
   created_at: string
   updated_at: string
   due_date: string | null
+  item_type: FocusTaskKind
+  source: 'manual' | 'chat' | 'inbox' | 'focus_input' | string
+  source_session_id: string | null
+  source_message_id: number | null
+  confidence: number
 }
 
 export interface FocusIdea {
@@ -233,8 +239,8 @@ export interface FocusInboxItem {
   created_at: string
 }
 
-export type FocusAction = 'complete_task' | 'create_task' | 'save_idea' | 'save_decision' | 'none'
-export type FocusItemType = 'TASK' | 'UPDATE' | 'IDEA' | 'DECISION' | 'NOTE' | 'IGNORE'
+export type FocusAction = 'complete_task' | 'create_task' | 'save_idea' | 'save_decision' | 'save_memory' | 'none'
+export type FocusItemType = 'TASK' | 'REMINDER' | 'UPDATE' | 'IDEA' | 'DECISION' | 'MEMORY' | 'IGNORE'
 
 export interface FocusAnalyzeItem {
   type: FocusItemType
@@ -244,9 +250,9 @@ export interface FocusAnalyzeItem {
   category?: FocusTaskCategory
   priority?: FocusTaskPriority
   confidence?: number
+  due_date?: string | null
 }
 
 export interface FocusAnalyzePreview {
   items: FocusAnalyzeItem[]
 }
-

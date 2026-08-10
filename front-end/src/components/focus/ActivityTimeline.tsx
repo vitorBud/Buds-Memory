@@ -4,7 +4,9 @@ import { getFocusTimeline } from '../../services/api'
 import { focusStyles } from '../../styles/focus'
 import { Clock, Plus, Check, Lightbulb, SplitSquareVertical, Activity } from 'lucide-react'
 
-export function ActivityTimeline() {
+interface ActivityTimelineProps { refreshKey?: number }
+
+export function ActivityTimeline({ refreshKey = 0 }: ActivityTimelineProps) {
   const [events, setEvents] = useState<FocusTimelineEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [isExpanded, setIsExpanded] = useState(false)
@@ -21,22 +23,24 @@ export function ActivityTimeline() {
   }, [])
 
   useEffect(() => {
-    loadTimeline()
-    const interval = setInterval(loadTimeline, 30000)
-    return () => clearInterval(interval)
-  }, [loadTimeline])
+    const timeout = window.setTimeout(() => void loadTimeline(), 0)
+    const interval = window.setInterval(() => void loadTimeline(), 30000)
+    return () => {
+      window.clearTimeout(timeout)
+      window.clearInterval(interval)
+    }
+  }, [loadTimeline, refreshKey])
 
   const getIcon = (type: string) => {
     switch (type) {
       case 'task_created': return <Plus size={12} className="text-emerald-400" />
+      case 'reminder_created': return <Clock size={12} className="text-violet-400" />
       case 'task_completed': return <Check size={12} className="text-blue-400" />
       case 'idea_saved': return <Lightbulb size={12} className="text-amber-400" />
       case 'decision_saved': return <SplitSquareVertical size={12} className="text-purple-400" />
       default: return <Activity size={12} className="text-zinc-400" />
     }
   }
-
-  if (events.length === 0 && !loading) return null
 
   return (
     <div className={focusStyles.card}>
@@ -55,6 +59,7 @@ export function ActivityTimeline() {
 
       {isExpanded && (
         <div className="mt-4 flex flex-col gap-3 relative before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-white/10 ml-1">
+          {!loading && events.length === 0 && <div className="pl-9 text-[13px] text-[var(--muted)]">A atividade do seu dia aparecerá aqui.</div>}
           {events.map((event) => {
             const time = new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             return (

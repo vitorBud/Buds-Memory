@@ -1,6 +1,7 @@
 import type { FocusAnalyzePreview, FocusAnalyzeItem } from '../../types'
 import { Check, Plus, Lightbulb, SplitSquareVertical, MessageSquare, X } from 'lucide-react'
 import { motion } from 'framer-motion'
+import { createPortal } from 'react-dom'
 
 interface FocusPreviewModalProps {
   preview: FocusAnalyzePreview
@@ -22,13 +23,13 @@ export function FocusPreviewModal({ preview, onApply, onCancel }: FocusPreviewMo
 
   const validItems = preview.items.filter(i => i.type !== 'IGNORE')
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+  return createPortal(
+    <div className="fixed inset-0 z-[9000] flex items-center justify-center overflow-y-auto bg-black/55 pl-[max(14px,env(safe-area-inset-left))] pr-[max(14px,env(safe-area-inset-right))] pt-[calc(14px+env(safe-area-inset-top))] pb-[calc(14px+env(safe-area-inset-bottom))] backdrop-blur-sm platform-ios:backdrop-blur-none">
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="w-full max-w-lg bg-[#111111] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+        className="flex w-full max-w-lg max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-28px)] min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#111111] shadow-2xl platform-ios:shadow-none"
       >
         <div className="p-5 border-b border-white/5 flex items-center justify-between shrink-0">
           <h3 className="text-[15px] font-medium text-white flex items-center gap-2">
@@ -69,7 +70,7 @@ export function FocusPreviewModal({ preview, onApply, onCancel }: FocusPreviewMo
           )}
         </div>
 
-        <div className="p-5 border-t border-white/5 flex items-center justify-end gap-3 bg-black/20 shrink-0">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-white/5 bg-black/20 p-4 min-[420px]:gap-3 min-[420px]:p-5">
           <button
             onClick={onCancel}
             className="px-4 py-2 text-[13px] font-medium text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
@@ -85,6 +86,7 @@ export function FocusPreviewModal({ preview, onApply, onCancel }: FocusPreviewMo
           </button>
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -15,11 +15,11 @@ export function BudsThink() {
     try {
       const result = await getFocusThink(trimmed)
       setSuggestion(result)
+      setQuery('')
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao consultar Buds Think')
     } finally {
       setIsThinking(false)
-      setQuery('')
     }
   }
 
@@ -31,11 +31,11 @@ export function BudsThink() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 max-[760px]:bottom-[calc(var(--mobile-nav-height)+24px+env(safe-area-inset-bottom))] max-[760px]:right-4 z-[8000] flex flex-col items-end gap-3 pointer-events-none">
+    <div className="pointer-events-none fixed right-6 bottom-6 z-[8000] flex max-w-[calc(100vw-28px)] flex-col items-end gap-3 max-[760px]:right-[max(14px,env(safe-area-inset-right))] max-[760px]:bottom-[calc(var(--mobile-nav-height)+24px+env(safe-area-inset-bottom))]">
       
       {/* Popover content */}
       {isExpanded && (
-        <div className="w-[340px] max-w-[calc(100vw-3rem)] rounded-2xl bg-[#1c1c1c] border border-white/10 shadow-2xl overflow-hidden pointer-events-auto flex flex-col transition-all">
+        <div className="pointer-events-auto flex w-[340px] max-w-full max-h-[calc(100dvh-var(--mobile-nav-height)-env(safe-area-inset-top)-env(safe-area-inset-bottom)-104px)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#1c1c1c] shadow-2xl transition-all platform-ios:shadow-none">
           {/* Header */}
           <div className="flex items-center justify-between p-3 border-b border-white/5 bg-white/5">
             <div className="flex items-center gap-2">
@@ -50,7 +50,7 @@ export function BudsThink() {
             </button>
           </div>
 
-          <div className="p-3 flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-3">
             {suggestion && (
               <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-[13px] leading-relaxed text-white/90">
                 <div className="font-bold text-[var(--accent)] mb-2 text-[11px] uppercase tracking-wider">Conselho</div>

@@ -46,6 +46,7 @@ def migrate():
         _create_codebase_index(conn)
         _create_focus_tasks(conn)
         _create_focus_v2_tables(conn)
+        _migrate_focus_capture_columns(conn)
         _migrate_session_retention(conn)
         _migrate_memories_core_columns(conn)
         _migrate_memory_scope(conn)
@@ -72,7 +73,13 @@ def _create_focus_tasks(conn):
             is_focus     BOOLEAN DEFAULT 0,
             created_at   TEXT    NOT NULL,
             updated_at   TEXT    NOT NULL,
-            due_date     TEXT
+            due_date     TEXT,
+            item_type    TEXT    NOT NULL DEFAULT 'TASK',
+            source       TEXT    NOT NULL DEFAULT 'manual',
+            source_session_id TEXT,
+            source_message_id INTEGER,
+            dedup_key    TEXT,
+            confidence   REAL    NOT NULL DEFAULT 1.0
         );
     """)
 
@@ -111,9 +118,29 @@ def _create_focus_v2_tables(conn):
             metadata     TEXT    DEFAULT '{}',
             source       TEXT    DEFAULT 'chat',
             status       TEXT    DEFAULT 'pending',
-            created_at   TEXT    NOT NULL
+            created_at   TEXT    NOT NULL,
+            dedup_key    TEXT
         );
     """)
+
+
+def _migrate_focus_capture_columns(conn):
+    """Expande o Focus sem recriar tabelas ou perder dados existentes."""
+    _add_column_if_missing(conn, "focus_tasks", "item_type", "TEXT NOT NULL DEFAULT 'TASK'")
+    _add_column_if_missing(conn, "focus_tasks", "source", "TEXT NOT NULL DEFAULT 'manual'")
+    _add_column_if_missing(conn, "focus_tasks", "source_session_id", "TEXT")
+    _add_column_if_missing(conn, "focus_tasks", "source_message_id", "INTEGER")
+    _add_column_if_missing(conn, "focus_tasks", "dedup_key", "TEXT")
+    _add_column_if_missing(conn, "focus_tasks", "confidence", "REAL NOT NULL DEFAULT 1.0")
+    _add_column_if_missing(conn, "focus_inbox", "dedup_key", "TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_tasks_dedup "
+        "ON focus_tasks(dedup_key) WHERE dedup_key IS NOT NULL AND completed=0"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_inbox_dedup "
+        "ON focus_inbox(dedup_key) WHERE dedup_key IS NOT NULL AND status='pending'"
+    )
 
 def _create_memories(conn):
     conn.execute("""

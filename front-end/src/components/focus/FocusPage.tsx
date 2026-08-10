@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
 import { ListTodo } from 'lucide-react'
-import { motion } from 'framer-motion'
 import { focusStyles } from '../../styles/focus'
 import { FocusHeader } from './FocusHeader'
 import { TaskList } from './TaskList'
@@ -19,23 +18,29 @@ interface FocusPageProps {
 export function FocusPage({ visible }: FocusPageProps) {
   const [tasks, setTasks] = useState<FocusTask[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [inboxCount, setInboxCount] = useState(0)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const loadTasks = useCallback(async () => {
+    setLoading(true)
+    setLoadError('')
     try {
       const data = await getFocusTasks()
       setTasks(data)
     } catch (err) {
       console.error('Falha ao carregar tasks', err)
+      setLoadError(err instanceof Error ? err.message : 'Não foi possível carregar o Focus.')
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    if (visible && tasks.length === 0) {
-      loadTasks()
-    }
-  }, [visible, tasks.length, loadTasks])
+    if (!visible) return
+    const timeout = window.setTimeout(() => void loadTasks(), 0)
+    return () => window.clearTimeout(timeout)
+  }, [visible, loadTasks])
 
   const handleAddQuickTask = async (title: string, category: FocusTaskCategory, priority: FocusTaskPriority) => {
     try {
@@ -43,6 +48,7 @@ export function FocusPage({ visible }: FocusPageProps) {
       setTasks(prev => [task, ...prev])
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao criar tarefa')
+      throw err
     }
   }
 
@@ -52,7 +58,7 @@ export function FocusPage({ visible }: FocusPageProps) {
     setTasks(prev => prev.map(t => t.id === id ? { ...t, completed } : t))
     try {
       await updateFocusTask(id, { completed })
-    } catch (err) {
+    } catch {
       setTasks(prev => prev.map(t => t.id === id ? { ...t, completed: !completed } : t))
       alert('Falha ao atualizar tarefa')
     }
@@ -64,7 +70,7 @@ export function FocusPage({ visible }: FocusPageProps) {
     setTasks(prev => prev.filter(t => t.id !== id))
     try {
       await deleteFocusTask(id)
-    } catch (err) {
+    } catch {
       setTasks(original)
       alert('Falha ao apagar tarefa')
     }
@@ -75,7 +81,7 @@ export function FocusPage({ visible }: FocusPageProps) {
     setTasks(prev => prev.map(t => ({ ...t, is_focus: t.id === id })))
     try {
       await updateFocusTask(id, { is_focus: true })
-    } catch (err) {
+    } catch {
       setTasks(original)
       alert('Falha ao atualizar foco')
     }
@@ -84,20 +90,20 @@ export function FocusPage({ visible }: FocusPageProps) {
   if (!visible) return null
 
   return (
-    <motion.section
+    <section
       className={focusStyles.container}
       id="focus"
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.3 }}
     >
       <div className={focusStyles.content}>
-        <FocusHeader />
+        <FocusHeader
+          openCount={tasks.filter(task => !task.completed).length}
+          completedToday={tasks.filter(task => task.completed && new Date(task.updated_at).toDateString() === new Date().toDateString()).length}
+          inboxCount={inboxCount}
+        />
 
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_340px] items-start gap-6 w-full max-w-full">
+        <div className="grid w-full min-w-0 max-w-full grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_340px] lg:gap-6">
           {/* Main Column */}
-          <div className="flex flex-col gap-6 min-w-0">
+          <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
             <div className={focusStyles.card}>
               <div className="flex items-center justify-between mb-2">
                 <h3 className={focusStyles.cardTitle}>
@@ -110,6 +116,14 @@ export function FocusPage({ visible }: FocusPageProps) {
 
               {loading ? (
                 <div className="py-8 text-center text-[var(--muted)] text-[14px]">Carregando...</div>
+              ) : loadError ? (
+                <div className={focusStyles.error} role="alert">
+                  <strong className="block text-[14px]">O Focus não conseguiu abrir.</strong>
+                  <span className="mt-1 block opacity-80">{loadError}</span>
+                  <button type="button" className={focusStyles.retryButton} onClick={() => void loadTasks()}>
+                    Tentar novamente
+                  </button>
+                </div>
               ) : (
                 <div className="mt-2">
                   <TaskList
@@ -124,20 +138,26 @@ export function FocusPage({ visible }: FocusPageProps) {
           </div>
 
           {/* Side Column */}
-          <div className="flex flex-col gap-6 min-w-0">
+          <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
             <BrainDump onSuccess={loadTasks} />
           </div>
         </div>
 
         {/* Bottom Area */}
-        <div className="flex flex-col gap-6 w-full max-w-full">
-          <BudsInbox />
-          <ActivityTimeline />
+        <div className="flex min-w-0 w-full max-w-full flex-col gap-4 lg:gap-6">
+          <BudsInbox
+            onCountChange={setInboxCount}
+            onChanged={() => {
+              void loadTasks()
+              setRefreshKey(key => key + 1)
+            }}
+          />
+          <ActivityTimeline refreshKey={refreshKey} />
         </div>
       </div>
       
       {/* Floating Action Button for Think */}
       <BudsThink />
-    </motion.section>
+    </section>
   )
 }

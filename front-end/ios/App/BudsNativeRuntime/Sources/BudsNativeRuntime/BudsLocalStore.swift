@@ -180,10 +180,15 @@ public final class BudsLocalStore: @unchecked Sendable {
     public func clearAllData() throws {
         try queue.sync {
             try transaction {
+                try execute("DELETE FROM focus_inbox")
+                try execute("DELETE FROM focus_timeline")
+                try execute("DELETE FROM focus_decisions")
+                try execute("DELETE FROM focus_ideas")
+                try execute("DELETE FROM focus_tasks")
                 try execute("DELETE FROM messages")
                 try execute("DELETE FROM memories")
                 try execute("DELETE FROM sessions")
-                try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'memories')")
+                try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox')")
             }
             try? execute("PRAGMA wal_checkpoint(TRUNCATE)")
             try? execute("VACUUM")
@@ -240,6 +245,10 @@ public final class BudsLocalStore: @unchecked Sendable {
                 try updateAutomaticTitleIfNeeded(sessionId: sessionId, text: text)
                 try rememberDurableFacts(from: text, sessionId: sessionId)
                 try rememberConversationTopic(from: text, sessionId: sessionId)
+                // O Focus nativo não possui o detector Flask em background.
+                // Captura apenas intenções explícitas para não aquecer o aparelho
+                // com uma segunda inferência depois de cada mensagem.
+                try? captureFocusCandidates(from: text, sessionId: sessionId, messageId: record.id)
             }
             return record
         }
@@ -379,6 +388,284 @@ public final class BudsLocalStore: @unchecked Sendable {
         }
     }
 
+    public func focusTasks() throws -> [BudsFocusTaskRecord] {
+        try queue.sync {
+            let statement = try prepare(
+                """
+                SELECT id, title, category, priority, completed, is_focus, created_at, updated_at, due_date,
+                       item_type, source, source_session_id, source_message_id, confidence
+                FROM focus_tasks
+                ORDER BY completed ASC,
+                         CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
+                         created_at DESC
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            var records: [BudsFocusTaskRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(focusTaskRecord(statement))
+            }
+            return records
+        }
+    }
+
+    public func createFocusTask(
+        title: String,
+        category: String,
+        priority: String,
+        isFocus: Bool,
+        dueDate: String?,
+        itemType: String = "TASK"
+    ) throws -> BudsFocusTaskRecord {
+        try queue.sync {
+            try ensureWritable()
+            let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let cleanTitle = cleanTitle.nonEmpty else {
+                throw BudsNativeError.databaseUnavailable("O título da tarefa não pode ficar vazio.")
+            }
+            let cleanCategory = Self.focusCategories.contains(category) ? category : "other"
+            let cleanPriority = Self.focusPriorities.contains(priority) ? priority : "medium"
+
+            let duplicate = try prepare(
+                "SELECT id FROM focus_tasks WHERE completed = 0 AND lower(trim(title)) = lower(trim(?)) LIMIT 1"
+            )
+            bind(cleanTitle, duplicate, 1)
+            if sqlite3_step(duplicate) == SQLITE_ROW {
+                let existingId = sqlite3_column_int64(duplicate, 0)
+                sqlite3_finalize(duplicate)
+                guard let existing = try focusTask(id: existingId) else {
+                    throw BudsNativeError.databaseUnavailable("Não foi possível recuperar a tarefa existente.")
+                }
+                return existing
+            }
+            sqlite3_finalize(duplicate)
+
+            if isFocus { try execute("UPDATE focus_tasks SET is_focus = 0") }
+            let now = Self.now()
+            let statement = try prepare(
+                """
+                INSERT INTO focus_tasks
+                    (title, category, priority, completed, is_focus, created_at, updated_at, due_date,
+                     item_type, source, confidence)
+                VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, 'manual', 1.0)
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(String(cleanTitle.prefix(500)), statement, 1)
+            bind(cleanCategory, statement, 2)
+            bind(cleanPriority, statement, 3)
+            sqlite3_bind_int(statement, 4, isFocus ? 1 : 0)
+            bind(now, statement, 5)
+            bind(now, statement, 6)
+            bindOptional(dueDate, statement, 7)
+            bind(itemType == "REMINDER" ? "REMINDER" : "TASK", statement, 8)
+            try stepDone(statement)
+            let id = sqlite3_last_insert_rowid(database)
+            try logFocusEvent(eventType: itemType == "REMINDER" ? "reminder_created" : "task_created", title: cleanTitle)
+            guard let created = try focusTask(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Não foi possível recuperar a tarefa criada.")
+            }
+            return created
+        }
+    }
+
+    public func updateFocusTask(
+        id: Int64,
+        title: String?,
+        category: String?,
+        priority: String?,
+        completed: Bool?,
+        isFocus: Bool?
+    ) throws -> BudsFocusTaskRecord {
+        try queue.sync {
+            try ensureWritable()
+            guard let current = try focusTask(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Tarefa não encontrada.")
+            }
+            let nextTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? current.title
+            let nextCategory = category.flatMap { Self.focusCategories.contains($0) ? $0 : nil } ?? current.category
+            let nextPriority = priority.flatMap { Self.focusPriorities.contains($0) ? $0 : nil } ?? current.priority
+            let nextCompleted = completed ?? current.completed
+            let nextIsFocus = isFocus ?? current.isFocus
+            if nextIsFocus { try execute("UPDATE focus_tasks SET is_focus = 0") }
+
+            let statement = try prepare(
+                """
+                UPDATE focus_tasks
+                SET title = ?, category = ?, priority = ?, completed = ?, is_focus = ?, updated_at = ?
+                WHERE id = ?
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(String(nextTitle.prefix(500)), statement, 1)
+            bind(nextCategory, statement, 2)
+            bind(nextPriority, statement, 3)
+            sqlite3_bind_int(statement, 4, nextCompleted ? 1 : 0)
+            sqlite3_bind_int(statement, 5, nextIsFocus ? 1 : 0)
+            bind(Self.now(), statement, 6)
+            sqlite3_bind_int64(statement, 7, id)
+            try stepDone(statement)
+
+            if let completed, completed != current.completed {
+                try logFocusEvent(
+                    eventType: completed ? "task_completed" : "task_reopened",
+                    title: nextTitle
+                )
+            } else if isFocus == true, !current.isFocus {
+                try logFocusEvent(eventType: "focus_changed", title: nextTitle)
+            }
+            guard let updated = try focusTask(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Não foi possível recuperar a tarefa atualizada.")
+            }
+            return updated
+        }
+    }
+
+    public func deleteFocusTask(id: Int64) throws {
+        try queue.sync {
+            try ensureWritable()
+            let statement = try prepare("DELETE FROM focus_tasks WHERE id = ?")
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, id)
+            try stepDone(statement)
+        }
+    }
+
+    public func createFocusIdea(content: String) throws {
+        try queue.sync {
+            try ensureWritable()
+            let clean = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let clean = clean.nonEmpty else { return }
+            let statement = try prepare(
+                "INSERT INTO focus_ideas (content, status, source, created_at) VALUES (?, 'active', 'dump', ?)"
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(String(clean.prefix(2_000)), statement, 1)
+            bind(Self.now(), statement, 2)
+            try stepDone(statement)
+            try logFocusEvent(eventType: "idea_saved", title: clean)
+        }
+    }
+
+    public func createFocusDecision(content: String) throws {
+        try queue.sync {
+            try ensureWritable()
+            let clean = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let clean = clean.nonEmpty else { return }
+            let statement = try prepare(
+                "INSERT INTO focus_decisions (content, source, created_at) VALUES (?, 'dump', ?)"
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(String(clean.prefix(2_000)), statement, 1)
+            bind(Self.now(), statement, 2)
+            try stepDone(statement)
+            try logFocusEvent(eventType: "decision_saved", title: clean)
+        }
+    }
+
+    public func focusTimeline() throws -> [BudsFocusTimelineRecord] {
+        try queue.sync {
+            let today = String(Self.now().prefix(10))
+            let statement = try prepare(
+                """
+                SELECT id, event_type, title, details, created_at FROM focus_timeline
+                WHERE substr(created_at, 1, 10) = ? ORDER BY id DESC LIMIT 100
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(today, statement, 1)
+            var records: [BudsFocusTimelineRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(BudsFocusTimelineRecord(
+                    id: sqlite3_column_int64(statement, 0),
+                    eventType: text(statement, 1),
+                    title: text(statement, 2),
+                    details: text(statement, 3),
+                    createdAt: text(statement, 4)
+                ))
+            }
+            return records
+        }
+    }
+
+    public func focusInbox() throws -> [BudsFocusInboxRecord] {
+        try queue.sync {
+            let statement = try prepare(
+                """
+                SELECT id, item_type, content, metadata, source, status, created_at
+                FROM focus_inbox WHERE status = 'pending' ORDER BY id DESC
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            var records: [BudsFocusInboxRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(BudsFocusInboxRecord(
+                    id: sqlite3_column_int64(statement, 0),
+                    itemType: text(statement, 1),
+                    content: text(statement, 2),
+                    metadata: text(statement, 3),
+                    source: text(statement, 4),
+                    status: text(statement, 5),
+                    createdAt: text(statement, 6)
+                ))
+            }
+            return records
+        }
+    }
+
+    public func updateFocusInbox(id: Int64, status: String) throws {
+        try queue.sync {
+            try ensureWritable()
+            guard status == "approved" || status == "ignored" else {
+                throw BudsNativeError.databaseUnavailable("Status inválido para a Buds Inbox.")
+            }
+            let lookup = try prepare("SELECT item_type, content, metadata, dedup_key FROM focus_inbox WHERE id = ? AND status = 'pending'")
+            sqlite3_bind_int64(lookup, 1, id)
+            guard sqlite3_step(lookup) == SQLITE_ROW else {
+                sqlite3_finalize(lookup)
+                throw BudsNativeError.databaseUnavailable("Item da Buds Inbox não encontrado.")
+            }
+            let itemType = text(lookup, 0)
+            let content = text(lookup, 1)
+            let metadataText = text(lookup, 2)
+            let dedupKey = optionalText(lookup, 3)
+            sqlite3_finalize(lookup)
+
+            let metadata = (try? JSONSerialization.jsonObject(with: Data(metadataText.utf8))) as? [String: Any] ?? [:]
+
+            if status == "approved" {
+                switch itemType.uppercased() {
+                case "TASK", "REMINDER":
+                    _ = try createFocusTaskInsideQueue(
+                        title: content,
+                        category: metadata["category"] as? String ?? "other",
+                        priority: metadata["priority"] as? String ?? "medium",
+                        dueDate: metadata["due_date"] as? String,
+                        itemType: itemType.uppercased(),
+                        source: "inbox",
+                        sourceSessionId: metadata["session_id"] as? String,
+                        sourceMessageId: (metadata["message_id"] as? NSNumber)?.int64Value,
+                        dedupKey: dedupKey,
+                        confidence: (metadata["confidence"] as? NSNumber)?.doubleValue ?? 0.75
+                    )
+                case "IDEA":
+                    try createFocusIdeaInsideQueue(content: content)
+                case "DECISION":
+                    try createFocusDecisionInsideQueue(content: content)
+                case "MEMORY":
+                    try createMemoryInsideQueue(content: content, sessionId: metadata["session_id"] as? String)
+                default:
+                    break
+                }
+            }
+            let statement = try prepare("UPDATE focus_inbox SET status = ? WHERE id = ?")
+            defer { sqlite3_finalize(statement) }
+            bind(status, statement, 1)
+            sqlite3_bind_int64(statement, 2, id)
+            try stepDone(statement)
+        }
+    }
+
     private func open() throws {
         var handle: OpaquePointer?
         let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
@@ -423,7 +710,81 @@ public final class BudsLocalStore: @unchecked Sendable {
         if !memoryColumns.contains("origin_type") {
             try execute("ALTER TABLE memories ADD COLUMN origin_type TEXT NOT NULL DEFAULT 'legacy'")
         }
-        try execute("PRAGMA user_version=3")
+        try migrateFocus()
+        try execute("PRAGMA user_version=4")
+    }
+
+    private func migrateFocus() throws {
+        try execute("""
+            CREATE TABLE IF NOT EXISTS focus_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'other',
+                priority TEXT NOT NULL DEFAULT 'medium',
+                completed INTEGER NOT NULL DEFAULT 0,
+                is_focus INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                due_date TEXT,
+                item_type TEXT NOT NULL DEFAULT 'TASK',
+                source TEXT NOT NULL DEFAULT 'manual',
+                source_session_id TEXT,
+                source_message_id INTEGER,
+                dedup_key TEXT,
+                confidence REAL NOT NULL DEFAULT 1.0
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS focus_ideas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                source TEXT NOT NULL DEFAULT 'dump',
+                created_at TEXT NOT NULL
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS focus_decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'dump',
+                created_at TEXT NOT NULL
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS focus_timeline (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                details TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS focus_inbox (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                source TEXT NOT NULL DEFAULT 'chat',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                dedup_key TEXT
+            )
+            """)
+        let taskColumns = try tableColumns("focus_tasks")
+        if !taskColumns.contains("item_type") { try execute("ALTER TABLE focus_tasks ADD COLUMN item_type TEXT NOT NULL DEFAULT 'TASK'") }
+        if !taskColumns.contains("source") { try execute("ALTER TABLE focus_tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'") }
+        if !taskColumns.contains("source_session_id") { try execute("ALTER TABLE focus_tasks ADD COLUMN source_session_id TEXT") }
+        if !taskColumns.contains("source_message_id") { try execute("ALTER TABLE focus_tasks ADD COLUMN source_message_id INTEGER") }
+        if !taskColumns.contains("dedup_key") { try execute("ALTER TABLE focus_tasks ADD COLUMN dedup_key TEXT") }
+        if !taskColumns.contains("confidence") { try execute("ALTER TABLE focus_tasks ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0") }
+        let inboxColumns = try tableColumns("focus_inbox")
+        if !inboxColumns.contains("dedup_key") { try execute("ALTER TABLE focus_inbox ADD COLUMN dedup_key TEXT") }
+        try execute("CREATE INDEX IF NOT EXISTS idx_focus_tasks_state ON focus_tasks(completed, is_focus, priority)")
+        try execute("CREATE INDEX IF NOT EXISTS idx_focus_timeline_created ON focus_timeline(created_at)")
+        try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_tasks_dedup ON focus_tasks(dedup_key) WHERE dedup_key IS NOT NULL AND completed = 0")
+        try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_inbox_dedup ON focus_inbox(dedup_key) WHERE dedup_key IS NOT NULL AND status = 'pending'")
     }
 
     private func ensureWritable() throws {
@@ -447,6 +808,206 @@ public final class BudsLocalStore: @unchecked Sendable {
             title: text(statement, 1),
             createdAt: text(statement, 2)
         )
+    }
+
+    private func focusTask(id: Int64) throws -> BudsFocusTaskRecord? {
+        let statement = try prepare(
+            """
+            SELECT id, title, category, priority, completed, is_focus, created_at, updated_at, due_date,
+                   item_type, source, source_session_id, source_message_id, confidence
+            FROM focus_tasks WHERE id = ? LIMIT 1
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return focusTaskRecord(statement)
+    }
+
+    private func focusTaskRecord(_ statement: OpaquePointer) -> BudsFocusTaskRecord {
+        BudsFocusTaskRecord(
+            id: sqlite3_column_int64(statement, 0),
+            title: text(statement, 1),
+            category: text(statement, 2),
+            priority: text(statement, 3),
+            completed: sqlite3_column_int(statement, 4) == 1,
+            isFocus: sqlite3_column_int(statement, 5) == 1,
+            createdAt: text(statement, 6),
+            updatedAt: text(statement, 7),
+            dueDate: optionalText(statement, 8),
+            itemType: text(statement, 9),
+            source: text(statement, 10),
+            sourceSessionId: optionalText(statement, 11),
+            sourceMessageId: sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 12),
+            confidence: sqlite3_column_double(statement, 13)
+        )
+    }
+
+    private func createFocusTaskInsideQueue(
+        title: String,
+        category: String = "other",
+        priority: String = "medium",
+        dueDate: String? = nil,
+        itemType: String = "TASK",
+        source: String = "inbox",
+        sourceSessionId: String? = nil,
+        sourceMessageId: Int64? = nil,
+        dedupKey: String? = nil,
+        confidence: Double = 0.75
+    ) throws -> BudsFocusTaskRecord {
+        let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let clean = clean.nonEmpty else {
+            throw BudsNativeError.databaseUnavailable("O título da tarefa não pode ficar vazio.")
+        }
+        if let dedupKey {
+            let duplicate = try prepare("SELECT id FROM focus_tasks WHERE dedup_key = ? AND completed = 0 LIMIT 1")
+            bind(dedupKey, duplicate, 1)
+            if sqlite3_step(duplicate) == SQLITE_ROW {
+                let existingId = sqlite3_column_int64(duplicate, 0)
+                sqlite3_finalize(duplicate)
+                guard let task = try focusTask(id: existingId) else {
+                    throw BudsNativeError.databaseUnavailable("Não foi possível recuperar a tarefa existente.")
+                }
+                return task
+            }
+            sqlite3_finalize(duplicate)
+        }
+        let statement = try prepare(
+            """
+            INSERT INTO focus_tasks
+                (title, category, priority, completed, is_focus, created_at, updated_at, due_date,
+                 item_type, source, source_session_id, source_message_id, dedup_key, confidence)
+            VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        let now = Self.now()
+        bind(String(clean.prefix(500)), statement, 1)
+        bind(Self.focusCategories.contains(category) ? category : "other", statement, 2)
+        bind(Self.focusPriorities.contains(priority) ? priority : "medium", statement, 3)
+        bind(now, statement, 4)
+        bind(now, statement, 5)
+        bindOptional(dueDate, statement, 6)
+        bind(itemType == "REMINDER" ? "REMINDER" : "TASK", statement, 7)
+        bind(source, statement, 8)
+        bindOptional(sourceSessionId, statement, 9)
+        if let sourceMessageId { sqlite3_bind_int64(statement, 10, sourceMessageId) } else { sqlite3_bind_null(statement, 10) }
+        bindOptional(dedupKey, statement, 11)
+        sqlite3_bind_double(statement, 12, min(1, max(0, confidence)))
+        try stepDone(statement)
+        let id = sqlite3_last_insert_rowid(database)
+        try logFocusEvent(eventType: itemType == "REMINDER" ? "reminder_created" : "task_created", title: clean)
+        guard let task = try focusTask(id: id) else {
+            throw BudsNativeError.databaseUnavailable("Não foi possível recuperar a tarefa criada.")
+        }
+        return task
+    }
+
+    private func createFocusIdeaInsideQueue(content: String) throws {
+        let clean = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let clean = clean.nonEmpty else { return }
+        let statement = try prepare(
+            "INSERT INTO focus_ideas (content, status, source, created_at) VALUES (?, 'active', 'inbox', ?)"
+        )
+        defer { sqlite3_finalize(statement) }
+        bind(String(clean.prefix(2_000)), statement, 1)
+        bind(Self.now(), statement, 2)
+        try stepDone(statement)
+        try logFocusEvent(eventType: "idea_saved", title: clean)
+    }
+
+    private func createFocusDecisionInsideQueue(content: String) throws {
+        let clean = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let clean = clean.nonEmpty else { return }
+        let statement = try prepare(
+            "INSERT INTO focus_decisions (content, source, created_at) VALUES (?, 'inbox', ?)"
+        )
+        defer { sqlite3_finalize(statement) }
+        bind(String(clean.prefix(2_000)), statement, 1)
+        bind(Self.now(), statement, 2)
+        try stepDone(statement)
+        try logFocusEvent(eventType: "decision_saved", title: clean)
+    }
+
+    private func createMemoryInsideQueue(content: String, sessionId: String?) throws {
+        let clean = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let clean = clean.nonEmpty else { return }
+        let statement = try prepare(
+            """
+            INSERT OR IGNORE INTO memories
+                (content, importance, is_core, created_at, scope, session_id, origin_type)
+            VALUES (?, 0.8, 0, ?, ?, ?, 'focus_inbox')
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        bind(String(clean.prefix(2_000)), statement, 1)
+        bind(Self.now(), statement, 2)
+        bind(sessionId == nil ? "global" : "conversation", statement, 3)
+        bindOptional(sessionId, statement, 4)
+        try stepDone(statement)
+        try logFocusEvent(eventType: "memory_saved", title: clean)
+    }
+
+    private func captureFocusCandidates(from text: String, sessionId: String, messageId: Int64) throws {
+        for candidate in BudsFocusCapture.detect(text) {
+            if candidate.autoApply && ["TASK", "REMINDER"].contains(candidate.itemType) {
+                _ = try createFocusTaskInsideQueue(
+                    title: candidate.content,
+                    category: candidate.category,
+                    priority: candidate.priority,
+                    dueDate: candidate.dueDate,
+                    itemType: candidate.itemType,
+                    source: "chat",
+                    sourceSessionId: sessionId,
+                    sourceMessageId: messageId,
+                    dedupKey: candidate.dedupKey,
+                    confidence: candidate.confidence
+                )
+                continue
+            }
+
+            let duplicate = try prepare("SELECT 1 FROM focus_inbox WHERE dedup_key = ? AND status = 'pending' LIMIT 1")
+            bind(candidate.dedupKey, duplicate, 1)
+            let alreadyExists = sqlite3_step(duplicate) == SQLITE_ROW
+            sqlite3_finalize(duplicate)
+            guard !alreadyExists else { continue }
+
+            let metadataObject: [String: Any] = [
+                "session_id": sessionId,
+                "message_id": messageId,
+                "category": candidate.category,
+                "priority": candidate.priority,
+                "due_date": candidate.dueDate as Any,
+                "confidence": candidate.confidence,
+            ]
+            let metadataData = try JSONSerialization.data(withJSONObject: metadataObject)
+            let metadata = String(data: metadataData, encoding: .utf8) ?? "{}"
+            let statement = try prepare(
+                """
+                INSERT OR IGNORE INTO focus_inbox
+                    (item_type, content, metadata, source, status, created_at, dedup_key)
+                VALUES (?, ?, ?, 'chat', 'pending', ?, ?)
+                """
+            )
+            bind(candidate.itemType, statement, 1)
+            bind(candidate.content, statement, 2)
+            bind(metadata, statement, 3)
+            bind(Self.now(), statement, 4)
+            bind(candidate.dedupKey, statement, 5)
+            try stepDone(statement)
+            sqlite3_finalize(statement)
+        }
+    }
+
+    private func logFocusEvent(eventType: String, title: String) throws {
+        let statement = try prepare(
+            "INSERT INTO focus_timeline (event_type, title, details, created_at) VALUES (?, ?, '{}', ?)"
+        )
+        defer { sqlite3_finalize(statement) }
+        bind(eventType, statement, 1)
+        bind(String(title.prefix(2_000)), statement, 2)
+        bind(Self.now(), statement, 3)
+        try stepDone(statement)
     }
 
     private func memory(id: Int64) throws -> BudsMemoryRecord? {
@@ -679,6 +1240,14 @@ public final class BudsLocalStore: @unchecked Sendable {
         sqlite3_bind_text(statement, index, value, -1, Self.sqliteTransient)
     }
 
+    private func bindOptional(_ value: String?, _ statement: OpaquePointer, _ index: Int32) {
+        if let value {
+            bind(value, statement, index)
+        } else {
+            sqlite3_bind_null(statement, index)
+        }
+    }
+
     private func text(_ statement: OpaquePointer, _ index: Int32) -> String {
         guard let pointer = sqlite3_column_text(statement, index) else { return "" }
         return String(cString: pointer)
@@ -690,6 +1259,8 @@ public final class BudsLocalStore: @unchecked Sendable {
     }
 
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    private static let focusCategories: Set<String> = ["work", "study", "personal", "project", "other"]
+    private static let focusPriorities: Set<String> = ["low", "medium", "high"]
 
     private static func now() -> String {
         ISO8601DateFormatter.buds.string(from: Date())

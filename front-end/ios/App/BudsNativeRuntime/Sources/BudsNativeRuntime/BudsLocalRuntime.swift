@@ -105,6 +105,137 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         try ensureStore().deleteMemory(id: id, force: force)
     }
 
+    public func focusTasks() throws -> [BudsFocusTaskRecord] {
+        try ensureStore().focusTasks()
+    }
+
+    public func createFocusTask(
+        title: String,
+        category: String,
+        priority: String,
+        isFocus: Bool,
+        dueDate: String?,
+        itemType: String = "TASK"
+    ) throws -> BudsFocusTaskRecord {
+        try ensureStore().createFocusTask(
+            title: title,
+            category: category,
+            priority: priority,
+            isFocus: isFocus,
+            dueDate: dueDate,
+            itemType: itemType
+        )
+    }
+
+    public func updateFocusTask(
+        id: Int64,
+        title: String?,
+        category: String?,
+        priority: String?,
+        completed: Bool?,
+        isFocus: Bool?
+    ) throws -> BudsFocusTaskRecord {
+        try ensureStore().updateFocusTask(
+            id: id,
+            title: title,
+            category: category,
+            priority: priority,
+            completed: completed,
+            isFocus: isFocus
+        )
+    }
+
+    public func deleteFocusTask(id: Int64) throws {
+        try ensureStore().deleteFocusTask(id: id)
+    }
+
+    public func createFocusIdea(content: String) throws {
+        try ensureStore().createFocusIdea(content: content)
+    }
+
+    public func createFocusDecision(content: String) throws {
+        try ensureStore().createFocusDecision(content: content)
+    }
+
+    public func focusTimeline() throws -> [BudsFocusTimelineRecord] {
+        try ensureStore().focusTimeline()
+    }
+
+    public func focusInbox() throws -> [BudsFocusInboxRecord] {
+        try ensureStore().focusInbox()
+    }
+
+    public func updateFocusInbox(id: Int64, status: String) throws {
+        try ensureStore().updateFocusInbox(id: id, status: status)
+    }
+
+    public func analyzeFocusInput(_ text: String) async throws -> [[String: Any]] {
+        let deterministic = BudsFocusCapture.detect(text)
+        if !deterministic.isEmpty {
+            return deterministic.map { candidate in
+                var item: [String: Any] = [
+                    "type": candidate.itemType,
+                    "content": candidate.content,
+                    "action": ["TASK", "REMINDER"].contains(candidate.itemType) ? "create_task" : (
+                        candidate.itemType == "IDEA" ? "save_idea" : candidate.itemType == "DECISION" ? "save_decision" : "none"
+                    ),
+                    "category": candidate.category,
+                    "priority": candidate.priority,
+                    "confidence": candidate.confidence,
+                ]
+                if let dueDate = candidate.dueDate { item["due_date"] = dueDate }
+                return item
+            }
+        }
+        let tasks = try focusTasks().filter { !$0.completed }
+        let taskContext = tasks.isEmpty
+            ? "(nenhuma tarefa aberta)"
+            : tasks.map { "ID: \($0.id) | Título: \($0.title)" }.joined(separator: "\n")
+        let prompt = """
+        Você é o classificador local do Buds Focus. Converta a atualização do usuário em JSON.
+        Responda somente com este formato: {"items":[{"type":"TASK|REMINDER|UPDATE|IDEA|DECISION|MEMORY|IGNORE","content":"texto curto","action":"complete_task|create_task|save_idea|save_decision|save_memory|none","related_task_id":1,"category":"work|study|personal|project|other","priority":"low|medium|high","due_date":"2026-08-11T09:00","confidence":0.9}]}.
+        Use UPDATE/complete_task somente quando a mensagem disser que uma tarefa aberta foi concluída e houver ID correspondente.
+        Tarefas abertas:
+        \(taskContext)
+        Atualização do usuário:
+        \(text)
+        """
+        let response = try await runFocusPrompt(BudsPromptBuilder.buildFocus(instruction: prompt))
+        return try Self.parseFocusItems(response)
+    }
+
+    public func focusThink(_ query: String) async throws -> String {
+        let tasks = try focusTasks()
+        let open = tasks.filter { !$0.completed }
+        let completed = tasks.filter { $0.completed && $0.updatedAt.hasPrefix(String(Self.todayPrefix)) }
+        let openText = open.isEmpty
+            ? "(nenhuma)"
+            : open.map { "- \($0.title) (\($0.priority), \($0.category))" }.joined(separator: "\n")
+        let completedText = completed.isEmpty
+            ? "(nenhuma)"
+            : completed.map { "- \($0.title)" }.joined(separator: "\n")
+        let prompt = """
+        Você é o Buds Memory no modo Focus. Ajude o usuário a escolher prioridades sem criar tarefas automaticamente.
+        Tarefas abertas:
+        \(openText)
+        Tarefas concluídas hoje:
+        \(completedText)
+        Pergunta:
+        \(query)
+        Responda em português, de forma humana, direta, curta e útil.
+        """
+        do {
+            let response = BudsVisibleResponseFilter.sanitize(
+                try await runFocusPrompt(BudsPromptBuilder.buildFocus(instruction: prompt))
+            )
+            if !response.isEmpty { return response }
+        } catch {
+            // Buds Think continua útil mesmo quando o modelo está ocupado,
+            // ausente ou sob pressão térmica.
+        }
+        return Self.focusBrief(open: open, completedToday: completed)
+    }
+
     public func generate(
         generationId: String,
         sessionId: String,
@@ -208,6 +339,112 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         generationLock.lock()
         if activeGeneration?.id == id { activeGeneration = nil }
         generationLock.unlock()
+    }
+
+    private func runFocusPrompt(_ prompt: String) async throws -> String {
+        guard modelManager.isInstalled else { throw BudsNativeError.modelMissing }
+        let generationId = "focus-\(UUID().uuidString.lowercased())"
+        generationLock.lock()
+        guard activeGeneration == nil else {
+            generationLock.unlock()
+            throw BudsNativeError.inference("aguarde a resposta atual terminar antes de usar o Focus")
+        }
+        activeGeneration = (generationId, "__focus__")
+        generationLock.unlock()
+
+        return try await withCheckedThrowingContinuation { continuation in
+            inferenceQueue.async { [engine, modelManager] in
+                do {
+                    let result = try engine.generate(
+                        prompt: prompt,
+                        modelURL: modelManager.modelURL,
+                        onToken: { _ in }
+                    )
+                    self.finishGeneration(generationId)
+                    continuation.resume(returning: result.text)
+                } catch {
+                    self.finishGeneration(generationId)
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private static func parseFocusItems(_ response: String) throws -> [[String: Any]] {
+        guard let start = response.firstIndex(of: "{"),
+              let end = response.lastIndex(of: "}"),
+              start <= end,
+              let data = String(response[start...end]).data(using: .utf8),
+              let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rawItems = root["items"] as? [[String: Any]] else {
+            throw BudsNativeError.inference("não foi possível interpretar a organização sugerida")
+        }
+        let allowedTypes = Set(["TASK", "REMINDER", "UPDATE", "IDEA", "DECISION", "MEMORY", "IGNORE"])
+        let allowedActions = Set(["complete_task", "create_task", "save_idea", "save_decision", "save_memory", "none"])
+        let allowedCategories = Set(["work", "study", "personal", "project", "other"])
+        let allowedPriorities = Set(["low", "medium", "high"])
+        return rawItems.compactMap { item in
+            guard let content = (item["content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !content.isEmpty else { return nil }
+            let rawType = (item["type"] as? String)?.uppercased() ?? "IGNORE"
+            let type = allowedTypes.contains(rawType) ? rawType : "IGNORE"
+            let rawAction = item["action"] as? String ?? "none"
+            let defaultAction: String
+            switch type {
+            case "TASK", "REMINDER": defaultAction = "create_task"
+            case "IDEA": defaultAction = "save_idea"
+            case "DECISION": defaultAction = "save_decision"
+            case "MEMORY": defaultAction = "save_memory"
+            default: defaultAction = "none"
+            }
+            var action = allowedActions.contains(rawAction) ? rawAction : defaultAction
+            if action == "none", defaultAction != "none" { action = defaultAction }
+            var clean: [String: Any] = [
+                "type": type,
+                "content": String(content.prefix(2_000)),
+                "action": action,
+            ]
+            if let relatedId = item["related_task_id"] as? NSNumber {
+                clean["related_task_id"] = relatedId.int64Value
+            } else if type == "UPDATE" {
+                clean["action"] = "none"
+            }
+            if let category = item["category"] as? String, allowedCategories.contains(category) {
+                clean["category"] = category
+            }
+            if let priority = item["priority"] as? String, allowedPriorities.contains(priority) {
+                clean["priority"] = priority
+            }
+            if let confidence = item["confidence"] as? NSNumber {
+                clean["confidence"] = min(1, max(0, confidence.doubleValue))
+            }
+            if let dueDate = item["due_date"] as? String, !dueDate.isEmpty {
+                clean["due_date"] = dueDate
+            }
+            return clean
+        }
+    }
+
+    private static func focusBrief(open: [BudsFocusTaskRecord], completedToday: [BudsFocusTaskRecord]) -> String {
+        guard !open.isEmpty else {
+            return completedToday.isEmpty
+                ? "Seu Focus está livre. Coloque aqui apenas o próximo passo que realmente importa hoje."
+                : "Você concluiu \(completedToday.count) item(ns) hoje e não há pendências abertas. Bom momento para revisar a Buds Inbox."
+        }
+        let sorted = open.sorted { left, right in
+            let score = ["high": 0, "medium": 1, "low": 2]
+            if left.isFocus != right.isFocus { return left.isFocus }
+            return (score[left.priority] ?? 1) < (score[right.priority] ?? 1)
+        }
+        let first = sorted[0]
+        let remainder = max(0, open.count - 1)
+        return remainder == 0
+            ? "Comece por “\(first.title)”. É o único item aberto; conclua-o antes de adicionar mais coisas."
+            : "Comece por “\(first.title)”. Depois, revise os outros \(remainder) item(ns) abertos e adie o que não cabe hoje."
+    }
+
+    private static var todayPrefix: Substring {
+        ISO8601DateFormatter().string(from: Date()).prefix(10)
     }
 
     public func unloadModel() {

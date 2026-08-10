@@ -24,7 +24,7 @@ from storage import get_data_dir, get_database_path, get_output_dir
 
 BACKUP_FORMAT = "buds_memory_backup"
 LEGACY_BACKUP_FORMATS = {"aether_memory_backup"}
-BACKUP_VERSION = 3
+BACKUP_VERSION = 4
 CLEAR_CONFIRMATION = "APAGAR TUDO"
 
 BACKUP_TABLES = [
@@ -47,6 +47,18 @@ BACKUP_TABLES = [
     "codebase_index",
 ]
 
+# Extensão v4 opcional. Mantemos BACKUP_TABLES como o núcleo histórico do
+# formato para que bancos/consumidores antigos continuem compatíveis, enquanto
+# exportações atuais carregam também toda a central Focus quando ela existir.
+FOCUS_BACKUP_TABLES = [
+    "focus_tasks",
+    "focus_ideas",
+    "focus_decisions",
+    "focus_timeline",
+    "focus_inbox",
+]
+PORTABLE_TABLES = [*BACKUP_TABLES, *FOCUS_BACKUP_TABLES]
+
 # A ordem respeita as dependências entre tabelas. Ela é deliberadamente
 # separada de BACKUP_TABLES, cuja ordem faz parte do formato público antigo.
 IMPORT_ORDER = [
@@ -58,6 +70,11 @@ IMPORT_ORDER = [
     "projects",
     "memories",
     "conversation_summaries",
+    "focus_tasks",
+    "focus_ideas",
+    "focus_decisions",
+    "focus_timeline",
+    "focus_inbox",
     "kg_relations",
     "kg_entity_mentions",
     "project_sessions",
@@ -85,6 +102,11 @@ CLEAR_ORDER = [
     "project_documents",
     "project_sessions",
     "conversation_summaries",
+    "focus_inbox",
+    "focus_timeline",
+    "focus_decisions",
+    "focus_ideas",
+    "focus_tasks",
     "kg_entity_mentions",
     "kg_relations",
     "memories",
@@ -105,6 +127,7 @@ DIRECT_REFERENCES = {
     "memories": {"session_id": "sessions"},
     "user_profile_facts": {"session_id": "sessions"},
     "conversation_summaries": {"session_id": "sessions"},
+    "focus_tasks": {"source_session_id": "sessions", "source_message_id": "messages"},
     "kg_relations": {
         "source_id": "kg_entities",
         "target_id": "kg_entities",
@@ -128,6 +151,8 @@ NATURAL_UNIQUES = {
     "user_profile_facts": (("fact_key", "fact_value"),),
     "kg_entities": (("name",),),
     "kg_relations": (("source_id", "target_id", "relation_type"),),
+    "focus_tasks": (("dedup_key",),),
+    "focus_inbox": (("dedup_key",),),
 }
 
 TIMELINE_ENTITY_TABLES = {
@@ -148,7 +173,7 @@ def export_backup() -> dict:
     counts: dict[str, int] = {}
 
     with get_db_connection() as conn:
-        for table in BACKUP_TABLES:
+        for table in PORTABLE_TABLES:
             if not _table_exists(conn, table):
                 continue
             rows = conn.execute(f"SELECT * FROM {table}").fetchall()
@@ -171,7 +196,7 @@ def get_status() -> dict:
     counts: dict[str, int] = {}
 
     with get_db_connection() as conn:
-        for table in BACKUP_TABLES:
+        for table in PORTABLE_TABLES:
             if not _table_exists(conn, table):
                 continue
             row = conn.execute(f"SELECT COUNT(*) AS n FROM {_quote_identifier(table)}").fetchone()

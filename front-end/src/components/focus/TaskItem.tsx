@@ -1,4 +1,4 @@
-import { Check, Trash2, Zap } from 'lucide-react'
+import { Bell, Check, MessageCircle, Trash2, Zap } from 'lucide-react'
 import type { FocusTask } from '../../types'
 import { focusStyles } from '../../styles/focus'
 
@@ -10,6 +10,11 @@ interface TaskItemProps {
 }
 
 export function TaskItem({ task, onToggle, onDelete, onSetFocus }: TaskItemProps) {
+  const categories: Record<string, string> = { work: 'Trabalho', study: 'Estudo', personal: 'Pessoal', project: 'Projeto', other: 'Geral' }
+  const priorities: Record<string, string> = { high: 'Alta', medium: 'Média', low: 'Baixa' }
+  const dueLabel = task.due_date
+    ? new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(task.due_date))
+    : null
   return (
     <div className={`${focusStyles.taskItem} ${task.completed ? focusStyles.taskItemCompleted : ''}`}>
       <div className={focusStyles.taskContent}>
@@ -34,18 +39,21 @@ export function TaskItem({ task, onToggle, onDelete, onSetFocus }: TaskItemProps
             )}
           </div>
           
-          <div className="flex items-center justify-between">
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
             <div className={focusStyles.taskMeta}>
+              {task.item_type === 'REMINDER' && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/20 px-2 py-0.5 text-[11px] font-bold text-violet-300"><Bell size={11} /> Lembrete</span>}
               <span className={focusStyles.badgeCategory}>
-                {task.category}
+                {categories[task.category] ?? task.category}
               </span>
               <span className={
                 task.priority === 'high' ? focusStyles.badgePriorityHigh :
                 task.priority === 'medium' ? focusStyles.badgePriorityMedium :
                 focusStyles.badgePriorityLow
               }>
-                {task.priority}
+                {priorities[task.priority] ?? task.priority}
               </span>
+              {dueLabel && <span className="text-[11px] text-[var(--muted)]">{dueLabel}</span>}
+              {task.source === 'chat' && <span className="inline-flex items-center gap-1 text-[11px] text-[var(--muted)]"><MessageCircle size={11} /> do chat</span>}
             </div>
             
             <div className={focusStyles.taskActions}>

@@ -306,6 +306,26 @@
     text-rendering: auto;
   }
 
+  /*
+   * Telas de aplicativo possuem um único scroller interno. Travar o documento
+   * impede que a inércia da Home seja herdada pela próxima tela no WKWebView.
+   */
+  :root[data-app-scroll="locked"],
+  :root[data-app-scroll="locked"] body,
+  :root[data-app-scroll="locked"] #root {
+    width: 100%;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  :root[data-app-scroll="locked"] .scroll-experience {
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   :root[data-platform="ios"] button,
   :root[data-platform="ios"] input,
   :root[data-platform="ios"] textarea,

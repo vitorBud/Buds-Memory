@@ -1,6 +1,18 @@
 import { registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
-import type { ChatStreamEvent, CognitiveMemory, ConversationStorageItem, Message, Session } from '../../types'
+import type {
+  ChatStreamEvent,
+  CognitiveMemory,
+  ConversationStorageItem,
+  FocusAnalyzePreview,
+  FocusInboxItem,
+  FocusTask,
+  FocusTaskCategory,
+  FocusTaskPriority,
+  FocusTimelineEvent,
+  Message,
+  Session,
+} from '../../types'
 import { stripInternalReasoning } from '../../utils/respostaVisivel'
 
 export interface IOSLocalStorageStatus {
@@ -41,6 +53,32 @@ interface IOSLocalPlugin {
   updateMemory(options: { id: number; content?: string; importance?: number }): Promise<CognitiveMemory>
   setCoreMemory(options: { id: number; enabled: boolean }): Promise<CognitiveMemory>
   deleteMemory(options: { id: number; force: boolean }): Promise<void>
+  listFocusTasks(): Promise<{ tasks: FocusTask[] }>
+  createFocusTask(options: {
+    title: string
+    category: FocusTaskCategory
+    priority: FocusTaskPriority
+    isFocus: boolean
+    dueDate?: string
+    itemType?: FocusTask['item_type']
+  }): Promise<FocusTask>
+  updateFocusTask(options: {
+    id: number
+    title?: string
+    category?: FocusTaskCategory
+    priority?: FocusTaskPriority
+    completed?: boolean
+    isFocus?: boolean
+  }): Promise<FocusTask>
+  deleteFocusTask(options: { id: number }): Promise<void>
+  analyzeFocusInput(options: { text: string }): Promise<FocusAnalyzePreview>
+  focusThink(options: { query: string }): Promise<{ suggestion: string }>
+  saveFocusIdea(options: { content: string }): Promise<void>
+  saveFocusDecision(options: { content: string }): Promise<void>
+  listFocusTimeline(): Promise<{ events: FocusTimelineEvent[] }>
+  listFocusInbox(): Promise<{ items: FocusInboxItem[] }>
+  updateFocusInbox(options: { id: number; status: 'approved' | 'ignored' }): Promise<void>
+  syncFocusNotifications(): Promise<{ scheduled: number; authorized: boolean }>
   startSpeechRecognition(options: { recordingId: string }): Promise<void>
   stopSpeechRecognition(options: { recordingId: string }): Promise<{ text: string; recordingId: string }>
   cancelSpeechRecognition(options: { recordingId?: string }): Promise<void>
@@ -146,6 +184,71 @@ export function setIOSLocalCoreMemory(id: number, enabled: boolean): Promise<Cog
 
 export function deleteIOSLocalMemory(id: number, force = false): Promise<void> {
   return native.deleteMemory({ id, force })
+}
+
+export async function listIOSFocusTasks(): Promise<FocusTask[]> {
+  return (await native.listFocusTasks()).tasks
+}
+
+export function createIOSFocusTask(
+  title: string,
+  category: FocusTaskCategory,
+  priority: FocusTaskPriority,
+  isFocus = false,
+  dueDate?: string,
+  itemType: FocusTask['item_type'] = 'TASK',
+): Promise<FocusTask> {
+  return native.createFocusTask({ title, category, priority, isFocus, itemType, ...(dueDate ? { dueDate } : {}) })
+}
+
+export function updateIOSFocusTask(
+  id: number,
+  updates: Partial<Pick<FocusTask, 'title' | 'category' | 'priority' | 'completed' | 'is_focus'>>,
+): Promise<FocusTask> {
+  return native.updateFocusTask({
+    id,
+    ...(updates.title !== undefined ? { title: updates.title } : {}),
+    ...(updates.category !== undefined ? { category: updates.category } : {}),
+    ...(updates.priority !== undefined ? { priority: updates.priority } : {}),
+    ...(updates.completed !== undefined ? { completed: updates.completed } : {}),
+    ...(updates.is_focus !== undefined ? { isFocus: updates.is_focus } : {}),
+  })
+}
+
+export function deleteIOSFocusTask(id: number): Promise<void> {
+  return native.deleteFocusTask({ id })
+}
+
+export function analyzeIOSFocusInput(text: string): Promise<FocusAnalyzePreview> {
+  return native.analyzeFocusInput({ text })
+}
+
+export async function getIOSFocusThink(query: string): Promise<string> {
+  return (await native.focusThink({ query })).suggestion
+}
+
+export function saveIOSFocusIdea(content: string): Promise<void> {
+  return native.saveFocusIdea({ content })
+}
+
+export function saveIOSFocusDecision(content: string): Promise<void> {
+  return native.saveFocusDecision({ content })
+}
+
+export async function listIOSFocusTimeline(): Promise<FocusTimelineEvent[]> {
+  return (await native.listFocusTimeline()).events
+}
+
+export async function listIOSFocusInbox(): Promise<FocusInboxItem[]> {
+  return (await native.listFocusInbox()).items
+}
+
+export function updateIOSFocusInbox(id: number, status: 'approved' | 'ignored'): Promise<void> {
+  return native.updateFocusInbox({ id, status })
+}
+
+export function syncIOSFocusNotifications(): Promise<{ scheduled: number; authorized: boolean }> {
+  return native.syncFocusNotifications()
 }
 
 export async function startIOSSpeechRecognition(

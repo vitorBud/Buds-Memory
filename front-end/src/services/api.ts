@@ -28,16 +28,28 @@ import {
   clearIOSLocalData,
   createIOSLocalMemory,
   createIOSLocalSession,
+  createIOSFocusTask,
   deleteIOSLocalSession,
+  deleteIOSFocusTask,
   deleteIOSLocalMemory,
+  analyzeIOSFocusInput,
+  getIOSFocusThink,
   getIOSLocalMemories,
   getIOSLocalMessages,
   getIOSLocalStatus,
   listIOSLocalSessions,
+  listIOSFocusInbox,
+  listIOSFocusTasks,
+  listIOSFocusTimeline,
   listIOSConversationStorage,
   purgeIOSConversation,
   setIOSLocalCoreMemory,
+  saveIOSFocusDecision,
+  saveIOSFocusIdea,
   streamIOSLocalChat,
+  updateIOSFocusInbox,
+  updateIOSFocusTask,
+  syncIOSFocusNotifications,
   updateIOSLocalMemory,
   updateIOSLocalSessionTitle,
 } from '../plataformas'
@@ -683,6 +695,11 @@ export async function streamChat(
 // ─── Focus (Produtividade) ──────────────────────────────────────────────────
 
 export async function getFocusTasks(): Promise<FocusTask[]> {
+  if (isNativeIOSRuntime()) {
+    const tasks = await listIOSFocusTasks()
+    void syncIOSFocusNotifications().catch(error => console.warn('Não foi possível sincronizar os lembretes locais.', error))
+    return tasks
+  }
   const res = await authFetch(`${getBase()}/cognitive/focus`, { method: 'GET' })
   if (!res.ok) throw new Error('Falha ao carregar tarefas.')
   return await res.json()
@@ -693,12 +710,16 @@ export async function createFocusTask(
   category: FocusTaskCategory = 'other',
   priority: FocusTaskPriority = 'medium',
   is_focus = false,
-  due_date: string | null = null
+  due_date: string | null = null,
+  item_type: FocusTask['item_type'] = 'TASK',
 ): Promise<FocusTask> {
+  if (isNativeIOSRuntime()) {
+    return createIOSFocusTask(title, category, priority, is_focus, due_date ?? undefined, item_type)
+  }
   const res = await authFetch(`${getBase()}/cognitive/focus`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, category, priority, is_focus, due_date }),
+    body: JSON.stringify({ title, category, priority, is_focus, due_date, item_type }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || 'Falha ao criar tarefa.')
@@ -709,6 +730,7 @@ export async function updateFocusTask(
   taskId: number,
   updates: Partial<FocusTask>
 ): Promise<FocusTask> {
+  if (isNativeIOSRuntime()) return updateIOSFocusTask(taskId, updates)
   const res = await authFetch(`${getBase()}/cognitive/focus/${taskId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -720,11 +742,13 @@ export async function updateFocusTask(
 }
 
 export async function deleteFocusTask(taskId: number): Promise<void> {
+  if (isNativeIOSRuntime()) return deleteIOSFocusTask(taskId)
   const res = await authFetch(`${getBase()}/cognitive/focus/${taskId}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Falha ao apagar tarefa.')
 }
 
 export async function analyzeFocusInput(text: string): Promise<FocusAnalyzePreview> {
+  if (isNativeIOSRuntime()) return analyzeIOSFocusInput(text)
   const res = await authFetch(`${getBase()}/cognitive/focus/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -735,7 +759,35 @@ export async function analyzeFocusInput(text: string): Promise<FocusAnalyzePrevi
   return data
 }
 
-export async function applyFocusItems(items: FocusAnalyzeItem[]): Promise<any> {
+export async function applyFocusItems(items: FocusAnalyzeItem[]): Promise<{ applied: boolean; results: Array<{ type: string; id?: number }> }> {
+  if (isNativeIOSRuntime()) {
+    const results: Array<{ type: string; id?: number }> = []
+    for (const item of items) {
+      const content = item.content.trim()
+      if (!content || item.type === 'IGNORE') continue
+      if (item.action === 'create_task') {
+        const task = await createIOSFocusTask(
+          content,
+          item.category ?? 'other',
+          item.priority ?? 'medium',
+          false,
+          item.due_date ?? undefined,
+          item.type === 'REMINDER' ? 'REMINDER' : 'TASK',
+        )
+        results.push({ type: 'task', id: task.id })
+      } else if (item.action === 'complete_task' && item.related_task_id) {
+        const task = await updateIOSFocusTask(item.related_task_id, { completed: true })
+        results.push({ type: 'task_update', id: task.id })
+      } else if (item.action === 'save_idea') {
+        await saveIOSFocusIdea(content)
+        results.push({ type: 'idea' })
+      } else if (item.action === 'save_decision') {
+        await saveIOSFocusDecision(content)
+        results.push({ type: 'decision' })
+      }
+    }
+    return { applied: true, results }
+  }
   const res = await authFetch(`${getBase()}/cognitive/focus/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -747,6 +799,7 @@ export async function applyFocusItems(items: FocusAnalyzeItem[]): Promise<any> {
 }
 
 export async function getFocusThink(query: string): Promise<string> {
+  if (isNativeIOSRuntime()) return getIOSFocusThink(query)
   const res = await authFetch(`${getBase()}/cognitive/focus/think`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -758,30 +811,38 @@ export async function getFocusThink(query: string): Promise<string> {
 }
 
 export async function getFocusIdeas(): Promise<FocusIdea[]> {
+  if (isNativeIOSRuntime()) return []
   const res = await authFetch(`${getBase()}/cognitive/focus/ideas`, { method: 'GET' })
   if (!res.ok) throw new Error('Falha ao carregar ideias.')
   return await res.json()
 }
 
 export async function getFocusDecisions(): Promise<FocusDecision[]> {
+  if (isNativeIOSRuntime()) return []
   const res = await authFetch(`${getBase()}/cognitive/focus/decisions`, { method: 'GET' })
   if (!res.ok) throw new Error('Falha ao carregar decisões.')
   return await res.json()
 }
 
 export async function getFocusTimeline(): Promise<FocusTimelineEvent[]> {
+  if (isNativeIOSRuntime()) return listIOSFocusTimeline()
   const res = await authFetch(`${getBase()}/cognitive/focus/timeline`, { method: 'GET' })
   if (!res.ok) throw new Error('Falha ao carregar timeline.')
   return await res.json()
 }
 
 export async function getFocusInbox(): Promise<FocusInboxItem[]> {
+  if (isNativeIOSRuntime()) return listIOSFocusInbox()
   const res = await authFetch(`${getBase()}/cognitive/focus/inbox`, { method: 'GET' })
   if (!res.ok) throw new Error('Falha ao carregar inbox.')
   return await res.json()
 }
 
 export async function updateFocusInboxStatus(itemId: number, status: string): Promise<void> {
+  if (isNativeIOSRuntime()) {
+    if (status !== 'approved' && status !== 'ignored') throw new Error('Status inválido para a Buds Inbox.')
+    return updateIOSFocusInbox(itemId, status)
+  }
   const res = await authFetch(`${getBase()}/cognitive/focus/inbox/${itemId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -791,7 +852,19 @@ export async function updateFocusInboxStatus(itemId: number, status: string): Pr
 }
 
 // Retrocompatibilidade
-export async function processBrainDump(text: string): Promise<any> {
+export async function processBrainDump(text: string): Promise<{ tasks: Array<Pick<FocusTask, 'title' | 'category' | 'priority'>> }> {
+  if (isNativeIOSRuntime()) {
+    const preview = await analyzeIOSFocusInput(text)
+    return {
+      tasks: preview.items
+        .filter(item => item.action === 'create_task')
+        .map(item => ({
+          title: item.content,
+          category: item.category ?? 'other',
+          priority: item.priority ?? 'medium',
+        })),
+    }
+  }
   const res = await authFetch(`${getBase()}/cognitive/focus/braindump`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -803,6 +876,7 @@ export async function processBrainDump(text: string): Promise<any> {
 }
 
 export async function organizeMyDay(): Promise<string> {
+  if (isNativeIOSRuntime()) return getIOSFocusThink('Sugira uma ordem objetiva para as minhas tarefas de hoje.')
   const res = await authFetch(`${getBase()}/cognitive/focus/organize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }

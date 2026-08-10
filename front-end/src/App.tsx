@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react'
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import {
   BrainCircuit,
   Check,
@@ -93,6 +93,27 @@ const FALLBACK_MODEL = 'qwen2.5-coder:3b'
 const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
 type AppView = 'home' | 'chat' | 'voice' | 'obsidian' | 'mobile' | 'focus'
+
+const VIEW_HASHES: Record<AppView, string> = {
+  home: '',
+  chat: '#chat',
+  voice: '#voice',
+  obsidian: '#obsidian',
+  mobile: '#mobile',
+  focus: '#focus',
+}
+
+function viewFromHash(hash: string): AppView {
+  const match = (Object.entries(VIEW_HASHES) as Array<[AppView, string]>)
+    .find(([, viewHash]) => viewHash && viewHash === hash)
+  return match?.[0] ?? 'home'
+}
+
+function resetDocumentScroll() {
+  window.scrollTo(0, 0)
+  document.documentElement.scrollTop = 0
+  document.body.scrollTop = 0
+}
 
 function DeferredSurface({ label = 'Carregando...' }: { label?: string }) {
   return (
@@ -230,13 +251,7 @@ export default function App() {
   const [selectedVoiceURI, setSelectedVoiceURI] = useState(() => localStorage.getItem(VOICE_URI_KEY) || '')
   const [voiceSilenceMode, setVoiceSilenceMode] = useState<VoiceSilenceMode>(getInitialVoiceSilenceMode)
 
-  const [activeView, setActiveView] = useState<AppView>(() => {
-    if (window.location.hash === '#chat') return 'chat'
-    if (window.location.hash === '#voice') return 'voice'
-    if (window.location.hash === '#obsidian') return 'obsidian'
-    if (window.location.hash === '#mobile') return 'mobile'
-    return 'home'
-  })
+  const [activeView, setActiveView] = useState<AppView>(() => viewFromHash(window.location.hash))
   const isWindowsUi = isWindowsRuntime()
   const isIOSUi = isIOSRuntime()
   const isNativeIOS = isNativeIOSRuntime()
@@ -244,7 +259,7 @@ export default function App() {
   const viewTransition: Transition = isWindowsUi
     ? { duration: 0 }
     : isIOSUi
-      ? { type: 'spring', damping: 24, stiffness: 280, mass: 0.9, restDelta: 0.001 }
+      ? { duration: 0.16, ease: [0.25, 1, 0.5, 1] }
       : { duration: 0.28, ease: 'easeOut' }
   const viewMotionProps = isWindowsUi
     ? {
@@ -255,9 +270,9 @@ export default function App() {
       }
     : isIOSUi
       ? {
-          initial: { opacity: 0, x: 10 },
+          initial: { opacity: 0, x: 6 },
           animate: { opacity: 1, x: 0 },
-          exit: { opacity: 0, x: -8 },
+          exit: { opacity: 0, x: -4 },
           transition: viewTransition,
         }
       : {
@@ -270,9 +285,49 @@ export default function App() {
   const handleBootDone = useCallback((h: SystemHealth) => {
     setSystemHealth(h)
     setBootDone(true)
-    if (!['#chat', '#voice', '#obsidian', '#mobile'].includes(window.location.hash)) {
+    if (!['#chat', '#voice', '#obsidian', '#mobile', '#focus'].includes(window.location.hash)) {
       setActiveView('home')
     }
+  }, [])
+
+  const resetViewScroll = useCallback((view: AppView, includeSettings = false) => {
+    resetDocumentScroll()
+    const target = includeSettings
+      ? document.querySelector<HTMLElement>('[aria-label="Configurações do Buds Memory"]')
+      : document.getElementById(view === 'home' ? 'inicio' : view)
+    target?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [])
+
+  const prepareViewportForView = useCallback((view: AppView, includeSettings = false) => {
+    const root = document.documentElement
+    const lockDocument = includeSettings || (view !== 'home' && view !== 'mobile')
+    root.dataset.appView = includeSettings ? 'settings' : view
+    root.dataset.appScroll = lockDocument ? 'locked' : 'window'
+    resetViewScroll(view, includeSettings)
+  }, [resetViewScroll])
+
+  useLayoutEffect(() => {
+    prepareViewportForView(activeView, settingsOpen)
+
+    // O segundo frame cobre a montagem lazy/AnimatePresence. No WKWebView isso
+    // também encerra a inércia que ainda pode chegar da tela anterior.
+    let secondFrame = 0
+    const firstFrame = window.requestAnimationFrame(() => {
+      resetViewScroll(activeView, settingsOpen)
+      secondFrame = window.requestAnimationFrame(() => {
+        resetViewScroll(activeView, settingsOpen)
+      })
+    })
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame)
+      if (secondFrame) window.cancelAnimationFrame(secondFrame)
+    }
+  }, [activeView, prepareViewportForView, resetViewScroll, settingsOpen])
+
+  useEffect(() => () => {
+    delete document.documentElement.dataset.appView
+    delete document.documentElement.dataset.appScroll
   }, [])
 
   useEffect(() => {
@@ -528,13 +583,9 @@ export default function App() {
   })
 
   useEffect(() => {
-    const target = window.location.hash
+    const targetView = viewFromHash(window.location.hash)
     window.queueMicrotask(() => {
-      if (target === '#chat') setActiveView('chat')
-      if (target === '#voice') setActiveView('voice')
-      if (target === '#obsidian') setActiveView('obsidian')
-      if (target === '#mobile') setActiveView('mobile')
-      if (target === '#focus') setActiveView('focus')
+      setActiveView(targetView)
     })
   }, [])
 
@@ -759,16 +810,17 @@ export default function App() {
     }
   }, [cancelRecording, clearMessages, currentSessionId, refreshCognitiveBrain, refreshLocalBackupStatus, showToast, stopOutput])
 
-  const handleOpenHome = () => {
+  const activateView = useCallback((view: AppView) => {
+    prepareViewportForView(view)
     setSettingsOpen(false)
-    setActiveView('home')
-    window.history.replaceState(null, '', window.location.pathname)
-    window.scrollTo({ top: 0 })
-  }
+    setActiveView(view)
+    window.history.replaceState(null, '', `${window.location.pathname}${VIEW_HASHES[view]}`)
+  }, [prepareViewportForView])
+
+  const handleOpenHome = () => activateView('home')
 
   const handleSmoothScrollToChat = () => {
-    setSettingsOpen(false)
-    setActiveView('chat')
+    activateView('chat')
     if (isMobileViewport()) {
       try {
         const hasSeenMobileChat = localStorage.getItem(MOBILE_CHAT_INTRO_KEY) === '1'
@@ -780,48 +832,31 @@ export default function App() {
       }
     }
     setChatRevealActive(!isIOSUi)
-    window.history.replaceState(null, '', '#chat')
-    window.scrollTo({ top: 0 })
     if (!isIOSUi) window.setTimeout(() => setChatRevealActive(false), 1900)
   }
 
-  const handleOpenVoice = () => {
-    setSettingsOpen(false)
-    setActiveView('voice')
-    window.history.replaceState(null, '', '#voice')
-    window.scrollTo({ top: 0 })
-  }
+  const handleOpenVoice = () => activateView('voice')
 
   const handleExitVoice = () => {
     cancelRecording()
     stopOutput()
-    setActiveView('chat')
+    activateView('chat')
     if (isMobileViewport()) setFocusMode(true)
-    window.history.replaceState(null, '', '#chat')
-    window.scrollTo({ top: 0 })
   }
 
   const handleOpenObsidian = () => {
-    setSettingsOpen(false)
-    setActiveView('obsidian')
+    activateView('obsidian')
     // Refresh lazy: atualiza memórias e grafo ao entrar na Obsidian.
     void refreshCognitiveBrain()
-    window.history.replaceState(null, '', '#obsidian')
-    window.scrollTo({ top: 0 })
   }
 
-  const handleOpenMobile = () => {
-    setSettingsOpen(false)
-    setActiveView('mobile')
-    window.history.replaceState(null, '', '#mobile')
-    window.scrollTo({ top: 0 })
-  }
+  const handleOpenMobile = () => activateView('mobile')
 
-  const handleOpenFocus = () => {
-    setSettingsOpen(false)
-    setActiveView('focus')
-    window.history.replaceState(null, '', '#focus')
-    window.scrollTo({ top: 0 })
+  const handleOpenFocus = () => activateView('focus')
+
+  const handleOpenSettings = () => {
+    prepareViewportForView(activeView, true)
+    setSettingsOpen(true)
   }
 
   const hasMessages = messages.length > 0
@@ -865,7 +900,7 @@ export default function App() {
       <button
         type="button"
         className={`${navigationStyles.button} ${settingsOpen ? `is-active ${navigationStyles.active}` : ''}`}
-        onClick={() => setSettingsOpen(true)}
+        onClick={handleOpenSettings}
         aria-current={settingsOpen ? 'page' : undefined}
       >
         <SettingsIcon size={14} />
@@ -1272,9 +1307,15 @@ export default function App() {
         )}
 
         {activeView === 'focus' && (
-          <Suspense fallback={<DeferredSurface label="Carregando Buds Focus..." />}>
-            <FocusPage visible={activeView === 'focus'} />
-          </Suspense>
+          <motion.div
+            key="focus"
+            className="fixed inset-0 z-[1] h-dvh min-h-0 w-full overflow-hidden"
+            {...viewMotionProps}
+          >
+            <Suspense fallback={<DeferredSurface label="Carregando Buds Focus..." />}>
+              <FocusPage visible={activeView === 'focus'} />
+            </Suspense>
+          </motion.div>
         )}
       </AnimatePresence>
 

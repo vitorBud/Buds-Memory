@@ -134,6 +134,41 @@ public struct BudsMemoryRecord: Sendable {
     public let sessionId: String?
 }
 
+public struct BudsFocusTaskRecord: Sendable {
+    public let id: Int64
+    public let title: String
+    public let category: String
+    public let priority: String
+    public let completed: Bool
+    public let isFocus: Bool
+    public let createdAt: String
+    public let updatedAt: String
+    public let dueDate: String?
+    public let itemType: String
+    public let source: String
+    public let sourceSessionId: String?
+    public let sourceMessageId: Int64?
+    public let confidence: Double
+}
+
+public struct BudsFocusTimelineRecord: Sendable {
+    public let id: Int64
+    public let eventType: String
+    public let title: String
+    public let details: String
+    public let createdAt: String
+}
+
+public struct BudsFocusInboxRecord: Sendable {
+    public let id: Int64
+    public let itemType: String
+    public let content: String
+    public let metadata: String
+    public let source: String
+    public let status: String
+    public let createdAt: String
+}
+
 public struct BudsGenerationMetrics: Sendable {
     public let generationId: String
     public let modelName: String

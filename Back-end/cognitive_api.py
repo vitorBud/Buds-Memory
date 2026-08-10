@@ -746,7 +746,7 @@ def create_focus_task():
     body = request.get_json(silent=True) or {}
     title = body.get("title", "").strip()
     if not title:
-        return _err("Title is required", 400)
+        return _err("O título da tarefa é obrigatório.", 400)
         
     try:
         task = focus.create_focus_task(
@@ -754,7 +754,10 @@ def create_focus_task():
             category=body.get("category", "other"),
             priority=body.get("priority", "medium"),
             is_focus=body.get("is_focus", False),
-            due_date=body.get("due_date")
+            due_date=body.get("due_date"),
+            item_type="REMINDER" if body.get("item_type") == "REMINDER" else "TASK",
+            source=body.get("source", "manual"),
+            confidence=body.get("confidence", 1.0),
         )
         return _ok(task, 201)
     except Exception as e:
@@ -786,10 +789,12 @@ def analyze_focus_input():
     body = request.get_json(silent=True) or {}
     text = body.get("text", "").strip()
     if not text:
-        return _err("Text is required", 400)
+        return _err("Escreva uma atualização antes de analisar.", 400)
         
     try:
         res = focus.analyze_focus_input(text)
+        if res.get("error"):
+            return _err("O Buds não conseguiu analisar esta atualização agora.", 503)
         return _ok(res)
     except Exception as e:
         return _err(str(e), 500)
@@ -798,16 +803,24 @@ def analyze_focus_input():
 def apply_focus_items():
     body = request.get_json(silent=True) or {}
     items = body.get("items", [])
+    if not isinstance(items, list):
+        return _err("A lista de alterações do Focus é inválida.", 400)
     
     results = []
     try:
         for item in items:
+            if not isinstance(item, dict):
+                continue
             action = item.get("action")
             if action == "create_task":
                 t = focus.create_focus_task(
                     title=item.get("content", ""),
                     category=item.get("category", "other"),
-                    priority=item.get("priority", "medium")
+                    priority=item.get("priority", "medium"),
+                    due_date=item.get("due_date"),
+                    item_type="REMINDER" if item.get("type") == "REMINDER" else "TASK",
+                    source="focus_input",
+                    confidence=item.get("confidence", 0.8),
                 )
                 results.append({"type": "task", "id": t["id"]})
             elif action == "complete_task" and item.get("related_task_id"):
@@ -819,6 +832,17 @@ def apply_focus_items():
             elif action == "save_decision":
                 d = focus.create_focus_decision(content=item.get("content", ""))
                 results.append({"type": "decision", "id": d["id"]})
+            elif action == "save_memory":
+                from cognitive import memory
+                m = memory.save_memory(
+                    item.get("content", ""),
+                    memory_type="long",
+                    importance=0.8,
+                    user_confirmed=True,
+                    origin_type="focus_input",
+                    tags=["focus", "confirmed"],
+                )
+                results.append({"type": "memory", "id": m["id"]})
                 
         return _ok({"applied": True, "results": results})
     except Exception as e:
@@ -829,7 +853,7 @@ def focus_think():
     body = request.get_json(silent=True) or {}
     query = body.get("query", "").strip()
     if not query:
-        return _err("Query is required", 400)
+        return _err("A pergunta do Focus é obrigatória.", 400)
         
     try:
         suggestion = focus.buds_think(query)
@@ -857,10 +881,10 @@ def get_focus_inbox():
 def update_focus_inbox(item_id: int):
     body = request.get_json(silent=True) or {}
     status = body.get("status")
-    success = focus.update_focus_inbox_status(item_id, status)
+    success = focus.resolve_focus_inbox_item(item_id, status)
     if success:
         return _ok({"success": True})
-    return _err("Failed to update status", 400)
+    return _err("Não foi possível atualizar este item da Buds Inbox.", 400)
 
 # Retrocompatibilidade (opcional)
 @cognitive_bp.post("/focus/braindump")
@@ -868,7 +892,7 @@ def process_brain_dump():
     body = request.get_json(silent=True) or {}
     text = body.get("text", "").strip()
     if not text:
-        return _err("Text is required", 400)
+        return _err("Escreva uma atualização antes de processar.", 400)
     try:
         tasks = focus.process_brain_dump(text)
         return _ok({"tasks": tasks})

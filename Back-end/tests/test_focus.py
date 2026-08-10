@@ -1,0 +1,128 @@
+import sqlite3
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+import database_v2  # noqa: E402
+from cognitive import focus  # noqa: E402
+from cognitive.focus_capture import detect_focus_candidates, parse_natural_due  # noqa: E402
+from datetime import datetime  # noqa: E402
+
+
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, exc_type, exc_value, traceback):
+        result = super().__exit__(exc_type, exc_value, traceback)
+        self.close()
+        return result
+
+
+class FocusTests(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.temp_dir.name) / "focus.sqlite3"
+
+        def connection():
+            conn = sqlite3.connect(self.database_path, factory=ClosingConnection)
+            conn.row_factory = sqlite3.Row
+            return conn
+
+        self.connection = connection
+        with connection() as conn:
+            database_v2._create_focus_tasks(conn)
+            database_v2._create_focus_v2_tables(conn)
+            database_v2._migrate_focus_capture_columns(conn)
+            conn.commit()
+        self.patch = patch.object(focus, "get_db_connection", side_effect=connection)
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        self.temp_dir.cleanup()
+
+    def test_priority_order_is_high_medium_low(self):
+        focus.create_focus_task("Baixa", priority="low")
+        focus.create_focus_task("Alta", priority="high")
+        focus.create_focus_task("Média", priority="medium")
+
+        self.assertEqual(
+            [task["title"] for task in focus.get_focus_tasks()],
+            ["Alta", "Média", "Baixa"],
+        )
+
+    def test_invalid_values_are_normalized(self):
+        task = focus.create_focus_task("Revisar projeto", category="invalid", priority="urgent")
+        self.assertEqual(task["category"], "other")
+        self.assertEqual(task["priority"], "medium")
+
+    def test_approving_inbox_really_applies_item(self):
+        item = focus.create_focus_inbox_item("TASK", "Preparar apresentação")
+        self.assertTrue(focus.resolve_focus_inbox_item(item["id"], "approved"))
+
+        tasks = focus.get_focus_tasks()
+        self.assertEqual([task["title"] for task in tasks], ["Preparar apresentação"])
+        self.assertEqual(focus.get_focus_inbox(), [])
+
+    def test_analyzed_items_are_bounded_and_validated(self):
+        items = focus._sanitize_analyzed_items([
+            {
+                "type": "MALICIOUS",
+                "content": "  conteúdo útil  ",
+                "action": "drop_database",
+                "category": "unknown",
+                "priority": "urgent",
+                "confidence": 7,
+            }
+        ])
+        self.assertEqual(items[0]["type"], "NOTE")
+        self.assertEqual(items[0]["action"], "none")
+        self.assertEqual(items[0]["content"], "conteúdo útil")
+        self.assertEqual(items[0]["confidence"], 1.0)
+        self.assertNotIn("category", items[0])
+        self.assertNotIn("priority", items[0])
+
+    def test_explicit_chat_task_is_created_without_llm(self):
+        result = focus.capture_chat_message(
+            "Hoje tenho que revisar o frontend do app.",
+            session_id="chat-1",
+            source_message_id=12,
+        )
+        self.assertEqual(len(result["created"]), 1)
+        task = result["created"][0]
+        self.assertEqual(task["title"], "Revisar o frontend do app")
+        self.assertEqual(task["category"], "project")
+        self.assertEqual(task["source"], "chat")
+
+    def test_explicit_reminder_understands_tomorrow_and_time(self):
+        now = datetime(2026, 8, 10, 14, 0)
+        candidates = detect_focus_candidates(
+            "Me lembra amanhã às 15h de mandar o relatório.",
+            now=now,
+        )
+        self.assertEqual(candidates[0]["type"], "REMINDER")
+        self.assertEqual(candidates[0]["content"], "Mandar o relatório")
+        self.assertEqual(candidates[0]["due_date"], "2026-08-11T15:00")
+        self.assertTrue(candidates[0]["auto_apply"])
+
+    def test_doubt_goes_to_inbox_instead_of_creating(self):
+        result = focus.capture_chat_message("Você acha que eu preciso trocar de computador?")
+        self.assertEqual(result["created"], [])
+        self.assertEqual(len(result["suggested"]), 1)
+
+    def test_semantic_duplicate_is_not_created_twice(self):
+        focus.capture_chat_message("Hoje preciso revisar o projeto.")
+        focus.capture_chat_message("Hoje eu preciso revisar o projeto!")
+        self.assertEqual(len(focus.get_focus_tasks()), 1)
+
+    def test_invalid_calendar_date_is_rejected(self):
+        self.assertIsNone(parse_natural_due("dia 31/02 às 10h", datetime(2026, 1, 1)))
+
+
+if __name__ == "__main__":
+    unittest.main()

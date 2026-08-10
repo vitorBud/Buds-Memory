@@ -55,6 +55,7 @@ from cognitive_api import cognitive_bp
 from cognitive import detector as cognitive_detector
 from cognitive import conversation as cognitive_conversation
 from cognitive import finance as cognitive_finance
+from cognitive import focus as cognitive_focus
 from cognitive import knowledge_graph
 from cognitive import rag as cognitive_rag
 from cognitive import response_safety
@@ -250,7 +251,17 @@ def prepare_session_context(
         title_update = database.update_session_title(session_id, title)
 
     with trace.span("db_save_user_message") if trace else _nullcontext():
-        database.add_message(session_id, "user", user_text)
+        user_message = database.add_message(session_id, "user", user_text)
+    try:
+        with trace.span("focus_capture") if trace else _nullcontext():
+            cognitive_focus.capture_chat_message(
+                user_text,
+                session_id=session_id,
+                source_message_id=user_message.get("id"),
+            )
+    except Exception as exc:
+        # O Focus é complementar: nunca pode impedir a resposta principal.
+        print(f"[Focus] Captura do chat ignorada: {exc}")
 
     if pipeline == FAST_PATH:
         if trace:
