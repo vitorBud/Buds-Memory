@@ -102,6 +102,17 @@ public struct BudsSessionRecord: Sendable {
     public let id: String
     public let title: String
     public let createdAt: String
+    public let folderId: String?
+}
+
+public struct BudsChatFolderRecord: Sendable {
+    public let id: String
+    public let name: String
+    public let icon: String
+    public let color: String
+    public let createdAt: String
+    public let updatedAt: String
+    public let chatCount: Int
 }
 
 public struct BudsConversationStorageRecord: Sendable {
@@ -149,6 +160,69 @@ public struct BudsFocusTaskRecord: Sendable {
     public let sourceSessionId: String?
     public let sourceMessageId: Int64?
     public let confidence: Double
+    public let placeContext: String
+    public let triggerOnArrival: Bool
+    public let locationRelevant: Bool
+    public let currentLocationContext: String
+}
+
+public struct BudsKnownPlaceRecord: Sendable {
+    public let id: Int64
+    public let name: String
+    public let context: String
+    public let latitude: Double
+    public let longitude: Double
+    public let radiusMeters: Double
+    public let enabled: Bool
+    public let createdAt: String
+    public let updatedAt: String
+}
+
+public struct BudsLocationStateRecord: Sendable {
+    public let placeId: Int64?
+    public let placeName: String?
+    public let context: String
+    public let status: String
+    public let latitude: Double?
+    public let longitude: Double?
+    public let accuracyMeters: Double?
+    public let source: String
+    public let updatedAt: String?
+    public let changed: Bool
+}
+
+public struct BudsLocationEventRecord: Sendable {
+    public let id: Int64
+    public let placeId: Int64?
+    public let placeName: String?
+    public let eventType: String
+    public let context: String
+    public let source: String
+    public let createdAt: String
+}
+
+public struct BudsLocationRoutePointRecord: Sendable {
+    public let id: Int64
+    public let routeId: Int64
+    public let latitude: Double
+    public let longitude: Double
+    public let accuracyMeters: Double?
+    public let altitudeMeters: Double?
+    public let speedMetersPerSecond: Double?
+    public let recordedAt: String
+}
+
+public struct BudsLocationRouteRecord: Sendable {
+    public let id: Int64
+    public let name: String
+    public let status: String
+    public let startedAt: String
+    public let endedAt: String?
+    public let distanceMeters: Double
+    public let durationSeconds: Int
+    public let pointCount: Int
+    public let createdAt: String
+    public let points: [BudsLocationRoutePointRecord]
 }
 
 public struct BudsFocusTimelineRecord: Sendable {

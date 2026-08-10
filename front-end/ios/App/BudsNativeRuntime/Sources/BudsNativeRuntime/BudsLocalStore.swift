@@ -37,7 +37,7 @@ public final class BudsLocalStore: @unchecked Sendable {
 
     public func listSessions() throws -> [BudsSessionRecord] {
         try queue.sync {
-            let sql = "SELECT id, title, created_at FROM sessions WHERE deleted_at IS NULL ORDER BY created_at DESC"
+            let sql = "SELECT id, title, created_at, folder_id FROM sessions WHERE deleted_at IS NULL ORDER BY created_at DESC"
             let statement = try prepare(sql)
             defer { sqlite3_finalize(statement) }
             var records: [BudsSessionRecord] = []
@@ -45,7 +45,8 @@ public final class BudsLocalStore: @unchecked Sendable {
                 records.append(BudsSessionRecord(
                     id: text(statement, 0),
                     title: text(statement, 1),
-                    createdAt: text(statement, 2)
+                    createdAt: text(statement, 2),
+                    folderId: optionalText(statement, 3)
                 ))
             }
             return records
@@ -56,21 +57,133 @@ public final class BudsLocalStore: @unchecked Sendable {
         try queue.sync { try session(id: id) }
     }
 
-    public func createSession(title: String?) throws -> BudsSessionRecord {
+    public func createSession(title: String?, folderId: String? = nil) throws -> BudsSessionRecord {
         try queue.sync {
             try ensureWritable()
+            if let folderId, try chatFolder(id: folderId) == nil {
+                throw BudsNativeError.databaseUnavailable("Pasta não encontrada.")
+            }
             let record = BudsSessionRecord(
                 id: UUID().uuidString.lowercased(),
                 title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "Nova conversa",
-                createdAt: Self.now()
+                createdAt: Self.now(),
+                folderId: folderId
             )
-            let statement = try prepare("INSERT INTO sessions (id, title, created_at) VALUES (?, ?, ?)")
+            let statement = try prepare("INSERT INTO sessions (id, title, created_at, folder_id) VALUES (?, ?, ?, ?)")
             defer { sqlite3_finalize(statement) }
             bind(record.id, statement, 1)
             bind(record.title, statement, 2)
             bind(record.createdAt, statement, 3)
+            bindOptional(record.folderId, statement, 4)
             try stepDone(statement)
             return record
+        }
+    }
+
+    public func updateSessionFolder(id: String, folderId: String?) throws -> BudsSessionRecord {
+        try queue.sync {
+            try ensureWritable()
+            if let folderId, try chatFolder(id: folderId) == nil {
+                throw BudsNativeError.databaseUnavailable("Pasta não encontrada.")
+            }
+            let statement = try prepare("UPDATE sessions SET folder_id=? WHERE id=? AND deleted_at IS NULL")
+            defer { sqlite3_finalize(statement) }
+            bindOptional(folderId, statement, 1)
+            bind(id, statement, 2)
+            try stepDone(statement)
+            guard let record = try session(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Conversa não encontrada.")
+            }
+            return record
+        }
+    }
+
+    public func chatFolders() throws -> [BudsChatFolderRecord] {
+        try queue.sync {
+            let statement = try prepare("""
+                SELECT folder.id, folder.name, folder.icon, folder.color,
+                       folder.created_at, folder.updated_at, COUNT(session.id)
+                FROM chat_folders folder
+                LEFT JOIN sessions session
+                  ON session.folder_id=folder.id AND session.deleted_at IS NULL
+                GROUP BY folder.id
+                ORDER BY folder.name COLLATE NOCASE
+                """)
+            defer { sqlite3_finalize(statement) }
+            var records: [BudsChatFolderRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(chatFolderRecord(statement))
+            }
+            return records
+        }
+    }
+
+    public func createChatFolder(name: String, icon: String, color: String) throws -> BudsChatFolderRecord {
+        try queue.sync {
+            try ensureWritable()
+            let cleanName = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(48))
+            guard !cleanName.isEmpty else {
+                throw BudsNativeError.databaseUnavailable("Informe um nome para a pasta.")
+            }
+            let now = Self.now()
+            let id = UUID().uuidString.lowercased()
+            let statement = try prepare("INSERT INTO chat_folders (id,name,icon,color,created_at,updated_at) VALUES (?,?,?,?,?,?)")
+            defer { sqlite3_finalize(statement) }
+            bind(id, statement, 1)
+            bind(cleanName, statement, 2)
+            bind(Self.cleanFolderIcon(icon), statement, 3)
+            bind(Self.cleanFolderColor(color), statement, 4)
+            bind(now, statement, 5)
+            bind(now, statement, 6)
+            try stepDone(statement)
+            guard let record = try chatFolder(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Não foi possível criar a pasta.")
+            }
+            return record
+        }
+    }
+
+    public func updateChatFolder(id: String, name: String?, icon: String?, color: String?) throws -> BudsChatFolderRecord {
+        try queue.sync {
+            try ensureWritable()
+            guard let current = try chatFolder(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Pasta não encontrada.")
+            }
+            let cleanName = String((name ?? current.name).trimmingCharacters(in: .whitespacesAndNewlines).prefix(48))
+            guard !cleanName.isEmpty else {
+                throw BudsNativeError.databaseUnavailable("O nome da pasta não pode ficar vazio.")
+            }
+            let statement = try prepare("UPDATE chat_folders SET name=?,icon=?,color=?,updated_at=? WHERE id=?")
+            defer { sqlite3_finalize(statement) }
+            bind(cleanName, statement, 1)
+            bind(icon.map(Self.cleanFolderIcon) ?? current.icon, statement, 2)
+            bind(color.map(Self.cleanFolderColor) ?? current.color, statement, 3)
+            bind(Self.now(), statement, 4)
+            bind(id, statement, 5)
+            try stepDone(statement)
+            guard let record = try chatFolder(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Pasta não encontrada.")
+            }
+            return record
+        }
+    }
+
+    public func deleteChatFolder(id: String) throws {
+        try queue.sync {
+            try ensureWritable()
+            guard try chatFolder(id: id) != nil else {
+                throw BudsNativeError.databaseUnavailable("Pasta não encontrada.")
+            }
+            try transaction {
+                let detach = try prepare("UPDATE sessions SET folder_id=NULL WHERE folder_id=?")
+                bind(id, detach, 1)
+                try stepDone(detach)
+                sqlite3_finalize(detach)
+                let remove = try prepare("DELETE FROM chat_folders WHERE id=?")
+                bind(id, remove, 1)
+                try stepDone(remove)
+                sqlite3_finalize(remove)
+            }
         }
     }
 
@@ -180,6 +293,11 @@ public final class BudsLocalStore: @unchecked Sendable {
     public func clearAllData() throws {
         try queue.sync {
             try transaction {
+                try execute("DELETE FROM location_route_points")
+                try execute("DELETE FROM location_routes")
+                try execute("DELETE FROM location_events")
+                try execute("DELETE FROM location_state")
+                try execute("DELETE FROM location_places")
                 try execute("DELETE FROM focus_inbox")
                 try execute("DELETE FROM focus_timeline")
                 try execute("DELETE FROM focus_decisions")
@@ -188,7 +306,8 @@ public final class BudsLocalStore: @unchecked Sendable {
                 try execute("DELETE FROM messages")
                 try execute("DELETE FROM memories")
                 try execute("DELETE FROM sessions")
-                try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox')")
+                try execute("DELETE FROM chat_folders")
+                try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox', 'location_places', 'location_events', 'location_routes', 'location_route_points')")
             }
             try? execute("PRAGMA wal_checkpoint(TRUNCATE)")
             try? execute("VACUUM")
@@ -390,20 +509,24 @@ public final class BudsLocalStore: @unchecked Sendable {
 
     public func focusTasks() throws -> [BudsFocusTaskRecord] {
         try queue.sync {
+            let currentContext = try locationStateInsideQueue().context
             let statement = try prepare(
                 """
                 SELECT id, title, category, priority, completed, is_focus, created_at, updated_at, due_date,
-                       item_type, source, source_session_id, source_message_id, confidence
+                       item_type, source, source_session_id, source_message_id, confidence,
+                       place_context, trigger_on_arrival
                 FROM focus_tasks
                 ORDER BY completed ASC,
+                         CASE WHEN place_context = 'anywhere' OR place_context = ? THEN 0 ELSE 1 END ASC,
                          CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
                          created_at DESC
                 """
             )
             defer { sqlite3_finalize(statement) }
+            bind(currentContext, statement, 1)
             var records: [BudsFocusTaskRecord] = []
             while sqlite3_step(statement) == SQLITE_ROW {
-                records.append(focusTaskRecord(statement))
+                records.append(focusTaskRecord(statement, currentContext: currentContext))
             }
             return records
         }
@@ -415,7 +538,9 @@ public final class BudsLocalStore: @unchecked Sendable {
         priority: String,
         isFocus: Bool,
         dueDate: String?,
-        itemType: String = "TASK"
+        itemType: String = "TASK",
+        placeContext: String = "anywhere",
+        triggerOnArrival: Bool = false
     ) throws -> BudsFocusTaskRecord {
         try queue.sync {
             try ensureWritable()
@@ -425,11 +550,13 @@ public final class BudsLocalStore: @unchecked Sendable {
             }
             let cleanCategory = Self.focusCategories.contains(category) ? category : "other"
             let cleanPriority = Self.focusPriorities.contains(priority) ? priority : "medium"
+            let cleanPlace = Self.locationTaskContexts.contains(placeContext) ? placeContext : "anywhere"
 
             let duplicate = try prepare(
-                "SELECT id FROM focus_tasks WHERE completed = 0 AND lower(trim(title)) = lower(trim(?)) LIMIT 1"
+                "SELECT id FROM focus_tasks WHERE completed = 0 AND lower(trim(title)) = lower(trim(?)) AND place_context = ? LIMIT 1"
             )
             bind(cleanTitle, duplicate, 1)
+            bind(cleanPlace, duplicate, 2)
             if sqlite3_step(duplicate) == SQLITE_ROW {
                 let existingId = sqlite3_column_int64(duplicate, 0)
                 sqlite3_finalize(duplicate)
@@ -446,8 +573,8 @@ public final class BudsLocalStore: @unchecked Sendable {
                 """
                 INSERT INTO focus_tasks
                     (title, category, priority, completed, is_focus, created_at, updated_at, due_date,
-                     item_type, source, confidence)
-                VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, 'manual', 1.0)
+                     item_type, source, confidence, place_context, trigger_on_arrival)
+                VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, 'manual', 1.0, ?, ?)
                 """
             )
             defer { sqlite3_finalize(statement) }
@@ -459,6 +586,8 @@ public final class BudsLocalStore: @unchecked Sendable {
             bind(now, statement, 6)
             bindOptional(dueDate, statement, 7)
             bind(itemType == "REMINDER" ? "REMINDER" : "TASK", statement, 8)
+            bind(cleanPlace, statement, 9)
+            sqlite3_bind_int(statement, 10, triggerOnArrival && cleanPlace != "anywhere" ? 1 : 0)
             try stepDone(statement)
             let id = sqlite3_last_insert_rowid(database)
             try logFocusEvent(eventType: itemType == "REMINDER" ? "reminder_created" : "task_created", title: cleanTitle)
@@ -475,7 +604,9 @@ public final class BudsLocalStore: @unchecked Sendable {
         category: String?,
         priority: String?,
         completed: Bool?,
-        isFocus: Bool?
+        isFocus: Bool?,
+        placeContext: String?,
+        triggerOnArrival: Bool?
     ) throws -> BudsFocusTaskRecord {
         try queue.sync {
             try ensureWritable()
@@ -487,12 +618,15 @@ public final class BudsLocalStore: @unchecked Sendable {
             let nextPriority = priority.flatMap { Self.focusPriorities.contains($0) ? $0 : nil } ?? current.priority
             let nextCompleted = completed ?? current.completed
             let nextIsFocus = isFocus ?? current.isFocus
+            let nextPlace = placeContext.flatMap { Self.locationTaskContexts.contains($0) ? $0 : nil } ?? current.placeContext
+            let nextArrival = (triggerOnArrival ?? current.triggerOnArrival) && nextPlace != "anywhere"
             if nextIsFocus { try execute("UPDATE focus_tasks SET is_focus = 0") }
 
             let statement = try prepare(
                 """
                 UPDATE focus_tasks
-                SET title = ?, category = ?, priority = ?, completed = ?, is_focus = ?, updated_at = ?
+                SET title = ?, category = ?, priority = ?, completed = ?, is_focus = ?, updated_at = ?,
+                    place_context = ?, trigger_on_arrival = ?
                 WHERE id = ?
                 """
             )
@@ -503,7 +637,9 @@ public final class BudsLocalStore: @unchecked Sendable {
             sqlite3_bind_int(statement, 4, nextCompleted ? 1 : 0)
             sqlite3_bind_int(statement, 5, nextIsFocus ? 1 : 0)
             bind(Self.now(), statement, 6)
-            sqlite3_bind_int64(statement, 7, id)
+            bind(nextPlace, statement, 7)
+            sqlite3_bind_int(statement, 8, nextArrival ? 1 : 0)
+            sqlite3_bind_int64(statement, 9, id)
             try stepDone(statement)
 
             if let completed, completed != current.completed {
@@ -646,7 +782,9 @@ public final class BudsLocalStore: @unchecked Sendable {
                         sourceSessionId: metadata["session_id"] as? String,
                         sourceMessageId: (metadata["message_id"] as? NSNumber)?.int64Value,
                         dedupKey: dedupKey,
-                        confidence: (metadata["confidence"] as? NSNumber)?.doubleValue ?? 0.75
+                        confidence: (metadata["confidence"] as? NSNumber)?.doubleValue ?? 0.75,
+                        placeContext: metadata["place_context"] as? String ?? "anywhere",
+                        triggerOnArrival: metadata["trigger_on_arrival"] as? Bool ?? false
                     )
                 case "IDEA":
                     try createFocusIdeaInsideQueue(content: content)
@@ -663,6 +801,268 @@ public final class BudsLocalStore: @unchecked Sendable {
             bind(status, statement, 1)
             sqlite3_bind_int64(statement, 2, id)
             try stepDone(statement)
+        }
+    }
+
+    // MARK: - Buds Map / contexto de lugar
+
+    public func knownPlaces() throws -> [BudsKnownPlaceRecord] {
+        try queue.sync { try knownPlacesInsideQueue() }
+    }
+
+    public func saveKnownPlace(
+        id: Int64?, name: String, context: String, latitude: Double,
+        longitude: Double, radiusMeters: Double, enabled: Bool
+    ) throws -> BudsKnownPlaceRecord {
+        try queue.sync {
+            try ensureWritable()
+            guard (-90...90).contains(latitude), (-180...180).contains(longitude) else {
+                throw BudsNativeError.databaseUnavailable("Coordenadas inválidas.")
+            }
+            let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let cleanName = cleanName.nonEmpty else {
+                throw BudsNativeError.databaseUnavailable("Dê um nome ao lugar.")
+            }
+            let cleanContext = Self.placeContexts.contains(context) ? context : "other"
+            let cleanRadius = min(1_000, max(75, radiusMeters))
+            let now = Self.now()
+            let placeId: Int64
+            if let id {
+                let statement = try prepare(
+                    "UPDATE location_places SET name=?,context=?,latitude=?,longitude=?,radius_m=?,enabled=?,updated_at=? WHERE id=?"
+                )
+                defer { sqlite3_finalize(statement) }
+                bind(String(cleanName.prefix(80)), statement, 1)
+                bind(cleanContext, statement, 2)
+                sqlite3_bind_double(statement, 3, latitude)
+                sqlite3_bind_double(statement, 4, longitude)
+                sqlite3_bind_double(statement, 5, cleanRadius)
+                sqlite3_bind_int(statement, 6, enabled ? 1 : 0)
+                bind(now, statement, 7)
+                sqlite3_bind_int64(statement, 8, id)
+                try stepDone(statement)
+                placeId = id
+            } else {
+                let statement = try prepare(
+                    "INSERT INTO location_places (name,context,latitude,longitude,radius_m,enabled,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)"
+                )
+                defer { sqlite3_finalize(statement) }
+                bind(String(cleanName.prefix(80)), statement, 1)
+                bind(cleanContext, statement, 2)
+                sqlite3_bind_double(statement, 3, latitude)
+                sqlite3_bind_double(statement, 4, longitude)
+                sqlite3_bind_double(statement, 5, cleanRadius)
+                sqlite3_bind_int(statement, 6, enabled ? 1 : 0)
+                bind(now, statement, 7)
+                bind(now, statement, 8)
+                try stepDone(statement)
+                placeId = sqlite3_last_insert_rowid(database)
+            }
+            guard let place = try knownPlaceInsideQueue(id: placeId) else {
+                throw BudsNativeError.databaseUnavailable("Não foi possível recuperar o lugar salvo.")
+            }
+            return place
+        }
+    }
+
+    public func deleteKnownPlace(id: Int64) throws {
+        try queue.sync {
+            try ensureWritable()
+            let state = try locationStateInsideQueue()
+            let statement = try prepare("DELETE FROM location_places WHERE id = ?")
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, id)
+            try stepDone(statement)
+            if state.placeId == id {
+                try writeLocationState(
+                    placeId: nil, context: "away", status: "away",
+                    latitude: state.latitude, longitude: state.longitude,
+                    accuracyMeters: state.accuracyMeters, source: "system"
+                )
+            }
+        }
+    }
+
+    public func locationState() throws -> BudsLocationStateRecord {
+        try queue.sync { try locationStateInsideQueue() }
+    }
+
+    public func locationEvents(limit: Int = 30) throws -> [BudsLocationEventRecord] {
+        try queue.sync {
+            let statement = try prepare(
+                """
+                SELECT e.id,e.place_id,p.name,e.event_type,e.context,e.source,e.created_at
+                FROM location_events e LEFT JOIN location_places p ON p.id=e.place_id
+                ORDER BY e.id DESC LIMIT ?
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int(statement, 1, Int32(max(1, min(limit, 200))))
+            var events: [BudsLocationEventRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                events.append(BudsLocationEventRecord(
+                    id: sqlite3_column_int64(statement, 0),
+                    placeId: sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 1),
+                    placeName: optionalText(statement, 2),
+                    eventType: text(statement, 3),
+                    context: text(statement, 4),
+                    source: text(statement, 5),
+                    createdAt: text(statement, 6)
+                ))
+            }
+            return events
+        }
+    }
+
+    public func updateLocationSample(
+        latitude: Double, longitude: Double, accuracyMeters: Double?,
+        altitudeMeters: Double? = nil, speedMetersPerSecond: Double? = nil,
+        recordedAt: String? = nil, source: String
+    ) throws -> BudsLocationStateRecord {
+        try queue.sync {
+            try ensureWritable()
+            guard (-90...90).contains(latitude), (-180...180).contains(longitude) else {
+                throw BudsNativeError.databaseUnavailable("Coordenadas inválidas.")
+            }
+            let previous = try locationStateInsideQueue()
+            let nearest = try knownPlacesInsideQueue()
+                .filter(\.enabled)
+                .map { ($0, Self.distanceMeters(latitude, longitude, $0.latitude, $0.longitude)) }
+                .filter { $0.1 <= $0.0.radiusMeters }
+                .min { $0.1 < $1.1 }?.0
+            let nextContext = nearest?.context ?? (source == "significant_change" ? "commuting" : "away")
+            let nextStatus = nearest == nil ? "away" : "inside"
+            try writeLocationState(
+                placeId: nearest?.id, context: nextContext, status: nextStatus,
+                latitude: latitude, longitude: longitude,
+                accuracyMeters: accuracyMeters.map { min(5_000, max(0, $0)) }, source: source
+            )
+            if previous.placeId != nearest?.id {
+                if let previousId = previous.placeId {
+                    try logLocationEvent(placeId: previousId, eventType: "exit", context: previous.context, source: source)
+                }
+                if let nearest {
+                    try logLocationEvent(placeId: nearest.id, eventType: "enter", context: nearest.context, source: source)
+                }
+            }
+            try appendActiveRoutePointInsideQueue(
+                latitude: latitude,
+                longitude: longitude,
+                accuracyMeters: accuracyMeters,
+                altitudeMeters: altitudeMeters,
+                speedMetersPerSecond: speedMetersPerSecond,
+                recordedAt: recordedAt ?? Self.now()
+            )
+            let updated = try locationStateInsideQueue()
+            return BudsLocationStateRecord(
+                placeId: updated.placeId, placeName: updated.placeName, context: updated.context,
+                status: updated.status, latitude: updated.latitude, longitude: updated.longitude,
+                accuracyMeters: updated.accuracyMeters, source: updated.source, updatedAt: updated.updatedAt,
+                changed: previous.placeId != updated.placeId
+            )
+        }
+    }
+
+    public func locationRoutes(limit: Int = 30) throws -> [BudsLocationRouteRecord] {
+        try queue.sync { try locationRoutesInsideQueue(limit: limit) }
+    }
+
+    public func activeLocationRoute() throws -> BudsLocationRouteRecord? {
+        try queue.sync { try activeLocationRouteInsideQueue(includePoints: true) }
+    }
+
+    public func locationRoute(id: Int64) throws -> BudsLocationRouteRecord? {
+        try queue.sync { try locationRouteInsideQueue(id: id, includePoints: true) }
+    }
+
+    public func startLocationRoute(name: String?) throws -> BudsLocationRouteRecord {
+        try queue.sync {
+            try ensureWritable()
+            if let active = try activeLocationRouteInsideQueue(includePoints: true) { return active }
+            let now = Self.now()
+            let cleanName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = (cleanName?.isEmpty == false) ? cleanName! : "Trajeto de \(Self.routeTitleFormatter.string(from: Date()))"
+            let statement = try prepare(
+                "INSERT INTO location_routes (name,status,started_at,created_at) VALUES (?,'active',?,?)"
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(String(title.prefix(100)), statement, 1)
+            bind(now, statement, 2)
+            bind(now, statement, 3)
+            try stepDone(statement)
+            guard let route = try locationRouteInsideQueue(id: sqlite3_last_insert_rowid(database), includePoints: true) else {
+                throw BudsNativeError.databaseUnavailable("Não foi possível iniciar o trajeto.")
+            }
+            return route
+        }
+    }
+
+    public func finishLocationRoute() throws -> BudsLocationRouteRecord? {
+        try queue.sync {
+            try ensureWritable()
+            guard let active = try activeLocationRouteInsideQueue(includePoints: false) else { return nil }
+            let now = Self.now()
+            let duration = Self.elapsedSeconds(from: active.startedAt, to: now)
+            let statement = try prepare(
+                "UPDATE location_routes SET status='completed',ended_at=?,duration_s=? WHERE id=?"
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(now, statement, 1)
+            sqlite3_bind_int(statement, 2, Int32(min(Int(Int32.max), duration)))
+            sqlite3_bind_int64(statement, 3, active.id)
+            try stepDone(statement)
+            return try locationRouteInsideQueue(id: active.id, includePoints: true)
+        }
+    }
+
+    public func deleteLocationRoute(id: Int64) throws {
+        try queue.sync {
+            try ensureWritable()
+            let statement = try prepare("DELETE FROM location_routes WHERE id=?")
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, id)
+            try stepDone(statement)
+        }
+    }
+
+    public func setSemanticLocationContext(_ context: String) throws -> BudsLocationStateRecord {
+        try queue.sync {
+            try ensureWritable()
+            let clean = Self.semanticContexts.contains(context) ? context : "unknown"
+            let previous = try locationStateInsideQueue()
+            try writeLocationState(
+                placeId: nil, context: clean,
+                status: ["unknown", "away"].contains(clean) ? clean : "manual",
+                latitude: previous.latitude, longitude: previous.longitude,
+                accuracyMeters: previous.accuracyMeters, source: "manual"
+            )
+            if previous.context != clean {
+                try logLocationEvent(placeId: nil, eventType: "context_changed", context: clean, source: "manual")
+            }
+            return try locationStateInsideQueue()
+        }
+    }
+
+    public func recordGeofence(placeId: Int64, entering: Bool) throws -> BudsLocationStateRecord {
+        try queue.sync {
+            guard let place = try knownPlaceInsideQueue(id: placeId) else { return try locationStateInsideQueue() }
+            let previous = try locationStateInsideQueue()
+            if entering {
+                try writeLocationState(
+                    placeId: place.id, context: place.context, status: "inside",
+                    latitude: previous.latitude, longitude: previous.longitude,
+                    accuracyMeters: previous.accuracyMeters, source: "geofence"
+                )
+                try logLocationEvent(placeId: place.id, eventType: "enter", context: place.context, source: "geofence")
+            } else if previous.placeId == place.id {
+                try writeLocationState(
+                    placeId: nil, context: "away", status: "away",
+                    latitude: previous.latitude, longitude: previous.longitude,
+                    accuracyMeters: previous.accuracyMeters, source: "geofence"
+                )
+                try logLocationEvent(placeId: place.id, eventType: "exit", context: place.context, source: "geofence")
+            }
+            return try locationStateInsideQueue()
         }
     }
 
@@ -695,6 +1095,20 @@ public final class BudsLocalStore: @unchecked Sendable {
             try execute("ALTER TABLE sessions ADD COLUMN deleted_at TEXT")
         }
         try execute("""
+            CREATE TABLE IF NOT EXISTS chat_folders (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                icon TEXT NOT NULL DEFAULT 'folder',
+                color TEXT NOT NULL DEFAULT '#8b5cf6',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """)
+        if !((try? tableColumns("sessions")) ?? []).contains("folder_id") {
+            try execute("ALTER TABLE sessions ADD COLUMN folder_id TEXT")
+        }
+        try execute("CREATE INDEX IF NOT EXISTS idx_sessions_folder ON sessions(folder_id, created_at DESC)")
+        try execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL,
@@ -711,7 +1125,7 @@ public final class BudsLocalStore: @unchecked Sendable {
             try execute("ALTER TABLE memories ADD COLUMN origin_type TEXT NOT NULL DEFAULT 'legacy'")
         }
         try migrateFocus()
-        try execute("PRAGMA user_version=4")
+        try execute("PRAGMA user_version=7")
     }
 
     private func migrateFocus() throws {
@@ -779,12 +1193,326 @@ public final class BudsLocalStore: @unchecked Sendable {
         if !taskColumns.contains("source_message_id") { try execute("ALTER TABLE focus_tasks ADD COLUMN source_message_id INTEGER") }
         if !taskColumns.contains("dedup_key") { try execute("ALTER TABLE focus_tasks ADD COLUMN dedup_key TEXT") }
         if !taskColumns.contains("confidence") { try execute("ALTER TABLE focus_tasks ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0") }
+        if !taskColumns.contains("place_context") { try execute("ALTER TABLE focus_tasks ADD COLUMN place_context TEXT NOT NULL DEFAULT 'anywhere'") }
+        if !taskColumns.contains("trigger_on_arrival") { try execute("ALTER TABLE focus_tasks ADD COLUMN trigger_on_arrival INTEGER NOT NULL DEFAULT 0") }
         let inboxColumns = try tableColumns("focus_inbox")
         if !inboxColumns.contains("dedup_key") { try execute("ALTER TABLE focus_inbox ADD COLUMN dedup_key TEXT") }
         try execute("CREATE INDEX IF NOT EXISTS idx_focus_tasks_state ON focus_tasks(completed, is_focus, priority)")
         try execute("CREATE INDEX IF NOT EXISTS idx_focus_timeline_created ON focus_timeline(created_at)")
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_tasks_dedup ON focus_tasks(dedup_key) WHERE dedup_key IS NOT NULL AND completed = 0")
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_inbox_dedup ON focus_inbox(dedup_key) WHERE dedup_key IS NOT NULL AND status = 'pending'")
+        try migrateLocation()
+    }
+
+    private func migrateLocation() throws {
+        try execute("""
+            CREATE TABLE IF NOT EXISTS location_places (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                context TEXT NOT NULL DEFAULT 'other',
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                radius_m REAL NOT NULL DEFAULT 180,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS location_state (
+                id INTEGER PRIMARY KEY CHECK(id = 1),
+                place_id INTEGER,
+                context TEXT NOT NULL DEFAULT 'unknown',
+                status TEXT NOT NULL DEFAULT 'unknown',
+                latitude REAL,
+                longitude REAL,
+                accuracy_m REAL,
+                source TEXT NOT NULL DEFAULT 'manual',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY(place_id) REFERENCES location_places(id) ON DELETE SET NULL
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS location_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                place_id INTEGER,
+                event_type TEXT NOT NULL,
+                context TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'system',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(place_id) REFERENCES location_places(id) ON DELETE SET NULL
+            )
+            """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_location_places_context ON location_places(context, enabled)")
+        try execute("CREATE INDEX IF NOT EXISTS idx_location_events_created ON location_events(created_at)")
+        try execute("CREATE INDEX IF NOT EXISTS idx_focus_tasks_place ON focus_tasks(place_context, completed)")
+        try execute("""
+            CREATE TABLE IF NOT EXISTS location_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                started_at TEXT NOT NULL,
+                ended_at TEXT,
+                distance_m REAL NOT NULL DEFAULT 0,
+                duration_s INTEGER NOT NULL DEFAULT 0,
+                point_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS location_route_points (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                route_id INTEGER NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                accuracy_m REAL,
+                altitude_m REAL,
+                speed_mps REAL,
+                recorded_at TEXT NOT NULL,
+                FOREIGN KEY(route_id) REFERENCES location_routes(id) ON DELETE CASCADE
+            )
+            """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_location_routes_started ON location_routes(started_at DESC)")
+        try execute("CREATE INDEX IF NOT EXISTS idx_location_route_points_route ON location_route_points(route_id, id)")
+    }
+
+    private func knownPlacesInsideQueue() throws -> [BudsKnownPlaceRecord] {
+        let statement = try prepare(
+            "SELECT id,name,context,latitude,longitude,radius_m,enabled,created_at,updated_at FROM location_places ORDER BY enabled DESC,name COLLATE NOCASE"
+        )
+        defer { sqlite3_finalize(statement) }
+        var places: [BudsKnownPlaceRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            places.append(knownPlaceRecord(statement))
+        }
+        return places
+    }
+
+    private func knownPlaceInsideQueue(id: Int64) throws -> BudsKnownPlaceRecord? {
+        let statement = try prepare(
+            "SELECT id,name,context,latitude,longitude,radius_m,enabled,created_at,updated_at FROM location_places WHERE id=? LIMIT 1"
+        )
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return knownPlaceRecord(statement)
+    }
+
+    private func knownPlaceRecord(_ statement: OpaquePointer) -> BudsKnownPlaceRecord {
+        BudsKnownPlaceRecord(
+            id: sqlite3_column_int64(statement, 0), name: text(statement, 1),
+            context: text(statement, 2), latitude: sqlite3_column_double(statement, 3),
+            longitude: sqlite3_column_double(statement, 4), radiusMeters: sqlite3_column_double(statement, 5),
+            enabled: sqlite3_column_int(statement, 6) == 1, createdAt: text(statement, 7),
+            updatedAt: text(statement, 8)
+        )
+    }
+
+    private func locationRoutesInsideQueue(limit: Int) throws -> [BudsLocationRouteRecord] {
+        let statement = try prepare(
+            """
+            SELECT id,name,status,started_at,ended_at,distance_m,duration_s,point_count,created_at
+            FROM location_routes ORDER BY started_at DESC LIMIT ?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int(statement, 1, Int32(max(1, min(limit, 100))))
+        var routes: [BudsLocationRouteRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            routes.append(locationRouteRecord(statement, points: []))
+        }
+        return routes
+    }
+
+    private func activeLocationRouteInsideQueue(includePoints: Bool) throws -> BudsLocationRouteRecord? {
+        let statement = try prepare(
+            """
+            SELECT id,name,status,started_at,ended_at,distance_m,duration_s,point_count,created_at
+            FROM location_routes WHERE status='active' ORDER BY id DESC LIMIT 1
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        let id = sqlite3_column_int64(statement, 0)
+        return locationRouteRecord(statement, points: includePoints ? try locationRoutePointsInsideQueue(routeId: id) : [])
+    }
+
+    private func locationRouteInsideQueue(id: Int64, includePoints: Bool) throws -> BudsLocationRouteRecord? {
+        let statement = try prepare(
+            """
+            SELECT id,name,status,started_at,ended_at,distance_m,duration_s,point_count,created_at
+            FROM location_routes WHERE id=? LIMIT 1
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return locationRouteRecord(statement, points: includePoints ? try locationRoutePointsInsideQueue(routeId: id) : [])
+    }
+
+    private func locationRouteRecord(
+        _ statement: OpaquePointer, points: [BudsLocationRoutePointRecord]
+    ) -> BudsLocationRouteRecord {
+        BudsLocationRouteRecord(
+            id: sqlite3_column_int64(statement, 0),
+            name: text(statement, 1),
+            status: text(statement, 2),
+            startedAt: text(statement, 3),
+            endedAt: optionalText(statement, 4),
+            distanceMeters: sqlite3_column_double(statement, 5),
+            durationSeconds: Int(sqlite3_column_int64(statement, 6)),
+            pointCount: Int(sqlite3_column_int64(statement, 7)),
+            createdAt: text(statement, 8),
+            points: points
+        )
+    }
+
+    private func locationRoutePointsInsideQueue(routeId: Int64) throws -> [BudsLocationRoutePointRecord] {
+        let statement = try prepare(
+            """
+            SELECT id,route_id,latitude,longitude,accuracy_m,altitude_m,speed_mps,recorded_at
+            FROM location_route_points WHERE route_id=? ORDER BY id
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, routeId)
+        var points: [BudsLocationRoutePointRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            points.append(BudsLocationRoutePointRecord(
+                id: sqlite3_column_int64(statement, 0),
+                routeId: sqlite3_column_int64(statement, 1),
+                latitude: sqlite3_column_double(statement, 2),
+                longitude: sqlite3_column_double(statement, 3),
+                accuracyMeters: sqlite3_column_type(statement, 4) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 4),
+                altitudeMeters: sqlite3_column_type(statement, 5) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 5),
+                speedMetersPerSecond: sqlite3_column_type(statement, 6) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 6),
+                recordedAt: text(statement, 7)
+            ))
+        }
+        return points
+    }
+
+    private func appendActiveRoutePointInsideQueue(
+        latitude: Double, longitude: Double, accuracyMeters: Double?, altitudeMeters: Double?,
+        speedMetersPerSecond: Double?, recordedAt: String
+    ) throws {
+        guard accuracyMeters == nil || accuracyMeters! <= 250,
+              let route = try activeLocationRouteInsideQueue(includePoints: false) else { return }
+
+        let lastStatement = try prepare(
+            "SELECT latitude,longitude,recorded_at FROM location_route_points WHERE route_id=? ORDER BY id DESC LIMIT 1"
+        )
+        sqlite3_bind_int64(lastStatement, 1, route.id)
+        var segment = 0.0
+        if sqlite3_step(lastStatement) == SQLITE_ROW {
+            segment = Self.distanceMeters(
+                sqlite3_column_double(lastStatement, 0), sqlite3_column_double(lastStatement, 1),
+                latitude, longitude
+            )
+        }
+        sqlite3_finalize(lastStatement)
+        // Descarta ruído parado e saltos impossíveis, preservando bateria e banco.
+        if route.pointCount > 0 && (segment < 4 || segment > 20_000) { return }
+
+        let statement = try prepare(
+            """
+            INSERT INTO location_route_points
+            (route_id,latitude,longitude,accuracy_m,altitude_m,speed_mps,recorded_at)
+            VALUES (?,?,?,?,?,?,?)
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, route.id)
+        sqlite3_bind_double(statement, 2, latitude)
+        sqlite3_bind_double(statement, 3, longitude)
+        if let accuracyMeters { sqlite3_bind_double(statement, 4, accuracyMeters) } else { sqlite3_bind_null(statement, 4) }
+        if let altitudeMeters { sqlite3_bind_double(statement, 5, altitudeMeters) } else { sqlite3_bind_null(statement, 5) }
+        if let speedMetersPerSecond { sqlite3_bind_double(statement, 6, speedMetersPerSecond) } else { sqlite3_bind_null(statement, 6) }
+        bind(recordedAt, statement, 7)
+        try stepDone(statement)
+
+        let update = try prepare(
+            "UPDATE location_routes SET distance_m=distance_m+?,duration_s=?,point_count=point_count+1 WHERE id=?"
+        )
+        defer { sqlite3_finalize(update) }
+        sqlite3_bind_double(update, 1, segment)
+        sqlite3_bind_int(update, 2, Int32(min(Int(Int32.max), Self.elapsedSeconds(from: route.startedAt, to: recordedAt))))
+        sqlite3_bind_int64(update, 3, route.id)
+        try stepDone(update)
+    }
+
+    private func locationStateInsideQueue() throws -> BudsLocationStateRecord {
+        let statement = try prepare(
+            """
+            SELECT s.place_id,p.name,s.context,s.status,s.latitude,s.longitude,s.accuracy_m,s.source,s.updated_at
+            FROM location_state s LEFT JOIN location_places p ON p.id=s.place_id WHERE s.id=1
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            return BudsLocationStateRecord(
+                placeId: nil, placeName: nil, context: "unknown", status: "unknown",
+                latitude: nil, longitude: nil, accuracyMeters: nil, source: "system",
+                updatedAt: nil, changed: false
+            )
+        }
+        return BudsLocationStateRecord(
+            placeId: sqlite3_column_type(statement, 0) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 0),
+            placeName: optionalText(statement, 1), context: text(statement, 2), status: text(statement, 3),
+            latitude: sqlite3_column_type(statement, 4) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 4),
+            longitude: sqlite3_column_type(statement, 5) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 5),
+            accuracyMeters: sqlite3_column_type(statement, 6) == SQLITE_NULL ? nil : sqlite3_column_double(statement, 6),
+            source: text(statement, 7), updatedAt: optionalText(statement, 8), changed: false
+        )
+    }
+
+    private func writeLocationState(
+        placeId: Int64?, context: String, status: String, latitude: Double?, longitude: Double?,
+        accuracyMeters: Double?, source: String
+    ) throws {
+        let statement = try prepare(
+            """
+            INSERT INTO location_state (id,place_id,context,status,latitude,longitude,accuracy_m,source,updated_at)
+            VALUES (1,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET place_id=excluded.place_id,
+            context=excluded.context,status=excluded.status,latitude=excluded.latitude,
+            longitude=excluded.longitude,accuracy_m=excluded.accuracy_m,source=excluded.source,
+            updated_at=excluded.updated_at
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        if let placeId { sqlite3_bind_int64(statement, 1, placeId) } else { sqlite3_bind_null(statement, 1) }
+        bind(context, statement, 2)
+        bind(status, statement, 3)
+        if let latitude { sqlite3_bind_double(statement, 4, latitude) } else { sqlite3_bind_null(statement, 4) }
+        if let longitude { sqlite3_bind_double(statement, 5, longitude) } else { sqlite3_bind_null(statement, 5) }
+        if let accuracyMeters { sqlite3_bind_double(statement, 6, accuracyMeters) } else { sqlite3_bind_null(statement, 6) }
+        bind(source, statement, 7)
+        bind(Self.now(), statement, 8)
+        try stepDone(statement)
+    }
+
+    private func logLocationEvent(placeId: Int64?, eventType: String, context: String, source: String) throws {
+        let statement = try prepare(
+            "INSERT INTO location_events (place_id,event_type,context,source,created_at) VALUES (?,?,?,?,?)"
+        )
+        defer { sqlite3_finalize(statement) }
+        if let placeId { sqlite3_bind_int64(statement, 1, placeId) } else { sqlite3_bind_null(statement, 1) }
+        bind(eventType, statement, 2)
+        bind(context, statement, 3)
+        bind(source, statement, 4)
+        bind(Self.now(), statement, 5)
+        try stepDone(statement)
+    }
+
+    private static func distanceMeters(_ latA: Double, _ lonA: Double, _ latB: Double, _ lonB: Double) -> Double {
+        let radius = 6_371_000.0
+        let phiA = latA * .pi / 180
+        let phiB = latB * .pi / 180
+        let deltaPhi = (latB - latA) * .pi / 180
+        let deltaLon = (lonB - lonA) * .pi / 180
+        let value = sin(deltaPhi / 2) * sin(deltaPhi / 2)
+            + cos(phiA) * cos(phiB) * sin(deltaLon / 2) * sin(deltaLon / 2)
+        return radius * 2 * atan2(sqrt(value), sqrt(1 - value))
     }
 
     private func ensureWritable() throws {
@@ -799,33 +1527,71 @@ public final class BudsLocalStore: @unchecked Sendable {
     }
 
     private func session(id: String) throws -> BudsSessionRecord? {
-        let statement = try prepare("SELECT id, title, created_at FROM sessions WHERE id = ? LIMIT 1")
+        let statement = try prepare("SELECT id, title, created_at, folder_id FROM sessions WHERE id = ? LIMIT 1")
         defer { sqlite3_finalize(statement) }
         bind(id, statement, 1)
         guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
         return BudsSessionRecord(
             id: text(statement, 0),
             title: text(statement, 1),
-            createdAt: text(statement, 2)
+            createdAt: text(statement, 2),
+            folderId: optionalText(statement, 3)
         )
+    }
+
+    private func chatFolder(id: String) throws -> BudsChatFolderRecord? {
+        let statement = try prepare("""
+            SELECT folder.id, folder.name, folder.icon, folder.color,
+                   folder.created_at, folder.updated_at, COUNT(session.id)
+            FROM chat_folders folder
+            LEFT JOIN sessions session
+              ON session.folder_id=folder.id AND session.deleted_at IS NULL
+            WHERE folder.id=? GROUP BY folder.id LIMIT 1
+            """)
+        defer { sqlite3_finalize(statement) }
+        bind(id, statement, 1)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return chatFolderRecord(statement)
+    }
+
+    private func chatFolderRecord(_ statement: OpaquePointer) -> BudsChatFolderRecord {
+        BudsChatFolderRecord(
+            id: text(statement, 0), name: text(statement, 1),
+            icon: text(statement, 2), color: text(statement, 3),
+            createdAt: text(statement, 4), updatedAt: text(statement, 5),
+            chatCount: Int(sqlite3_column_int64(statement, 6))
+        )
+    }
+
+    private static func cleanFolderColor(_ value: String) -> String {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return clean.range(of: "^#[0-9a-f]{6}$", options: .regularExpression) == nil ? "#8b5cf6" : clean
+    }
+
+    private static func cleanFolderIcon(_ value: String) -> String {
+        let allowed = Set(["folder", "briefcase", "graduation-cap", "chart-no-axes-combined", "wallet-cards", "heart", "house", "lightbulb", "code-2", "dumbbell"])
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return allowed.contains(clean) ? clean : "folder"
     }
 
     private func focusTask(id: Int64) throws -> BudsFocusTaskRecord? {
         let statement = try prepare(
             """
             SELECT id, title, category, priority, completed, is_focus, created_at, updated_at, due_date,
-                   item_type, source, source_session_id, source_message_id, confidence
+                   item_type, source, source_session_id, source_message_id, confidence,
+                   place_context, trigger_on_arrival
             FROM focus_tasks WHERE id = ? LIMIT 1
             """
         )
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, id)
         guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
-        return focusTaskRecord(statement)
+        return focusTaskRecord(statement, currentContext: try locationStateInsideQueue().context)
     }
 
-    private func focusTaskRecord(_ statement: OpaquePointer) -> BudsFocusTaskRecord {
-        BudsFocusTaskRecord(
+    private func focusTaskRecord(_ statement: OpaquePointer, currentContext: String) -> BudsFocusTaskRecord {
+        let placeContext = text(statement, 14)
+        return BudsFocusTaskRecord(
             id: sqlite3_column_int64(statement, 0),
             title: text(statement, 1),
             category: text(statement, 2),
@@ -839,7 +1605,11 @@ public final class BudsLocalStore: @unchecked Sendable {
             source: text(statement, 10),
             sourceSessionId: optionalText(statement, 11),
             sourceMessageId: sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 12),
-            confidence: sqlite3_column_double(statement, 13)
+            confidence: sqlite3_column_double(statement, 13),
+            placeContext: placeContext,
+            triggerOnArrival: sqlite3_column_int(statement, 15) == 1,
+            locationRelevant: placeContext == "anywhere" || placeContext == currentContext,
+            currentLocationContext: currentContext
         )
     }
 
@@ -853,7 +1623,9 @@ public final class BudsLocalStore: @unchecked Sendable {
         sourceSessionId: String? = nil,
         sourceMessageId: Int64? = nil,
         dedupKey: String? = nil,
-        confidence: Double = 0.75
+        confidence: Double = 0.75,
+        placeContext: String = "anywhere",
+        triggerOnArrival: Bool = false
     ) throws -> BudsFocusTaskRecord {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let clean = clean.nonEmpty else {
@@ -876,8 +1648,9 @@ public final class BudsLocalStore: @unchecked Sendable {
             """
             INSERT INTO focus_tasks
                 (title, category, priority, completed, is_focus, created_at, updated_at, due_date,
-                 item_type, source, source_session_id, source_message_id, dedup_key, confidence)
-            VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 item_type, source, source_session_id, source_message_id, dedup_key, confidence,
+                 place_context, trigger_on_arrival)
+            VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
         )
         defer { sqlite3_finalize(statement) }
@@ -894,6 +1667,9 @@ public final class BudsLocalStore: @unchecked Sendable {
         if let sourceMessageId { sqlite3_bind_int64(statement, 10, sourceMessageId) } else { sqlite3_bind_null(statement, 10) }
         bindOptional(dedupKey, statement, 11)
         sqlite3_bind_double(statement, 12, min(1, max(0, confidence)))
+        let cleanPlace = Self.locationTaskContexts.contains(placeContext) ? placeContext : "anywhere"
+        bind(cleanPlace, statement, 13)
+        sqlite3_bind_int(statement, 14, triggerOnArrival && cleanPlace != "anywhere" ? 1 : 0)
         try stepDone(statement)
         let id = sqlite3_last_insert_rowid(database)
         try logFocusEvent(eventType: itemType == "REMINDER" ? "reminder_created" : "task_created", title: clean)
@@ -961,7 +1737,9 @@ public final class BudsLocalStore: @unchecked Sendable {
                     sourceSessionId: sessionId,
                     sourceMessageId: messageId,
                     dedupKey: candidate.dedupKey,
-                    confidence: candidate.confidence
+                    confidence: candidate.confidence,
+                    placeContext: candidate.placeContext,
+                    triggerOnArrival: candidate.triggerOnArrival
                 )
                 continue
             }
@@ -979,6 +1757,8 @@ public final class BudsLocalStore: @unchecked Sendable {
                 "priority": candidate.priority,
                 "due_date": candidate.dueDate as Any,
                 "confidence": candidate.confidence,
+                "place_context": candidate.placeContext,
+                "trigger_on_arrival": candidate.triggerOnArrival,
             ]
             let metadataData = try JSONSerialization.data(withJSONObject: metadataObject)
             let metadata = String(data: metadataData, encoding: .utf8) ?? "{}"
@@ -1261,6 +2041,21 @@ public final class BudsLocalStore: @unchecked Sendable {
     private static let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
     private static let focusCategories: Set<String> = ["work", "study", "personal", "project", "other"]
     private static let focusPriorities: Set<String> = ["low", "medium", "high"]
+    private static let locationTaskContexts: Set<String> = ["anywhere", "home", "work", "gym", "study", "other"]
+    private static let placeContexts: Set<String> = ["home", "work", "gym", "study", "other"]
+    private static let semanticContexts: Set<String> = ["home", "work", "gym", "study", "other", "commuting", "away", "unknown"]
+    private static let routeTitleFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "pt_BR")
+        formatter.dateFormat = "dd/MM HH:mm"
+        return formatter
+    }()
+
+    private static func elapsedSeconds(from start: String, to end: String) -> Int {
+        guard let startDate = ISO8601DateFormatter.buds.date(from: start),
+              let endDate = ISO8601DateFormatter.buds.date(from: end) else { return 0 }
+        return max(0, Int(endDate.timeIntervalSince(startDate)))
+    }
 
     private static func now() -> String {
         ISO8601DateFormatter.buds.string(from: Date())

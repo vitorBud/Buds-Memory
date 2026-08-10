@@ -5,6 +5,7 @@ from datetime import datetime
 from database_v2 import get_db_connection
 import agenty
 from cognitive import memory as cognitive_memory
+from cognitive import location as cognitive_location
 from cognitive.focus_capture import candidate_key, detect_focus_candidates
 from cognitive.response_safety import sanitize_response
 
@@ -15,6 +16,7 @@ FOCUS_CATEGORIES = {'work', 'study', 'personal', 'project', 'other'}
 FOCUS_PRIORITIES = {'low', 'medium', 'high'}
 FOCUS_ITEM_TYPES = {'TASK', 'REMINDER', 'UPDATE', 'IDEA', 'DECISION', 'MEMORY', 'NOTE', 'IGNORE'}
 FOCUS_ACTIONS = {'complete_task', 'create_task', 'save_idea', 'save_decision', 'save_memory', 'none'}
+FOCUS_PLACE_CONTEXTS = {'anywhere', 'home', 'work', 'gym', 'study', 'other'}
 
 # -----------------------------------------------------------------------------
 # DEDUPLICAÇÃO
@@ -75,7 +77,19 @@ def get_focus_tasks() -> List[Dict[str, Any]]:
                      CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
                      created_at DESC
         """).fetchall()
-        return [dict(r) for r in rows]
+        tasks = [dict(r) for r in rows]
+    try:
+        current_context = cognitive_location.get_state().get('context', 'unknown')
+    except sqlite3.OperationalError:
+        # Compatibilidade com bancos/testes que ainda não executaram a migração
+        # de localização. O Focus continua funcional até o próximo migrate().
+        current_context = 'unknown'
+    for task in tasks:
+        place_context = task.get('place_context') or 'anywhere'
+        task['location_relevant'] = place_context == 'anywhere' or place_context == current_context
+        task['current_location_context'] = current_context
+    tasks.sort(key=lambda task: 0 if task['location_relevant'] else 1)
+    return tasks
 
 def create_focus_task(
     title: str,
@@ -90,6 +104,8 @@ def create_focus_task(
     source_message_id: Optional[int] = None,
     dedup_key: Optional[str] = None,
     confidence: float = 1.0,
+    place_context: str = 'anywhere',
+    trigger_on_arrival: bool = False,
 ) -> Optional[Dict[str, Any]]:
     title = (title or '').strip()
     if not title:
@@ -97,15 +113,24 @@ def create_focus_task(
     category = category if category in FOCUS_CATEGORIES else 'other'
     priority = priority if priority in FOCUS_PRIORITIES else 'medium'
     item_type = item_type if item_type in {'TASK', 'REMINDER'} else 'TASK'
-    dedup_key = dedup_key or candidate_key(item_type, title, due_date)
+    place_context = place_context if place_context in FOCUS_PLACE_CONTEXTS else 'anywhere'
+    trigger_on_arrival = bool(trigger_on_arrival and place_context != 'anywhere')
+    dedup_key = dedup_key or candidate_key(item_type, title, due_date, place_context)
     confidence = min(1.0, max(0.0, float(confidence)))
     # Dedup
     tasks = get_focus_tasks()
-    open_tasks = [t['title'] for t in tasks if not t.get('completed')]
+    open_tasks = [
+        t['title'] for t in tasks
+        if not t.get('completed') and (t.get('place_context') or 'anywhere') == place_context
+    ]
     if _is_duplicate(title, open_tasks):
         # Encontra a tarefa existente
         for t in tasks:
-            if not t.get('completed') and _is_duplicate(title, [t['title']]):
+            if (
+                not t.get('completed')
+                and (t.get('place_context') or 'anywhere') == place_context
+                and _is_duplicate(title, [t['title']])
+            ):
                 return t
 
     now = datetime.utcnow().isoformat()
@@ -123,12 +148,13 @@ def create_focus_task(
                 """INSERT INTO focus_tasks
                    (title, category, priority, completed, is_focus, created_at, updated_at,
                     due_date, item_type, source, source_session_id, source_message_id,
-                    dedup_key, confidence)
-                   VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    dedup_key, confidence, place_context, trigger_on_arrival)
+                   VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     title[:500], category, priority, 1 if is_focus else 0, now, now,
                     due_date, item_type, source[:40], source_session_id,
-                    source_message_id, dedup_key, confidence,
+                    source_message_id, dedup_key, confidence, place_context,
+                    1 if trigger_on_arrival else 0,
                 ),
             )
         except sqlite3.IntegrityError:
@@ -145,7 +171,8 @@ def create_focus_task(
     log_timeline_event(
         'reminder_created' if item_type == 'REMINDER' else 'task_created',
         title,
-        {'source': source, 'session_id': source_session_id, 'due_date': due_date},
+        {'source': source, 'session_id': source_session_id, 'due_date': due_date,
+         'place_context': place_context, 'trigger_on_arrival': trigger_on_arrival},
     )
     return get_focus_task(task_id)
 
@@ -157,7 +184,7 @@ def get_focus_task(task_id: int) -> Dict[str, Any]:
         return dict(row)
 
 def update_focus_task(task_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
-    allowed_keys = {'title', 'category', 'priority', 'completed', 'is_focus', 'due_date'}
+    allowed_keys = {'title', 'category', 'priority', 'completed', 'is_focus', 'due_date', 'place_context', 'trigger_on_arrival'}
     update_data = {k: v for k, v in updates.items() if k in allowed_keys}
     if 'title' in update_data:
         update_data['title'] = str(update_data['title'] or '').strip()[:500]
@@ -167,6 +194,13 @@ def update_focus_task(task_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
         update_data['category'] = 'other'
     if 'priority' in update_data and update_data['priority'] not in FOCUS_PRIORITIES:
         update_data['priority'] = 'medium'
+    if 'place_context' in update_data and update_data['place_context'] not in FOCUS_PLACE_CONTEXTS:
+        update_data['place_context'] = 'anywhere'
+    if 'trigger_on_arrival' in update_data:
+        effective_place = update_data.get('place_context') or get_focus_task(task_id).get('place_context', 'anywhere')
+        update_data['trigger_on_arrival'] = 1 if bool(update_data['trigger_on_arrival']) and effective_place != 'anywhere' else 0
+    elif update_data.get('place_context') == 'anywhere':
+        update_data['trigger_on_arrival'] = 0
     if not update_data:
         return get_focus_task(task_id)
 
@@ -300,7 +334,9 @@ def create_focus_inbox_item(
 
     now = datetime.utcnow().isoformat()
     metadata = metadata or {}
-    dedup_key = dedup_key or candidate_key(item_type, content, metadata.get('due_date'))
+    dedup_key = dedup_key or candidate_key(
+        item_type, content, metadata.get('due_date'), metadata.get('place_context', 'anywhere')
+    )
     metadata_str = json.dumps(metadata, ensure_ascii=False)
     with get_db_connection() as conn:
         existing = conn.execute(
@@ -362,6 +398,8 @@ def resolve_focus_inbox_item(item_id: int, status: str) -> bool:
                 source_message_id=metadata.get('message_id'),
                 dedup_key=item.get('dedup_key'),
                 confidence=metadata.get('confidence', 0.75),
+                place_context=metadata.get('place_context', 'anywhere'),
+                trigger_on_arrival=metadata.get('trigger_on_arrival', False),
             )
         elif item_type == 'IDEA':
             create_focus_idea(content, source='inbox')
@@ -397,6 +435,8 @@ def capture_chat_message(
             'priority': candidate.get('priority', 'medium'),
             'due_date': candidate.get('due_date'),
             'confidence': candidate.get('confidence', 0.5),
+            'place_context': candidate.get('place_context', 'anywhere'),
+            'trigger_on_arrival': candidate.get('trigger_on_arrival', False),
         }
         if candidate.get('auto_apply') and candidate['type'] in {'TASK', 'REMINDER'}:
             task = create_focus_task(
@@ -410,6 +450,8 @@ def capture_chat_message(
                 source_message_id=source_message_id,
                 dedup_key=candidate['dedup_key'],
                 confidence=candidate.get('confidence', 1.0),
+                place_context=candidate.get('place_context', 'anywhere'),
+                trigger_on_arrival=candidate.get('trigger_on_arrival', False),
             )
             if task:
                 created.append(task)
@@ -467,6 +509,10 @@ def _sanitize_analyzed_items(items: Any) -> List[Dict[str, Any]]:
         due_date = raw.get('due_date')
         if isinstance(due_date, str) and due_date.strip():
             clean['due_date'] = due_date.strip()[:40]
+        place_context = raw.get('place_context')
+        if place_context in FOCUS_PLACE_CONTEXTS:
+            clean['place_context'] = place_context
+        clean['trigger_on_arrival'] = bool(raw.get('trigger_on_arrival', False))
         try:
             clean['confidence'] = min(1.0, max(0.0, float(raw.get('confidence', 0.5))))
         except (TypeError, ValueError):
@@ -581,7 +627,10 @@ def buds_think(query: str) -> str:
     open_tasks = [t for t in tasks if not t.get('completed')]
     completed_today = [t for t in tasks if t.get('completed') and t.get('updated_at', '').startswith(datetime.utcnow().isoformat()[:10])]
     
-    open_text = "\\n".join([f"- {t['title']} ({t['priority']}, {t['category']})" for t in open_tasks]) or "(nenhuma)"
+    open_text = "\\n".join([
+        f"- {t['title']} ({t['priority']}, {t['category']}, lugar: {t.get('place_context', 'anywhere')})"
+        for t in open_tasks
+    ]) or "(nenhuma)"
     completed_text = "\\n".join([f"- {t['title']}" for t in completed_today]) or "(nenhuma)"
     
     prompt = f"""Você é o Buds, o assistente pessoal local do usuário.
@@ -594,6 +643,8 @@ Tarefas Abertas:
 
 Tarefas Concluídas Hoje:
 {completed_text}
+
+{cognitive_location.semantic_context_for_prompt()}
 
 MENSAGEM DO USUÁRIO:
 "{query}"

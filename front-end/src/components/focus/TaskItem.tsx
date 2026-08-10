@@ -1,4 +1,4 @@
-import { Bell, Check, MessageCircle, Trash2, Zap } from 'lucide-react'
+import { Bell, Check, MapPin, MessageCircle, Trash2, Zap } from 'lucide-react'
 import type { FocusTask } from '../../types'
 import { focusStyles } from '../../styles/focus'
 
@@ -12,6 +12,7 @@ interface TaskItemProps {
 export function TaskItem({ task, onToggle, onDelete, onSetFocus }: TaskItemProps) {
   const categories: Record<string, string> = { work: 'Trabalho', study: 'Estudo', personal: 'Pessoal', project: 'Projeto', other: 'Geral' }
   const priorities: Record<string, string> = { high: 'Alta', medium: 'Média', low: 'Baixa' }
+  const places: Record<string, string> = { home: 'Casa', work: 'Trabalho', gym: 'Academia', study: 'Estudo', other: 'Outro lugar' }
   const dueLabel = task.due_date
     ? new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(task.due_date))
     : null
@@ -53,6 +54,11 @@ export function TaskItem({ task, onToggle, onDelete, onSetFocus }: TaskItemProps
                 {priorities[task.priority] ?? task.priority}
               </span>
               {dueLabel && <span className="text-[11px] text-[var(--muted)]">{dueLabel}</span>}
+              {task.place_context && task.place_context !== 'anywhere' && (
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold ${task.location_relevant ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-300' : 'border-[var(--liquid-border)] text-[var(--muted)]'}`}>
+                  <MapPin size={11} /> {places[task.place_context] ?? task.place_context}{task.trigger_on_arrival ? ' · ao chegar' : ''}
+                </span>
+              )}
               {task.source === 'chat' && <span className="inline-flex items-center gap-1 text-[11px] text-[var(--muted)]"><MessageCircle size={11} /> do chat</span>}
             </div>
             

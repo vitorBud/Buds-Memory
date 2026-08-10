@@ -219,7 +219,7 @@ export function StatusPanel({
         </button>
       </div>
 
-      <nav className={settingsLayoutStyles.nav} aria-label="Categorias de configurações">
+      <nav className={`settings-categories ${settingsLayoutStyles.nav}`} aria-label="Categorias de configurações">
         {SETTINGS_SECTIONS.map(({ id, label, hint, icon: Icon }) => (
           <button
             key={id}
@@ -240,7 +240,7 @@ export function StatusPanel({
         ))}
       </nav>
 
-      <div ref={contentRef} className={`${settingsLayoutStyles.content} ${settingsSectionStyles[activeSection]}`}>
+      <div ref={contentRef} className={`settings-content ${settingsLayoutStyles.content} ${settingsSectionStyles[activeSection]}`}>
       <div className="settings-section settings-interface-block">
         <div className={settingsControlStyles.panelHeading}>
           <span>Configurações da interface</span>

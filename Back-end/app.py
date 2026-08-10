@@ -56,6 +56,7 @@ from cognitive import detector as cognitive_detector
 from cognitive import conversation as cognitive_conversation
 from cognitive import finance as cognitive_finance
 from cognitive import focus as cognitive_focus
+from cognitive import location as cognitive_location
 from cognitive import knowledge_graph
 from cognitive import rag as cognitive_rag
 from cognitive import response_safety
@@ -129,6 +130,7 @@ def enforce_api_security():
         "/api/health",
         "/api/auth/device-token",
         "/api/auth/login",
+        "/api/auth/local",
         "/api/auth/status",
     }:
         return None
@@ -293,6 +295,14 @@ def prepare_session_context(
                 f"(mensagens resumidas: {conversation_summary.get('message_count', 0)})"
             )
             knowledge_context = f"{summary_context}\n\n{knowledge_context}" if knowledge_context else summary_context
+
+    if re.search(
+        r"\b(casa|trabalho|academia|faculdade|localiza[cç][aã]o|onde estou|chegar|sa[ií]r|focus|tarefa|lembrete|trajeto|caminho|percurso|rota)\b",
+        user_text.lower(),
+    ):
+        location_context = cognitive_location.semantic_context_for_prompt()
+        if location_context:
+            knowledge_context = f"{knowledge_context}\n\n{location_context}" if knowledge_context else location_context
 
     knowledge_context = clip_context(knowledge_context, budget["context_chars"])
     if trace:
@@ -708,7 +718,11 @@ def auth_login():
 
 @app.route('/api/auth/local', methods=['POST'])
 def auth_local():
-    """Cria uma sessão local do Buds Memory sem exigir token técnico."""
+    """Cria uma sessão local sem token somente para o próprio computador."""
+    if not remote_access.is_loopback_address(request.remote_addr):
+        return jsonify({
+            "error": "A sessão local só pode ser criada no computador principal.",
+        }), 403
     session = remote_access.create_session_token(
         label=str((request.get_json(silent=True) or {}).get("label", "local")),
         auth_mode="local",
@@ -874,8 +888,10 @@ def create_session():
     try:
         data = request.json or {}
         title = data.get("title")
-        session = database.create_session(title)
+        session = database.create_session(title, data.get("folder_id"))
         return jsonify(session), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -900,13 +916,54 @@ def update_session(session_id):
     """Atualiza metadados de uma sessão, como o título."""
     try:
         data = request.json or {}
-        title = data.get("title", "")
-        session = database.update_session_title(session_id, title)
+        session = None
+        if "title" in data:
+            session = database.update_session_title(session_id, data.get("title"))
+        if "folder_id" in data:
+            session = database.update_session_folder(session_id, data.get("folder_id"))
+        if session is None:
+            raise ValueError("Nenhuma alteração informada.")
         return jsonify(session), 200
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/chat-folders', methods=['GET', 'POST'])
+def chat_folders():
+    try:
+        if request.method == 'GET':
+            return jsonify(database.get_chat_folders()), 200
+        data = request.get_json(silent=True) or {}
+        folder = database.create_chat_folder(
+            data.get("name"), color=data.get("color"), icon=data.get("icon")
+        )
+        return jsonify(folder), 201
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
+
+
+@app.route('/api/chat-folders/<folder_id>', methods=['PATCH', 'DELETE'])
+def chat_folder(folder_id):
+    try:
+        if request.method == 'DELETE':
+            database.delete_chat_folder(folder_id)
+            return jsonify({"success": True}), 200
+        data = request.get_json(silent=True) or {}
+        folder = database.update_chat_folder(
+            folder_id,
+            name=data.get("name") if "name" in data else None,
+            color=data.get("color") if "color" in data else None,
+            icon=data.get("icon") if "icon" in data else None,
+        )
+        return jsonify(folder), 200
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception as error:
+        return jsonify({"error": str(error)}), 500
 
 
 @app.route('/api/sessions/<session_id>/messages', methods=['GET'])
@@ -1381,11 +1438,6 @@ def get_audio(filename):
 
 if __name__ == "__main__":
     config = remote_access.get_remote_config()
-    mobile_token = (
-        remote_access.get_or_create_mobile_token()
-        if remote_access.REMOTE_MODE
-        else None
-    )
     print(
         "[Remote] "
         f"mode={config['remote_mode']} host={config['host']} port={config['port']} "
@@ -1403,7 +1455,7 @@ if __name__ == "__main__":
         print("")
         print("No celular, abra a URL do Front mostrada pelo npm run dev.")
         print("Use a URL do Backend/API apenas para testar /api/health ou acessar o build servido pelo Flask.")
-        print(f"Token: {mobile_token}")
+        print("Token disponível somente na seção Acesso pelo celular do computador principal.")
     else:
         print("Buds Memory em modo local")
         print(f"Mac/local: http://127.0.0.1:{config['port']}")

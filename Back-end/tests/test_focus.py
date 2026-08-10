@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 import database_v2  # noqa: E402
-from cognitive import focus  # noqa: E402
+from cognitive import focus, location  # noqa: E402
 from cognitive.focus_capture import detect_focus_candidates, parse_natural_due  # noqa: E402
 from datetime import datetime  # noqa: E402
 
@@ -38,11 +38,15 @@ class FocusTests(unittest.TestCase):
             database_v2._create_focus_tasks(conn)
             database_v2._create_focus_v2_tables(conn)
             database_v2._migrate_focus_capture_columns(conn)
+            database_v2._create_location_context(conn)
             conn.commit()
         self.patch = patch.object(focus, "get_db_connection", side_effect=connection)
         self.patch.start()
+        self.location_patch = patch.object(location, "get_db_connection", side_effect=connection)
+        self.location_patch.start()
 
     def tearDown(self):
+        self.location_patch.stop()
         self.patch.stop()
         self.temp_dir.cleanup()
 
@@ -122,6 +126,83 @@ class FocusTests(unittest.TestCase):
 
     def test_invalid_calendar_date_is_rejected(self):
         self.assertIsNone(parse_natural_due("dia 31/02 às 10h", datetime(2026, 1, 1)))
+
+    def test_arrival_reminder_is_semantic_and_location_aware(self):
+        candidates = detect_focus_candidates(
+            "Quando eu chegar em casa, me lembre de tirar o lixo."
+        )
+        self.assertEqual(candidates[0]["content"], "Tirar o lixo")
+        self.assertEqual(candidates[0]["place_context"], "home")
+        self.assertTrue(candidates[0]["trigger_on_arrival"])
+
+    def test_current_place_prioritizes_relevant_tasks(self):
+        focus.create_focus_task("Tarefa do trabalho", place_context="work")
+        focus.create_focus_task("Tarefa de casa", place_context="home")
+        location.set_semantic_context("home")
+        tasks = focus.get_focus_tasks()
+        self.assertEqual(tasks[0]["title"], "Tarefa de casa")
+        self.assertTrue(tasks[0]["location_relevant"])
+
+    def test_same_title_can_exist_for_different_places(self):
+        focus.create_focus_task("Separar documentos", place_context="home")
+        focus.create_focus_task("Separar documentos", place_context="work")
+        self.assertEqual(len(focus.get_focus_tasks()), 2)
+
+    def test_coordinates_are_converted_to_context_without_trail(self):
+        place = location.save_place(
+            name="Casa", context="home", latitude=-23.5505, longitude=-46.6333
+        )
+        state = location.update_sample(-23.55055, -46.63335, accuracy_m=12)
+        self.assertEqual(state["place_id"], place["id"])
+        self.assertEqual(state["context"], "home")
+        self.assertEqual(len(location.get_recent_events()), 1)
+
+    def test_deleting_active_place_moves_context_to_away(self):
+        place = location.save_place(
+            name="Academia", context="gym", latitude=-23.55, longitude=-46.63
+        )
+        location.update_sample(-23.55, -46.63)
+        self.assertTrue(location.delete_place(place["id"]))
+        self.assertEqual(location.get_state()["context"], "away")
+
+    def test_significant_change_outside_places_means_commuting(self):
+        state = location.update_sample(
+            -23.56, -46.64, source="significant_change"
+        )
+        self.assertEqual(state["context"], "commuting")
+
+    def test_explicit_route_records_filtered_points_and_summary(self):
+        route = location.start_route("Caminho para o trabalho")
+        self.assertEqual(route["status"], "active")
+        location.update_sample(
+            -23.5505, -46.6333, accuracy_m=12,
+            recorded_at="2026-08-10T12:00:00+00:00",
+        )
+        location.update_sample(
+            -23.5495, -46.6323, accuracy_m=10,
+            recorded_at="2026-08-10T12:02:00+00:00",
+        )
+        # Amostra sem precisão suficiente não contamina o caminho.
+        location.update_sample(
+            -23.5485, -46.6313, accuracy_m=900,
+            recorded_at="2026-08-10T12:03:00+00:00",
+        )
+        completed = location.finish_route()
+        self.assertIsNotNone(completed)
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["point_count"], 2)
+        self.assertGreater(completed["distance_m"], 100)
+        self.assertEqual(len(completed["points"]), 2)
+        self.assertIsNone(location.get_active_route())
+        semantic = location.semantic_context_for_prompt()
+        self.assertIn("Caminho para o trabalho", semantic)
+        self.assertIn("sem coordenadas", semantic)
+        self.assertNotIn("-23.", semantic)
+
+        dashboard = location.route_dashboard()
+        self.assertEqual(dashboard["routes"][0]["name"], "Caminho para o trabalho")
+        self.assertTrue(location.delete_route(route["id"]))
+        self.assertEqual(location.list_routes(), [])
 
 
 if __name__ == "__main__":

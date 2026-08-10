@@ -2,6 +2,7 @@ import { registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
 import type {
   ChatStreamEvent,
+  ChatFolder,
   CognitiveMemory,
   ConversationStorageItem,
   FocusAnalyzePreview,
@@ -10,6 +11,13 @@ import type {
   FocusTaskCategory,
   FocusTaskPriority,
   FocusTimelineEvent,
+  KnownPlace,
+  LocationDashboard,
+  LocationRoute,
+  LocationRouteDashboard,
+  LocationPlaceContext,
+  LocationSemanticContext,
+  LocationState,
   Message,
   Session,
 } from '../../types'
@@ -42,9 +50,14 @@ interface IOSLocalPlugin {
   cancelModelDownload(): Promise<void>
   clearAllData(options: { confirmation: string }): Promise<IOSLocalStatus>
   listSessions(): Promise<{ sessions: Session[] }>
-  createSession(options: { title?: string }): Promise<Session>
+  createSession(options: { title?: string; folderId?: string }): Promise<Session>
   updateSessionTitle(options: { id: string; title: string }): Promise<Session>
+  updateSessionFolder(options: { id: string; folderId?: string }): Promise<Session>
   deleteSession(options: { id: string }): Promise<void>
+  listChatFolders(): Promise<{ folders: ChatFolder[] }>
+  createChatFolder(options: { name: string; icon: string; color: string }): Promise<ChatFolder>
+  updateChatFolder(options: { id: string; name?: string; icon?: string; color?: string }): Promise<ChatFolder>
+  deleteChatFolder(options: { id: string }): Promise<void>
   listConversationStorage(): Promise<{ conversations: ConversationStorageItem[] }>
   purgeConversation(options: { id: string; confirmation: string }): Promise<{ conversations: ConversationStorageItem[] }>
   getMessages(options: { sessionId: string }): Promise<{ messages: Message[] }>
@@ -61,6 +74,8 @@ interface IOSLocalPlugin {
     isFocus: boolean
     dueDate?: string
     itemType?: FocusTask['item_type']
+    placeContext?: FocusTask['place_context']
+    triggerOnArrival?: boolean
   }): Promise<FocusTask>
   updateFocusTask(options: {
     id: number
@@ -69,6 +84,8 @@ interface IOSLocalPlugin {
     priority?: FocusTaskPriority
     completed?: boolean
     isFocus?: boolean
+    placeContext?: FocusTask['place_context']
+    triggerOnArrival?: boolean
   }): Promise<FocusTask>
   deleteFocusTask(options: { id: number }): Promise<void>
   analyzeFocusInput(options: { text: string }): Promise<FocusAnalyzePreview>
@@ -79,6 +96,25 @@ interface IOSLocalPlugin {
   listFocusInbox(): Promise<{ items: FocusInboxItem[] }>
   updateFocusInbox(options: { id: number; status: 'approved' | 'ignored' }): Promise<void>
   syncFocusNotifications(): Promise<{ scheduled: number; authorized: boolean }>
+  getLocationDashboard(): Promise<LocationDashboard>
+  requestCurrentLocation(): Promise<LocationState>
+  saveKnownPlace(options: {
+    id?: number
+    name: string
+    context: LocationPlaceContext
+    latitude: number
+    longitude: number
+    radiusM: number
+    enabled: boolean
+  }): Promise<KnownPlace>
+  deleteKnownPlace(options: { id: number }): Promise<void>
+  setLocationContext(options: { context: LocationSemanticContext }): Promise<LocationState>
+  configureLocationMonitoring(options: { enabled: boolean }): Promise<{ enabled: boolean; authorization: string }>
+  getLocationRoutes(options: { limit: number }): Promise<LocationRouteDashboard>
+  getLocationRoute(options: { id: number }): Promise<LocationRoute>
+  startLocationRoute(options: { name?: string }): Promise<LocationRoute>
+  stopLocationRoute(): Promise<{ route: LocationRoute | null }>
+  deleteLocationRoute(options: { id: number }): Promise<void>
   startSpeechRecognition(options: { recordingId: string }): Promise<void>
   stopSpeechRecognition(options: { recordingId: string }): Promise<{ text: string; recordingId: string }>
   cancelSpeechRecognition(options: { recordingId?: string }): Promise<void>
@@ -135,12 +171,35 @@ export async function listIOSLocalSessions(): Promise<Session[]> {
   return (await native.listSessions()).sessions
 }
 
-export function createIOSLocalSession(title?: string): Promise<Session> {
-  return native.createSession(title ? { title } : {})
+export function createIOSLocalSession(title?: string, folderId?: string | null): Promise<Session> {
+  return native.createSession({
+    ...(title ? { title } : {}),
+    ...(folderId ? { folderId } : {}),
+  })
 }
 
 export function updateIOSLocalSessionTitle(id: string, title: string): Promise<Session> {
   return native.updateSessionTitle({ id, title })
+}
+
+export function updateIOSLocalSessionFolder(id: string, folderId: string | null): Promise<Session> {
+  return native.updateSessionFolder({ id, ...(folderId ? { folderId } : {}) })
+}
+
+export async function listIOSChatFolders(): Promise<ChatFolder[]> {
+  return (await native.listChatFolders()).folders
+}
+
+export function createIOSChatFolder(input: Pick<ChatFolder, 'name' | 'icon' | 'color'>): Promise<ChatFolder> {
+  return native.createChatFolder(input)
+}
+
+export function updateIOSChatFolder(id: string, updates: Partial<Pick<ChatFolder, 'name' | 'icon' | 'color'>>): Promise<ChatFolder> {
+  return native.updateChatFolder({ id, ...updates })
+}
+
+export function deleteIOSChatFolder(id: string): Promise<void> {
+  return native.deleteChatFolder({ id })
 }
 
 export function deleteIOSLocalSession(id: string): Promise<void> {
@@ -197,13 +256,15 @@ export function createIOSFocusTask(
   isFocus = false,
   dueDate?: string,
   itemType: FocusTask['item_type'] = 'TASK',
+  placeContext: FocusTask['place_context'] = 'anywhere',
+  triggerOnArrival = false,
 ): Promise<FocusTask> {
-  return native.createFocusTask({ title, category, priority, isFocus, itemType, ...(dueDate ? { dueDate } : {}) })
+  return native.createFocusTask({ title, category, priority, isFocus, itemType, placeContext, triggerOnArrival, ...(dueDate ? { dueDate } : {}) })
 }
 
 export function updateIOSFocusTask(
   id: number,
-  updates: Partial<Pick<FocusTask, 'title' | 'category' | 'priority' | 'completed' | 'is_focus'>>,
+  updates: Partial<Pick<FocusTask, 'title' | 'category' | 'priority' | 'completed' | 'is_focus' | 'place_context' | 'trigger_on_arrival'>>,
 ): Promise<FocusTask> {
   return native.updateFocusTask({
     id,
@@ -212,6 +273,8 @@ export function updateIOSFocusTask(
     ...(updates.priority !== undefined ? { priority: updates.priority } : {}),
     ...(updates.completed !== undefined ? { completed: updates.completed } : {}),
     ...(updates.is_focus !== undefined ? { isFocus: updates.is_focus } : {}),
+    ...(updates.place_context !== undefined ? { placeContext: updates.place_context } : {}),
+    ...(updates.trigger_on_arrival !== undefined ? { triggerOnArrival: updates.trigger_on_arrival } : {}),
   })
 }
 
@@ -249,6 +312,79 @@ export function updateIOSFocusInbox(id: number, status: 'approved' | 'ignored'):
 
 export function syncIOSFocusNotifications(): Promise<{ scheduled: number; authorized: boolean }> {
   return native.syncFocusNotifications()
+}
+
+function normalizeIOSKnownPlace(place: KnownPlace): KnownPlace {
+  // O runtime Swift usou `radius_meters` nas primeiras versões do Buds Map.
+  // Aceitar os dois nomes mantém o app compatível durante atualizações em que
+  // o bundle nativo e os assets web ainda não estão na mesma versão.
+  const legacyPlace = place as KnownPlace & { radius_meters?: number }
+  const normalizedRadius = Number.isFinite(legacyPlace.radius_m)
+    ? legacyPlace.radius_m
+    : Number(legacyPlace.radius_meters)
+  return {
+    ...place,
+    radius_m: Number.isFinite(normalizedRadius) && normalizedRadius > 0
+      ? normalizedRadius
+      : 180,
+  }
+}
+
+export async function getIOSLocationDashboard(): Promise<LocationDashboard> {
+  const dashboard = await native.getLocationDashboard()
+  return {
+    ...dashboard,
+    places: dashboard.places.map(normalizeIOSKnownPlace),
+  }
+}
+
+export function requestIOSCurrentLocation(): Promise<LocationState> {
+  return native.requestCurrentLocation()
+}
+
+export async function saveIOSKnownPlace(place: Omit<KnownPlace, 'id' | 'created_at' | 'updated_at'> & { id?: number }): Promise<KnownPlace> {
+  const savedPlace = await native.saveKnownPlace({
+    ...(place.id !== undefined ? { id: place.id } : {}),
+    name: place.name,
+    context: place.context,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    radiusM: place.radius_m,
+    enabled: place.enabled,
+  })
+  return normalizeIOSKnownPlace(savedPlace)
+}
+
+export function deleteIOSKnownPlace(id: number): Promise<void> {
+  return native.deleteKnownPlace({ id })
+}
+
+export function setIOSLocationContext(context: LocationSemanticContext): Promise<LocationState> {
+  return native.setLocationContext({ context })
+}
+
+export function configureIOSLocationMonitoring(enabled: boolean): Promise<{ enabled: boolean; authorization: string }> {
+  return native.configureLocationMonitoring({ enabled })
+}
+
+export function getIOSLocationRoutes(limit = 30): Promise<LocationRouteDashboard> {
+  return native.getLocationRoutes({ limit })
+}
+
+export function getIOSLocationRoute(id: number): Promise<LocationRoute> {
+  return native.getLocationRoute({ id })
+}
+
+export function startIOSLocationRoute(name?: string): Promise<LocationRoute> {
+  return native.startLocationRoute(name ? { name } : {})
+}
+
+export async function stopIOSLocationRoute(): Promise<LocationRoute | null> {
+  return (await native.stopLocationRoute()).route
+}
+
+export function deleteIOSLocationRoute(id: number): Promise<void> {
+  return native.deleteLocationRoute({ id })
 }
 
 export async function startIOSSpeechRecognition(

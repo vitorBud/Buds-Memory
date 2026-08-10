@@ -10,6 +10,8 @@ struct BudsFocusCandidate: Sendable {
     let confidence: Double
     let autoApply: Bool
     let dedupKey: String
+    let placeContext: String
+    let triggerOnArrival: Bool
 }
 
 /// Espelho leve do detector Flask. Não executa o 4B e, portanto, pode rodar em
@@ -45,13 +47,14 @@ enum BudsFocusCapture {
                 continue
             }
 
-            let content = cleanContent(phrase, itemType: itemType)
+            let location = placeContext(normalized)
+            let content = cleanContent(phrase, itemType: itemType, stripArrival: location.trigger)
             guard content.count >= 3 else { continue }
             let dueDate = ["TASK", "REMINDER"].contains(itemType) ? parseDueDate(phrase, now: now) : nil
             let adjustedConfidence = (phrase.contains("?") || looksLikeExample) ? min(confidence, 0.74) : confidence
             let autoApply = ["TASK", "REMINDER"].contains(itemType)
                 && adjustedConfidence >= 0.9 && !phrase.contains("?") && !looksLikeExample
-            let key = makeKey(itemType: itemType, content: content, dueDate: dueDate)
+            let key = makeKey(itemType: itemType, content: content, dueDate: dueDate, placeContext: location.context)
             guard seen.insert(key).inserted else { continue }
             candidates.append(BudsFocusCandidate(
                 itemType: itemType,
@@ -61,7 +64,9 @@ enum BudsFocusCapture {
                 dueDate: dueDate,
                 confidence: adjustedConfidence,
                 autoApply: autoApply,
-                dedupKey: key
+                dedupKey: key,
+                placeContext: location.context,
+                triggerOnArrival: location.trigger
             ))
         }
         return candidates
@@ -100,8 +105,15 @@ enum BudsFocusCapture {
         return containsAny(text, ["vou fazer", "vou terminar", "quero fazer", "quero terminar", "vou resolver", "vou estudar"])
     }
 
-    private static func cleanContent(_ phrase: String, itemType: String) -> String {
+    private static func cleanContent(_ phrase: String, itemType: String, stripArrival: Bool = false) -> String {
         var value = phrase.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\"“”"))
+        if stripArrival {
+            value = value.replacingOccurrences(
+                of: #"\b(?:quando|assim que)\s+(?:eu\s+)?(?:chegar|entrar|voltar)\s+(?:em|no|na|ao|a|pra|para)?\s*(?:casa|trabalho|empresa|escritório|academia|treino|faculdade|escola|curso|biblioteca)\b[,]?"#,
+                with: "",
+                options: [.regularExpression, .caseInsensitive]
+            ).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         let prefixes: [String: [String]] = [
             "REMINDER": [#"^(?:por favor,?\s*)?me lembr(?:a|e)\s+"#, #"^(?:eu\s+)?não posso esquecer(?:\s+de)?\s+"#, #"^lembrete\s*:?\s*"#],
             "TASK": [#"^(?:hoje|amanhã|depois de amanhã)[,\s]+"#, #"^(?:eu\s+)?(?:tenho que|preciso|devo|vou precisar)\s+"#, #"^(?:quero|vou)\s+(?:terminar|fazer|resolver|entregar|revisar|estudar)\s+"#],
@@ -147,6 +159,15 @@ enum BudsFocusCapture {
         if containsAny(text, ["projeto", "codigo", "programar", "frontend", "backend", "app", "deploy", "github"]) { return "project" }
         if containsAny(text, ["casa", "mercado", "medico", "familia", "academia", "pessoal"]) { return "personal" }
         return "other"
+    }
+
+    private static func placeContext(_ text: String) -> (context: String, trigger: Bool) {
+        let trigger = text.range(of: #"\b(?:quando|assim que)\s+(?:eu\s+)?(?:chegar|entrar|voltar)\b"#, options: .regularExpression) != nil
+        if containsAny(text, ["casa", "em casa", "pra casa", "para casa"]) { return ("home", trigger) }
+        if containsAny(text, ["trabalho", "empresa", "escritorio"]) { return ("work", trigger) }
+        if containsAny(text, ["academia", "treino"]) { return ("gym", trigger) }
+        if containsAny(text, ["faculdade", "escola", "curso", "biblioteca"]) { return ("study", trigger) }
+        return ("anywhere", false)
     }
 
     private static func parseDueDate(_ text: String, now: Date) -> String? {
@@ -207,13 +228,13 @@ enum BudsFocusCapture {
         }
     }
 
-    private static func makeKey(itemType: String, content: String, dueDate: String?) -> String {
+    private static func makeKey(itemType: String, content: String, dueDate: String?, placeContext: String) -> String {
         let stopwords = Set(["o", "a", "os", "as", "um", "uma", "de", "do", "da", "para", "que"])
         let semantic = normalize(content)
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty && !stopwords.contains($0) }
             .joined(separator: " ")
-        let payload = "\(itemType):\(semantic):\((dueDate ?? "").prefix(10))"
+        let payload = "\(itemType):\(semantic):\((dueDate ?? "").prefix(10)):\(placeContext)"
         return SHA256.hash(data: Data(payload.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }

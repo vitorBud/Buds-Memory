@@ -47,6 +47,8 @@ def migrate():
         _create_focus_tasks(conn)
         _create_focus_v2_tables(conn)
         _migrate_focus_capture_columns(conn)
+        _create_location_context(conn)
+        _create_chat_folders(conn)
         _migrate_session_retention(conn)
         _migrate_memories_core_columns(conn)
         _migrate_memory_scope(conn)
@@ -133,6 +135,8 @@ def _migrate_focus_capture_columns(conn):
     _add_column_if_missing(conn, "focus_tasks", "dedup_key", "TEXT")
     _add_column_if_missing(conn, "focus_tasks", "confidence", "REAL NOT NULL DEFAULT 1.0")
     _add_column_if_missing(conn, "focus_inbox", "dedup_key", "TEXT")
+    _add_column_if_missing(conn, "focus_tasks", "place_context", "TEXT NOT NULL DEFAULT 'anywhere'")
+    _add_column_if_missing(conn, "focus_tasks", "trigger_on_arrival", "BOOLEAN NOT NULL DEFAULT 0")
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_tasks_dedup "
         "ON focus_tasks(dedup_key) WHERE dedup_key IS NOT NULL AND completed=0"
@@ -141,6 +145,95 @@ def _migrate_focus_capture_columns(conn):
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_inbox_dedup "
         "ON focus_inbox(dedup_key) WHERE dedup_key IS NOT NULL AND status='pending'"
     )
+
+
+def _create_location_context(conn):
+    """Cria o contexto semântico de lugar sem armazenar rastreamento contínuo."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS location_places (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            context     TEXT NOT NULL DEFAULT 'other',
+            latitude    REAL NOT NULL,
+            longitude   REAL NOT NULL,
+            radius_m    REAL NOT NULL DEFAULT 180,
+            enabled     BOOLEAN NOT NULL DEFAULT 1,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS location_state (
+            id          INTEGER PRIMARY KEY CHECK(id = 1),
+            place_id    INTEGER,
+            context     TEXT NOT NULL DEFAULT 'unknown',
+            status      TEXT NOT NULL DEFAULT 'unknown',
+            latitude    REAL,
+            longitude   REAL,
+            accuracy_m  REAL,
+            source      TEXT NOT NULL DEFAULT 'manual',
+            updated_at  TEXT NOT NULL,
+            FOREIGN KEY(place_id) REFERENCES location_places(id) ON DELETE SET NULL
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS location_events (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            place_id    INTEGER,
+            event_type  TEXT NOT NULL,
+            context     TEXT NOT NULL,
+            source      TEXT NOT NULL DEFAULT 'system',
+            created_at  TEXT NOT NULL,
+            FOREIGN KEY(place_id) REFERENCES location_places(id) ON DELETE SET NULL
+        );
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_location_places_context ON location_places(context, enabled)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_location_events_created ON location_events(created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_focus_tasks_place ON focus_tasks(place_context, completed)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS location_routes (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'active',
+            started_at  TEXT NOT NULL,
+            ended_at    TEXT,
+            distance_m  REAL NOT NULL DEFAULT 0,
+            duration_s  INTEGER NOT NULL DEFAULT 0,
+            point_count INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL
+        );
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS location_route_points (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            route_id    INTEGER NOT NULL,
+            latitude    REAL NOT NULL,
+            longitude   REAL NOT NULL,
+            accuracy_m  REAL,
+            altitude_m  REAL,
+            speed_mps   REAL,
+            recorded_at TEXT NOT NULL,
+            FOREIGN KEY(route_id) REFERENCES location_routes(id) ON DELETE CASCADE
+        );
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_location_routes_started ON location_routes(started_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_location_route_points_route ON location_route_points(route_id, id)")
+
+
+def _create_chat_folders(conn):
+    """Organização visual de chats, sem alterar mensagens ou memórias."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_folders (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            icon        TEXT NOT NULL DEFAULT 'folder',
+            color       TEXT NOT NULL DEFAULT '#8b5cf6',
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );
+    """)
+    _add_column_if_missing(conn, "sessions", "folder_id", "TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_folder ON sessions(folder_id, created_at DESC)")
 
 def _create_memories(conn):
     conn.execute("""

@@ -33,6 +33,10 @@
 	<string>O Buds Memory usa a rede local para conectar este iPhone ao modelo e às memórias armazenadas no seu Mac.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>O Buds Memory usa o microfone somente quando você inicia uma conversa por voz.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>O Buds usa sua localização quando você abre o mapa ou inicia a gravação de um trajeto.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>O Buds usa regiões de baixo consumo para atualizar o contexto Casa, Trabalho ou Academia sem manter o GPS ligado.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>O Buds Memory transforma sua fala em texto localmente para conversar com o motor 7B.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
@@ -56,6 +60,10 @@
       </array>
     </dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

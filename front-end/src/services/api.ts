@@ -5,6 +5,7 @@
 import { Capacitor } from '@capacitor/core'
 import type {
   Session,
+  ChatFolder,
   Message,
   BackendConfig,
   ChatStreamEvent,
@@ -22,7 +23,14 @@ import type {
   FocusIdea,
   FocusDecision,
   FocusTimelineEvent,
-  FocusInboxItem
+  FocusInboxItem,
+  LocationDashboard,
+  LocationRoute,
+  LocationRouteDashboard,
+  KnownPlace,
+  LocationPlaceContext,
+  LocationSemanticContext,
+  LocationState,
 } from '../types'
 import {
   clearIOSLocalData,
@@ -52,6 +60,22 @@ import {
   syncIOSFocusNotifications,
   updateIOSLocalMemory,
   updateIOSLocalSessionTitle,
+  updateIOSLocalSessionFolder,
+  listIOSChatFolders,
+  createIOSChatFolder,
+  updateIOSChatFolder,
+  deleteIOSChatFolder,
+  configureIOSLocationMonitoring,
+  deleteIOSKnownPlace,
+  getIOSLocationDashboard,
+  requestIOSCurrentLocation,
+  saveIOSKnownPlace,
+  setIOSLocationContext,
+  getIOSLocationRoutes,
+  getIOSLocationRoute,
+  startIOSLocationRoute,
+  stopIOSLocationRoute,
+  deleteIOSLocationRoute,
 } from '../plataformas'
 
 type BudsBridge = {
@@ -98,7 +122,7 @@ export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Pro
   return fetch(input, { ...init, headers })
 }
 
-function isDesktop(): boolean {
+export function isDesktopRuntime(): boolean {
   return Boolean((window as unknown as { nexus?: BudsBridge }).nexus?.isDesktop)
 }
 
@@ -150,7 +174,7 @@ function humanizeError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err))
 }
 
-async function fetchJsonWithStartupRetry<T>(url: string, attempts = isDesktop() ? 16 : 1): Promise<T> {
+async function fetchJsonWithStartupRetry<T>(url: string, attempts = isDesktopRuntime() ? 16 : 1): Promise<T> {
   let lastError: unknown
 
   for (let index = 0; index < attempts; index += 1) {
@@ -507,12 +531,12 @@ export async function getSessions(): Promise<Session[]> {
   return fetchJsonWithStartupRetry<Session[]>(`${getBase()}/sessions`)
 }
 
-export async function createSession(title?: string): Promise<Session> {
-  if (isNativeIOSRuntime()) return createIOSLocalSession(title)
+export async function createSession(title?: string, folderId?: string | null): Promise<Session> {
+  if (isNativeIOSRuntime()) return createIOSLocalSession(title, folderId)
   const res = await authFetch(`${getBase()}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: title ?? null }),
+    body: JSON.stringify({ title: title ?? null, folder_id: folderId ?? null }),
   })
   if (!res.ok) throw new Error(`createSession: ${res.status}`)
   return res.json()
@@ -533,6 +557,54 @@ export async function updateSessionTitle(id: string, title: string): Promise<Ses
   })
   if (!res.ok) throw new Error(`updateSessionTitle: ${res.status}`)
   return res.json()
+}
+
+export async function updateSessionFolder(id: string, folderId: string | null): Promise<Session> {
+  if (isNativeIOSRuntime()) return updateIOSLocalSessionFolder(id, folderId)
+  const res = await authFetch(`${getBase()}/sessions/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder_id: folderId }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `updateSessionFolder: ${res.status}`)
+  return data
+}
+
+export async function getChatFolders(): Promise<ChatFolder[]> {
+  if (isNativeIOSRuntime()) return listIOSChatFolders()
+  return fetchJsonWithStartupRetry<ChatFolder[]>(`${getBase()}/chat-folders`)
+}
+
+export async function createChatFolder(input: Pick<ChatFolder, 'name' | 'icon' | 'color'>): Promise<ChatFolder> {
+  if (isNativeIOSRuntime()) return createIOSChatFolder(input)
+  const res = await authFetch(`${getBase()}/chat-folders`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `createChatFolder: ${res.status}`)
+  return data
+}
+
+export async function updateChatFolder(id: string, updates: Partial<Pick<ChatFolder, 'name' | 'icon' | 'color'>>): Promise<ChatFolder> {
+  if (isNativeIOSRuntime()) return updateIOSChatFolder(id, updates)
+  const res = await authFetch(`${getBase()}/chat-folders/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `updateChatFolder: ${res.status}`)
+  return data
+}
+
+export async function deleteChatFolder(id: string): Promise<void> {
+  if (isNativeIOSRuntime()) return deleteIOSChatFolder(id)
+  const res = await authFetch(`${getBase()}/chat-folders/${id}`, { method: 'DELETE' })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `deleteChatFolder: ${res.status}`)
+  }
 }
 
 export async function getSessionMessages(id: string): Promise<Message[]> {
@@ -619,7 +691,7 @@ export async function streamChat(
     if (payload.audio) throw new Error('A transcrição de áudio local será adicionada depois do motor 4B.')
     return streamIOSLocalChat(payload, onEvent, signal)
   }
-  const attempts = isDesktop() ? 3 : 2
+  const attempts = isDesktopRuntime() ? 3 : 2
   let lastError: unknown
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -712,14 +784,16 @@ export async function createFocusTask(
   is_focus = false,
   due_date: string | null = null,
   item_type: FocusTask['item_type'] = 'TASK',
+  place_context: FocusTask['place_context'] = 'anywhere',
+  trigger_on_arrival = false,
 ): Promise<FocusTask> {
   if (isNativeIOSRuntime()) {
-    return createIOSFocusTask(title, category, priority, is_focus, due_date ?? undefined, item_type)
+    return createIOSFocusTask(title, category, priority, is_focus, due_date ?? undefined, item_type, place_context, trigger_on_arrival)
   }
   const res = await authFetch(`${getBase()}/cognitive/focus`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, category, priority, is_focus, due_date, item_type }),
+    body: JSON.stringify({ title, category, priority, is_focus, due_date, item_type, place_context, trigger_on_arrival }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error || 'Falha ao criar tarefa.')
@@ -773,6 +847,8 @@ export async function applyFocusItems(items: FocusAnalyzeItem[]): Promise<{ appl
           false,
           item.due_date ?? undefined,
           item.type === 'REMINDER' ? 'REMINDER' : 'TASK',
+          item.place_context ?? 'anywhere',
+          item.trigger_on_arrival ?? false,
         )
         results.push({ type: 'task', id: task.id })
       } else if (item.action === 'complete_task' && item.related_task_id) {
@@ -885,3 +961,155 @@ export async function organizeMyDay(): Promise<string> {
   if (!res.ok) throw new Error(data.error || 'Falha ao organizar dia.')
   return data.suggestion
 }
+
+// ─── Buds Map / contexto de lugar ──────────────────────────────────────────
+
+let browserRouteWatchId: number | null = null
+
+async function postBrowserLocationSample(position: GeolocationPosition): Promise<void> {
+  const response = await authFetch(`${getBase()}/cognitive/location/sample`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy_m: position.coords.accuracy,
+      altitude_m: position.coords.altitude,
+      speed_mps: position.coords.speed,
+      recorded_at: new Date(position.timestamp).toISOString(),
+      source: 'browser',
+    }),
+  })
+  if (!response.ok) throw new Error('Não foi possível registrar um ponto do trajeto.')
+}
+
+function startBrowserRouteWatcher() {
+  if (browserRouteWatchId !== null || !navigator.geolocation) return
+  browserRouteWatchId = navigator.geolocation.watchPosition(
+    position => { void postBrowserLocationSample(position).catch(error => console.warn('[BudsMap]', error)) },
+    error => console.warn('[BudsMap] Rastreamento pausado:', error.message),
+    { enableHighAccuracy: true, maximumAge: 3_000, timeout: 15_000 },
+  )
+}
+
+function stopBrowserRouteWatcher() {
+  if (browserRouteWatchId === null || !navigator.geolocation) return
+  navigator.geolocation.clearWatch(browserRouteWatchId)
+  browserRouteWatchId = null
+}
+
+export async function getLocationDashboard(): Promise<LocationDashboard> {
+  if (isNativeIOSRuntime()) return getIOSLocationDashboard()
+  return fetchJsonWithStartupRetry<LocationDashboard>(`${getBase()}/cognitive/location?limit=30`)
+}
+
+export async function getLocationRoutes(): Promise<LocationRouteDashboard> {
+  if (isNativeIOSRuntime()) return getIOSLocationRoutes()
+  const dashboard = await fetchJsonWithStartupRetry<LocationRouteDashboard>(`${getBase()}/cognitive/location/routes?limit=30`)
+  if (dashboard.active) startBrowserRouteWatcher()
+  return dashboard
+}
+
+export async function getLocationRoute(id: number): Promise<LocationRoute> {
+  if (isNativeIOSRuntime()) return getIOSLocationRoute(id)
+  return fetchJsonWithStartupRetry<LocationRoute>(`${getBase()}/cognitive/location/routes/${id}`)
+}
+
+export async function startLocationRoute(name?: string): Promise<LocationRoute> {
+  if (isNativeIOSRuntime()) return startIOSLocationRoute(name)
+  if (!navigator.geolocation) throw new Error('Localização não está disponível neste computador.')
+  const response = await authFetch(`${getBase()}/cognitive/location/routes/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(data.error || 'Não foi possível iniciar o trajeto.')
+  startBrowserRouteWatcher()
+  return data
+}
+
+export async function stopLocationRoute(): Promise<LocationRoute | null> {
+  if (isNativeIOSRuntime()) return stopIOSLocationRoute()
+  stopBrowserRouteWatcher()
+  const response = await authFetch(`${getBase()}/cognitive/location/routes/stop`, { method: 'POST' })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(data.error || 'Não foi possível encerrar o trajeto.')
+  return data as LocationRoute
+}
+
+export async function deleteLocationRoute(id: number): Promise<void> {
+  if (isNativeIOSRuntime()) return deleteIOSLocationRoute(id)
+  const response = await authFetch(`${getBase()}/cognitive/location/routes/${id}`, { method: 'DELETE' })
+  if (!response.ok) throw new Error('Não foi possível apagar o trajeto.')
+}
+
+export async function refreshLocationContext(): Promise<LocationState> {
+  if (isNativeIOSRuntime()) return requestIOSCurrentLocation()
+  if (!navigator.geolocation) throw new Error('Localização não está disponível neste computador.')
+  const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true,
+      maximumAge: 60_000,
+      timeout: 12_000,
+    })
+  })
+  const res = await authFetch(`${getBase()}/cognitive/location/sample`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy_m: position.coords.accuracy,
+      altitude_m: position.coords.altitude,
+      speed_mps: position.coords.speed,
+      recorded_at: new Date(position.timestamp).toISOString(),
+      source: 'browser',
+    }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Não foi possível atualizar o contexto de lugar.')
+  return data
+}
+
+export async function saveKnownPlace(
+  place: Omit<KnownPlace, 'id' | 'created_at' | 'updated_at'> & { id?: number },
+): Promise<KnownPlace> {
+  if (isNativeIOSRuntime()) return saveIOSKnownPlace(place)
+  const path = place.id === undefined
+    ? `${getBase()}/cognitive/location/places`
+    : `${getBase()}/cognitive/location/places/${place.id}`
+  const res = await authFetch(path, {
+    method: place.id === undefined ? 'POST' : 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(place),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Não foi possível salvar este lugar.')
+  return data
+}
+
+export async function deleteKnownPlace(id: number): Promise<void> {
+  if (isNativeIOSRuntime()) return deleteIOSKnownPlace(id)
+  const res = await authFetch(`${getBase()}/cognitive/location/places/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Não foi possível apagar este lugar.')
+}
+
+export async function setLocationContext(context: LocationSemanticContext): Promise<LocationState> {
+  if (isNativeIOSRuntime()) return setIOSLocationContext(context)
+  const res = await authFetch(`${getBase()}/cognitive/location/context`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ context }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || 'Não foi possível trocar o contexto.')
+  return data
+}
+
+export async function configureLocationMonitoring(enabled: boolean): Promise<{ enabled: boolean; authorization: string }> {
+  if (isNativeIOSRuntime()) return configureIOSLocationMonitoring(enabled)
+  return { enabled: false, authorization: 'on_demand' }
+}
+
+export type { LocationPlaceContext }

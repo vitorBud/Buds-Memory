@@ -27,6 +27,7 @@ from cognitive import (
     user_profile,
     conversation,
     focus,
+    location,
 )
 import database_v2 as dbv2
 from database_v2 import get_db_connection
@@ -758,6 +759,8 @@ def create_focus_task():
             item_type="REMINDER" if body.get("item_type") == "REMINDER" else "TASK",
             source=body.get("source", "manual"),
             confidence=body.get("confidence", 1.0),
+            place_context=body.get("place_context", "anywhere"),
+            trigger_on_arrival=body.get("trigger_on_arrival", False),
         )
         return _ok(task, 201)
     except Exception as e:
@@ -821,6 +824,8 @@ def apply_focus_items():
                     item_type="REMINDER" if item.get("type") == "REMINDER" else "TASK",
                     source="focus_input",
                     confidence=item.get("confidence", 0.8),
+                    place_context=item.get("place_context", "anywhere"),
+                    trigger_on_arrival=item.get("trigger_on_arrival", False),
                 )
                 results.append({"type": "task", "id": t["id"]})
             elif action == "complete_task" and item.get("related_task_id"):
@@ -885,6 +890,118 @@ def update_focus_inbox(item_id: int):
     if success:
         return _ok({"success": True})
     return _err("Não foi possível atualizar este item da Buds Inbox.", 400)
+
+
+# ── Buds Map / contexto de lugar ────────────────────────────────────────────
+
+@cognitive_bp.get("/location")
+def get_location_context():
+    return _ok({
+        "state": location.get_state(),
+        "places": location.list_places(),
+        "events": location.get_recent_events(limit=_int_param("limit", 30)),
+        "policy": {
+            "continuous_gps": False,
+            "precise_only_on_demand": True,
+            "coordinates_sent_to_model": False,
+        },
+    })
+
+
+@cognitive_bp.post("/location/places")
+def create_location_place():
+    body = request.get_json(silent=True) or {}
+    try:
+        return _ok(location.save_place(
+            name=body.get("name", ""),
+            context=body.get("context", "other"),
+            latitude=body.get("latitude"),
+            longitude=body.get("longitude"),
+            radius_m=body.get("radius_m", 180),
+            enabled=body.get("enabled", True),
+        ), 201)
+    except (TypeError, ValueError) as exc:
+        return _err(str(exc), 400)
+
+
+@cognitive_bp.patch("/location/places/<int:place_id>")
+def update_location_place(place_id: int):
+    body = request.get_json(silent=True) or {}
+    current = location.get_place(place_id)
+    if not current:
+        return _err("Lugar não encontrado.", 404)
+    try:
+        return _ok(location.save_place(
+            place_id=place_id,
+            name=body.get("name", current["name"]),
+            context=body.get("context", current["context"]),
+            latitude=body.get("latitude", current["latitude"]),
+            longitude=body.get("longitude", current["longitude"]),
+            radius_m=body.get("radius_m", current["radius_m"]),
+            enabled=body.get("enabled", current["enabled"]),
+        ))
+    except (TypeError, ValueError) as exc:
+        return _err(str(exc), 400)
+
+
+@cognitive_bp.delete("/location/places/<int:place_id>")
+def delete_location_place(place_id: int):
+    if not location.delete_place(place_id):
+        return _err("Lugar não encontrado.", 404)
+    return _ok({"success": True})
+
+
+@cognitive_bp.post("/location/sample")
+def update_location_sample():
+    body = request.get_json(silent=True) or {}
+    try:
+        return _ok(location.update_sample(
+            body.get("latitude"),
+            body.get("longitude"),
+            accuracy_m=body.get("accuracy_m"),
+            altitude_m=body.get("altitude_m"),
+            speed_mps=body.get("speed_mps"),
+            recorded_at=body.get("recorded_at"),
+            source=body.get("source", "browser"),
+        ))
+    except (TypeError, ValueError) as exc:
+        return _err(str(exc), 400)
+
+
+@cognitive_bp.post("/location/context")
+def set_location_context():
+    body = request.get_json(silent=True) or {}
+    return _ok(location.set_semantic_context(body.get("context", "unknown"), source="manual"))
+
+
+@cognitive_bp.get("/location/routes")
+def get_location_routes():
+    return _ok(location.route_dashboard(limit=_int_param("limit", 20)))
+
+
+@cognitive_bp.get("/location/routes/<int:route_id>")
+def get_location_route(route_id: int):
+    route = location.get_route(route_id, include_points=True)
+    return _ok(route) if route else _err("Trajeto não encontrado.", 404)
+
+
+@cognitive_bp.post("/location/routes/start")
+def start_location_route():
+    body = request.get_json(silent=True) or {}
+    return _ok(location.start_route(body.get("name")), 201)
+
+
+@cognitive_bp.post("/location/routes/stop")
+def stop_location_route():
+    route = location.finish_route()
+    return _ok(route) if route else _err("Nenhum trajeto está sendo gravado.", 409)
+
+
+@cognitive_bp.delete("/location/routes/<int:route_id>")
+def delete_location_route(route_id: int):
+    if not location.delete_route(route_id):
+        return _err("Trajeto não encontrado.", 404)
+    return _ok({"success": True})
 
 # Retrocompatibilidade (opcional)
 @cognitive_bp.post("/focus/braindump")

@@ -22,6 +22,7 @@ let package = Package(
                 .linkedFramework("MetalKit"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Speech"),
+                .linkedFramework("CoreLocation"),
             ]
         ),
     ]

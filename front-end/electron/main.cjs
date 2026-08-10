@@ -390,6 +390,16 @@ function createWindow() {
     },
   })
 
+  // O renderer isolado só recebe geolocalização após um gesto do usuário no
+  // Buds Map. Nenhuma outra permissão é liberada automaticamente.
+  const rendererSession = mainWindow.webContents.session
+  rendererSession.setPermissionCheckHandler((webContents, permission) => (
+    permission === 'geolocation' && webContents === mainWindow?.webContents
+  ))
+  rendererSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    callback(permission === 'geolocation' && webContents === mainWindow?.webContents)
+  })
+
   const devUrl = process.env.VITE_DEV_SERVER_URL
   if (devUrl) {
     mainWindow.loadURL(devUrl)

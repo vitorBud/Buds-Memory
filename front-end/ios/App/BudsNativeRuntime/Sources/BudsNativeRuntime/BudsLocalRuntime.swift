@@ -8,6 +8,20 @@ public final class BudsLocalRuntime: @unchecked Sendable {
     private let storeLock = NSLock()
     private var store: BudsLocalStore?
     private let engine = BudsInferenceEngine()
+    public lazy var locationMonitor = BudsLocationMonitor(
+        onSample: { [weak self] latitude, longitude, accuracy, altitude, speed, recordedAt, source in
+            guard let self else { throw BudsNativeError.databaseUnavailable("Runtime de localização indisponível.") }
+            return try self.updateLocationSample(
+                latitude: latitude, longitude: longitude, accuracyMeters: accuracy,
+                altitudeMeters: altitude, speedMetersPerSecond: speed,
+                recordedAt: recordedAt, source: source
+            )
+        },
+        onRegion: { [weak self] placeId, entering in
+            guard let self else { return }
+            _ = try self.recordGeofence(placeId: placeId, entering: entering)
+        }
+    )
     private let generationLock = NSLock()
     private var activeGeneration: (id: String, sessionId: String)?
 
@@ -42,12 +56,32 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         try ensureStore().listSessions()
     }
 
-    public func createSession(title: String?) throws -> BudsSessionRecord {
-        try ensureStore().createSession(title: title)
+    public func createSession(title: String?, folderId: String? = nil) throws -> BudsSessionRecord {
+        try ensureStore().createSession(title: title, folderId: folderId)
     }
 
     public func updateSessionTitle(id: String, title: String) throws -> BudsSessionRecord {
         try ensureStore().updateSessionTitle(id: id, title: title)
+    }
+
+    public func updateSessionFolder(id: String, folderId: String?) throws -> BudsSessionRecord {
+        try ensureStore().updateSessionFolder(id: id, folderId: folderId)
+    }
+
+    public func chatFolders() throws -> [BudsChatFolderRecord] {
+        try ensureStore().chatFolders()
+    }
+
+    public func createChatFolder(name: String, icon: String, color: String) throws -> BudsChatFolderRecord {
+        try ensureStore().createChatFolder(name: name, icon: icon, color: color)
+    }
+
+    public func updateChatFolder(id: String, name: String?, icon: String?, color: String?) throws -> BudsChatFolderRecord {
+        try ensureStore().updateChatFolder(id: id, name: name, icon: icon, color: color)
+    }
+
+    public func deleteChatFolder(id: String) throws {
+        try ensureStore().deleteChatFolder(id: id)
     }
 
     public func deleteSession(id: String) throws {
@@ -115,7 +149,9 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         priority: String,
         isFocus: Bool,
         dueDate: String?,
-        itemType: String = "TASK"
+        itemType: String = "TASK",
+        placeContext: String = "anywhere",
+        triggerOnArrival: Bool = false
     ) throws -> BudsFocusTaskRecord {
         try ensureStore().createFocusTask(
             title: title,
@@ -123,7 +159,9 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             priority: priority,
             isFocus: isFocus,
             dueDate: dueDate,
-            itemType: itemType
+            itemType: itemType,
+            placeContext: placeContext,
+            triggerOnArrival: triggerOnArrival
         )
     }
 
@@ -133,7 +171,9 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         category: String?,
         priority: String?,
         completed: Bool?,
-        isFocus: Bool?
+        isFocus: Bool?,
+        placeContext: String?,
+        triggerOnArrival: Bool?
     ) throws -> BudsFocusTaskRecord {
         try ensureStore().updateFocusTask(
             id: id,
@@ -141,7 +181,9 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             category: category,
             priority: priority,
             completed: completed,
-            isFocus: isFocus
+            isFocus: isFocus,
+            placeContext: placeContext,
+            triggerOnArrival: triggerOnArrival
         )
     }
 
@@ -169,6 +211,97 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         try ensureStore().updateFocusInbox(id: id, status: status)
     }
 
+    public func knownPlaces() throws -> [BudsKnownPlaceRecord] {
+        try ensureStore().knownPlaces()
+    }
+
+    public func saveKnownPlace(
+        id: Int64?, name: String, context: String, latitude: Double,
+        longitude: Double, radiusMeters: Double, enabled: Bool
+    ) throws -> BudsKnownPlaceRecord {
+        try ensureStore().saveKnownPlace(
+            id: id, name: name, context: context, latitude: latitude,
+            longitude: longitude, radiusMeters: radiusMeters, enabled: enabled
+        )
+    }
+
+    public func deleteKnownPlace(id: Int64) throws {
+        try ensureStore().deleteKnownPlace(id: id)
+    }
+
+    public func locationState() throws -> BudsLocationStateRecord {
+        try ensureStore().locationState()
+    }
+
+    public func locationEvents(limit: Int = 30) throws -> [BudsLocationEventRecord] {
+        try ensureStore().locationEvents(limit: limit)
+    }
+
+    public func updateLocationSample(
+        latitude: Double, longitude: Double, accuracyMeters: Double?,
+        altitudeMeters: Double? = nil, speedMetersPerSecond: Double? = nil,
+        recordedAt: String? = nil, source: String
+    ) throws -> BudsLocationStateRecord {
+        try ensureStore().updateLocationSample(
+            latitude: latitude, longitude: longitude,
+            accuracyMeters: accuracyMeters, altitudeMeters: altitudeMeters,
+            speedMetersPerSecond: speedMetersPerSecond, recordedAt: recordedAt,
+            source: source
+        )
+    }
+
+    public func locationRoutes(limit: Int = 30) throws -> [BudsLocationRouteRecord] {
+        try ensureStore().locationRoutes(limit: limit)
+    }
+
+    public func activeLocationRoute() throws -> BudsLocationRouteRecord? {
+        try ensureStore().activeLocationRoute()
+    }
+
+    public func locationRoute(id: Int64) throws -> BudsLocationRouteRecord? {
+        try ensureStore().locationRoute(id: id)
+    }
+
+    public func startLocationRoute(name: String?) throws -> BudsLocationRouteRecord {
+        let route = try ensureStore().startLocationRoute(name: name)
+        locationMonitor.startRouteTracking()
+        return route
+    }
+
+    public func finishLocationRoute() throws -> BudsLocationRouteRecord? {
+        locationMonitor.stopRouteTracking()
+        return try ensureStore().finishLocationRoute()
+    }
+
+    public func deleteLocationRoute(id: Int64) throws {
+        if try ensureStore().activeLocationRoute()?.id == id {
+            locationMonitor.stopRouteTracking()
+        }
+        try ensureStore().deleteLocationRoute(id: id)
+    }
+
+    public func setSemanticLocationContext(_ context: String) throws -> BudsLocationStateRecord {
+        try ensureStore().setSemanticLocationContext(context)
+    }
+
+    public func recordGeofence(placeId: Int64, entering: Bool) throws -> BudsLocationStateRecord {
+        try ensureStore().recordGeofence(placeId: placeId, entering: entering)
+    }
+
+    public func requestCurrentLocation() async throws -> BudsLocationStateRecord {
+        try await locationMonitor.requestCurrentLocation()
+    }
+
+    public func configureLocationMonitoring(enabled: Bool) throws -> (enabled: Bool, authorization: String) {
+        let places = try knownPlaces()
+        locationMonitor.configure(enabled: enabled, places: places)
+        return (enabled, locationMonitor.authorizationName)
+    }
+
+    public func refreshLocationRegions() throws {
+        locationMonitor.refreshRegions(try knownPlaces())
+    }
+
     public func analyzeFocusInput(_ text: String) async throws -> [[String: Any]] {
         let deterministic = BudsFocusCapture.detect(text)
         if !deterministic.isEmpty {
@@ -182,6 +315,8 @@ public final class BudsLocalRuntime: @unchecked Sendable {
                     "category": candidate.category,
                     "priority": candidate.priority,
                     "confidence": candidate.confidence,
+                    "place_context": candidate.placeContext,
+                    "trigger_on_arrival": candidate.triggerOnArrival,
                 ]
                 if let dueDate = candidate.dueDate { item["due_date"] = dueDate }
                 return item
@@ -193,7 +328,7 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             : tasks.map { "ID: \($0.id) | Título: \($0.title)" }.joined(separator: "\n")
         let prompt = """
         Você é o classificador local do Buds Focus. Converta a atualização do usuário em JSON.
-        Responda somente com este formato: {"items":[{"type":"TASK|REMINDER|UPDATE|IDEA|DECISION|MEMORY|IGNORE","content":"texto curto","action":"complete_task|create_task|save_idea|save_decision|save_memory|none","related_task_id":1,"category":"work|study|personal|project|other","priority":"low|medium|high","due_date":"2026-08-11T09:00","confidence":0.9}]}.
+        Responda somente com este formato: {"items":[{"type":"TASK|REMINDER|UPDATE|IDEA|DECISION|MEMORY|IGNORE","content":"texto curto","action":"complete_task|create_task|save_idea|save_decision|save_memory|none","related_task_id":1,"category":"work|study|personal|project|other","priority":"low|medium|high","due_date":"2026-08-11T09:00","place_context":"home|work|gym|study|other|anywhere","trigger_on_arrival":false,"confidence":0.9}]}.
         Use UPDATE/complete_task somente quando a mensagem disser que uma tarefa aberta foi concluída e houver ID correspondente.
         Tarefas abertas:
         \(taskContext)
@@ -210,16 +345,18 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         let completed = tasks.filter { $0.completed && $0.updatedAt.hasPrefix(String(Self.todayPrefix)) }
         let openText = open.isEmpty
             ? "(nenhuma)"
-            : open.map { "- \($0.title) (\($0.priority), \($0.category))" }.joined(separator: "\n")
+            : open.map { "- \($0.title) (\($0.priority), \($0.category), lugar: \($0.placeContext))" }.joined(separator: "\n")
         let completedText = completed.isEmpty
             ? "(nenhuma)"
             : completed.map { "- \($0.title)" }.joined(separator: "\n")
+        let locationContext = try semanticLocationPrompt()
         let prompt = """
         Você é o Buds Memory no modo Focus. Ajude o usuário a escolher prioridades sem criar tarefas automaticamente.
         Tarefas abertas:
         \(openText)
         Tarefas concluídas hoje:
         \(completedText)
+        \(locationContext)
         Pergunta:
         \(query)
         Responda em português, de forma humana, direta, curta e útil.
@@ -250,12 +387,42 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         if hadActiveGeneration { engine.cancel() }
         let store: BudsLocalStore
         let history: [BudsMessageRecord]
-        let memories: [BudsMemoryRecord]
+        var memories: [BudsMemoryRecord]
         do {
             store = try ensureStore()
             _ = try store.addMessage(sessionId: sessionId, sender: "user", text: text)
             history = try store.messages(sessionId: sessionId, limit: 24)
             memories = try store.memoriesForPrompt(sessionId: sessionId, limit: 16)
+            if Self.shouldUseLocationContext(for: text) {
+                let context = try store.locationState()
+                if !["unknown", "away"].contains(context.context) {
+                    let label = context.placeName ?? context.context
+                    memories.append(BudsMemoryRecord(
+                        id: -1,
+                        content: "Contexto de lugar atual: \(label) (\(context.context)). Use somente se for relevante; não mencione coordenadas.",
+                        importance: 1,
+                        isCore: false,
+                        createdAt: context.updatedAt ?? "",
+                        scope: "session",
+                        sessionId: sessionId
+                    ))
+                }
+                let route = try store.activeLocationRoute() ?? store.locationRoutes(limit: 1).first
+                if let route {
+                    let distance = String(format: "%.2f", route.distanceMeters / 1_000)
+                    let minutes = route.durationSeconds / 60
+                    let state = route.status == "active" ? "em gravação" : "concluído"
+                    memories.append(BudsMemoryRecord(
+                        id: -2,
+                        content: "Resumo local do trajeto mais recente, sem coordenadas: \(route.name); \(distance) km; \(minutes) min; \(state).",
+                        importance: 1,
+                        isCore: false,
+                        createdAt: route.startedAt,
+                        scope: "session",
+                        sessionId: sessionId
+                    ))
+                }
+            }
         } catch {
             finishGeneration(generationId)
             throw error
@@ -383,6 +550,7 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         let allowedActions = Set(["complete_task", "create_task", "save_idea", "save_decision", "save_memory", "none"])
         let allowedCategories = Set(["work", "study", "personal", "project", "other"])
         let allowedPriorities = Set(["low", "medium", "high"])
+        let allowedPlaces = Set(["home", "work", "gym", "study", "other", "anywhere"])
         return rawItems.compactMap { item in
             guard let content = (item["content"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !content.isEmpty else { return nil }
@@ -421,8 +589,25 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             if let dueDate = item["due_date"] as? String, !dueDate.isEmpty {
                 clean["due_date"] = dueDate
             }
+            if let place = item["place_context"] as? String, allowedPlaces.contains(place) {
+                clean["place_context"] = place
+                clean["trigger_on_arrival"] = (item["trigger_on_arrival"] as? Bool ?? false) && place != "anywhere"
+            }
             return clean
         }
+    }
+
+    private func semanticLocationPrompt() throws -> String {
+        let state = try locationState()
+        guard !["unknown", "away"].contains(state.context) else { return "" }
+        let label = state.placeName ?? state.context
+        return "Contexto de lugar atual: \(label) (\(state.context)). Use somente quando ajudar a priorizar; nunca mencione coordenadas."
+    }
+
+    private static func shouldUseLocationContext(for text: String) -> Bool {
+        let value = text.folding(options: .diacriticInsensitive, locale: .current).lowercased()
+        return ["casa", "trabalho", "academia", "faculdade", "localizacao", "onde estou", "chegar", "sair", "focus", "tarefa", "lembrete", "trajeto", "caminho", "percurso", "rota"]
+            .contains { value.contains($0) }
     }
 
     private static func focusBrief(open: [BudsFocusTaskRecord], completedToday: [BudsFocusTaskRecord]) -> String {
@@ -452,6 +637,7 @@ public final class BudsLocalRuntime: @unchecked Sendable {
     }
 
     public func clearAllData() throws -> BudsRuntimeStatus {
+        locationMonitor.configure(enabled: false, places: [])
         engine.cancel()
         inferenceQueue.sync { [engine] in engine.unload() }
 

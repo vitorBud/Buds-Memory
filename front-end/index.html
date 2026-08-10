@@ -5,7 +5,9 @@
     <link rel="icon" type="image/svg+xml" href="/nexus-icon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Interface de aplicativo: evita que duplo toque/foco em campos amplie
+         a WebView inteira. O mapa mantém o próprio zoom via Leaflet. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="description" content="Buds Memory — Segundo cérebro local inteligente" />
     <meta name="theme-color" content="#090a0d" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

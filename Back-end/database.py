@@ -80,13 +80,26 @@ def get_db_connection():
 
 def init_db():
     with get_db_connection() as conn:
+        # Organização visual das conversas. Mantida no banco base porque as
+        # rotas de sessão podem ser usadas mesmo antes dos módulos cognitivos.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_folders (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                icon TEXT NOT NULL DEFAULT 'folder',
+                color TEXT NOT NULL DEFAULT '#8b5cf6',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+        """)
         # Tabela de sessões
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                deleted_at TEXT
+                deleted_at TEXT,
+                folder_id TEXT
             );
         """)
         session_columns = {
@@ -94,6 +107,8 @@ def init_db():
         }
         if "deleted_at" not in session_columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN deleted_at TEXT")
+        if "folder_id" not in session_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN folder_id TEXT")
         # Tabela de mensagens vinculadas
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
@@ -123,18 +138,43 @@ def init_db():
         """)
         conn.commit()
 
-def create_session(title=None):
+CHAT_FOLDER_ICONS = {
+    "folder", "briefcase", "graduation-cap", "chart-no-axes-combined",
+    "wallet-cards", "heart", "house", "lightbulb", "code-2", "dumbbell",
+}
+CHAT_FOLDER_DEFAULT_COLOR = "#8b5cf6"
+
+
+def _clean_folder_color(value):
+    value = str(value or CHAT_FOLDER_DEFAULT_COLOR).strip().lower()
+    if not re.fullmatch(r"#[0-9a-f]{6}", value):
+        raise ValueError("Cor de pasta inválida.")
+    return value
+
+
+def _clean_folder_icon(value):
+    value = str(value or "folder").strip().lower()
+    return value if value in CHAT_FOLDER_ICONS else "folder"
+
+
+def _folder_exists(conn, folder_id):
+    return bool(conn.execute("SELECT 1 FROM chat_folders WHERE id=?", (folder_id,)).fetchone())
+
+
+def create_session(title=None, folder_id=None):
     session_id = str(uuid.uuid4())
     if not title:
         title = f"Conversa {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}"
     created_at = datetime.datetime.now().isoformat()
     with get_db_connection() as conn:
+        if folder_id and not _folder_exists(conn, folder_id):
+            raise ValueError("Pasta não encontrada.")
         conn.execute(
-            "INSERT INTO sessions (id, title, created_at) VALUES (?, ?, ?);",
-            (session_id, title, created_at)
+            "INSERT INTO sessions (id, title, created_at, folder_id) VALUES (?, ?, ?, ?);",
+            (session_id, title, created_at, folder_id)
         )
         conn.commit()
-    return {"id": session_id, "title": title, "created_at": created_at}
+    return {"id": session_id, "title": title, "created_at": created_at, "folder_id": folder_id}
 
 def make_title_from_message(text):
     title = re.sub(r"```[\s\S]*?```", " ", text or "")
@@ -295,6 +335,104 @@ def update_session_title(session_id, title):
 
     session = get_session(session_id)
     return session or {"id": session_id, "title": title}
+
+
+def update_session_folder(session_id, folder_id):
+    folder_id = str(folder_id).strip() if folder_id else None
+    with get_db_connection() as conn:
+        if folder_id and not _folder_exists(conn, folder_id):
+            raise ValueError("Pasta não encontrada.")
+        cursor = conn.execute(
+            "UPDATE sessions SET folder_id=? WHERE id=? AND deleted_at IS NULL",
+            (folder_id, session_id),
+        )
+        conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Conversa não encontrada.")
+    return get_session(session_id)
+
+
+def get_chat_folders():
+    with get_db_connection() as conn:
+        rows = conn.execute("""
+            SELECT folder.*, COUNT(session.id) AS chat_count
+            FROM chat_folders folder
+            LEFT JOIN sessions session
+              ON session.folder_id=folder.id AND session.deleted_at IS NULL
+            GROUP BY folder.id
+            ORDER BY folder.name COLLATE NOCASE
+        """).fetchall()
+        return [dict(row) for row in rows]
+
+
+def create_chat_folder(name, color=None, icon=None):
+    clean_name = re.sub(r"\s+", " ", str(name or "")).strip()[:48]
+    if not clean_name:
+        raise ValueError("Informe um nome para a pasta.")
+    now = datetime.datetime.now().isoformat()
+    folder = {
+        "id": str(uuid.uuid4()),
+        "name": clean_name,
+        "color": _clean_folder_color(color),
+        "icon": _clean_folder_icon(icon),
+        "created_at": now,
+        "updated_at": now,
+        "chat_count": 0,
+    }
+    try:
+        with get_db_connection() as conn:
+            conn.execute(
+                "INSERT INTO chat_folders (id,name,icon,color,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                (folder["id"], folder["name"], folder["icon"], folder["color"], now, now),
+            )
+            conn.commit()
+    except sqlite3.IntegrityError as error:
+        raise ValueError("Já existe uma pasta com esse nome.") from error
+    return folder
+
+
+def update_chat_folder(folder_id, *, name=None, color=None, icon=None):
+    updates = []
+    params = []
+    if name is not None:
+        clean_name = re.sub(r"\s+", " ", str(name)).strip()[:48]
+        if not clean_name:
+            raise ValueError("O nome da pasta não pode ficar vazio.")
+        updates.append("name=?")
+        params.append(clean_name)
+    if color is not None:
+        updates.append("color=?")
+        params.append(_clean_folder_color(color))
+    if icon is not None:
+        updates.append("icon=?")
+        params.append(_clean_folder_icon(icon))
+    if not updates:
+        raise ValueError("Nenhuma alteração informada.")
+    updates.append("updated_at=?")
+    params.append(datetime.datetime.now().isoformat())
+    params.append(folder_id)
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.execute(
+                f"UPDATE chat_folders SET {', '.join(updates)} WHERE id=?",
+                params,
+            )
+            conn.commit()
+    except sqlite3.IntegrityError as error:
+        raise ValueError("Já existe uma pasta com esse nome.") from error
+    if cursor.rowcount == 0:
+        raise ValueError("Pasta não encontrada.")
+    return next(folder for folder in get_chat_folders() if folder["id"] == folder_id)
+
+
+def delete_chat_folder(folder_id):
+    with get_db_connection() as conn:
+        conn.execute("UPDATE sessions SET folder_id=NULL WHERE folder_id=?", (folder_id,))
+        cursor = conn.execute("DELETE FROM chat_folders WHERE id=?", (folder_id,))
+        conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError("Pasta não encontrada.")
+    return True
 
 def add_message(session_id, sender, text, audio_url=None):
     created_at = datetime.datetime.now().isoformat()

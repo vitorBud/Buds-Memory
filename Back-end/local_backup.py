@@ -24,7 +24,7 @@ from storage import get_data_dir, get_database_path, get_output_dir
 
 BACKUP_FORMAT = "buds_memory_backup"
 LEGACY_BACKUP_FORMATS = {"aether_memory_backup"}
-BACKUP_VERSION = 4
+BACKUP_VERSION = 6
 CLEAR_CONFIRMATION = "APAGAR TUDO"
 
 BACKUP_TABLES = [
@@ -47,21 +47,28 @@ BACKUP_TABLES = [
     "codebase_index",
 ]
 
-# Extensão v4 opcional. Mantemos BACKUP_TABLES como o núcleo histórico do
+# Extensão v5 opcional. Mantemos BACKUP_TABLES como o núcleo histórico do
 # formato para que bancos/consumidores antigos continuem compatíveis, enquanto
 # exportações atuais carregam também toda a central Focus quando ela existir.
 FOCUS_BACKUP_TABLES = [
+    "chat_folders",
     "focus_tasks",
     "focus_ideas",
     "focus_decisions",
     "focus_timeline",
     "focus_inbox",
+    "location_places",
+    "location_state",
+    "location_events",
+    "location_routes",
+    "location_route_points",
 ]
 PORTABLE_TABLES = [*BACKUP_TABLES, *FOCUS_BACKUP_TABLES]
 
 # A ordem respeita as dependências entre tabelas. Ela é deliberadamente
 # separada de BACKUP_TABLES, cuja ordem faz parte do formato público antigo.
 IMPORT_ORDER = [
+    "chat_folders",
     "sessions",
     "messages",
     "knowledge_sources",
@@ -75,6 +82,11 @@ IMPORT_ORDER = [
     "focus_decisions",
     "focus_timeline",
     "focus_inbox",
+    "location_places",
+    "location_state",
+    "location_events",
+    "location_routes",
+    "location_route_points",
     "kg_relations",
     "kg_entity_mentions",
     "project_sessions",
@@ -103,6 +115,11 @@ CLEAR_ORDER = [
     "project_sessions",
     "conversation_summaries",
     "focus_inbox",
+    "location_route_points",
+    "location_routes",
+    "location_events",
+    "location_state",
+    "location_places",
     "focus_timeline",
     "focus_decisions",
     "focus_ideas",
@@ -116,18 +133,23 @@ CLEAR_ORDER = [
     "projects",
     "kg_entities",
     "sessions",
+    "chat_folders",
 ]
 
 # Referências diretas. Referências polimórficas são tratadas separadamente em
 # _remap_row para que source_table/source_id continuem apontando para o registro
 # importado mesmo quando sua chave primária colidir no computador de destino.
 DIRECT_REFERENCES = {
+    "sessions": {"folder_id": "chat_folders"},
     "messages": {"session_id": "sessions"},
     "knowledge_sources": {"session_id": "sessions"},
     "memories": {"session_id": "sessions"},
     "user_profile_facts": {"session_id": "sessions"},
     "conversation_summaries": {"session_id": "sessions"},
     "focus_tasks": {"source_session_id": "sessions", "source_message_id": "messages"},
+    "location_state": {"place_id": "location_places"},
+    "location_events": {"place_id": "location_places"},
+    "location_route_points": {"route_id": "location_routes"},
     "kg_relations": {
         "source_id": "kg_entities",
         "target_id": "kg_entities",
@@ -148,11 +170,13 @@ DIRECT_REFERENCES = {
 }
 
 NATURAL_UNIQUES = {
+    "chat_folders": (("name",),),
     "user_profile_facts": (("fact_key", "fact_value"),),
     "kg_entities": (("name",),),
     "kg_relations": (("source_id", "target_id", "relation_type"),),
     "focus_tasks": (("dedup_key",),),
     "focus_inbox": (("dedup_key",),),
+    "location_places": (("name", "context", "latitude", "longitude"),),
 }
 
 TIMELINE_ENTITY_TABLES = {
@@ -803,6 +827,13 @@ def _insert_without_overwrite(
     columns: dict[str, dict],
     pk_cols: list[str],
 ) -> tuple[list[Any], bool]:
+    # O estado representa o lugar atual desta instalação. Em um merge, nunca
+    # substituímos esse dado vivo por uma posição possivelmente antiga do backup.
+    if table == "location_state":
+        current = conn.execute("SELECT id FROM location_state WHERE id=1").fetchone()
+        if current:
+            return [current["id"]], False
+
     existing_key = _find_identical_primary_key(conn, table, row, pk_cols)
     if existing_key is not None:
         return existing_key, False

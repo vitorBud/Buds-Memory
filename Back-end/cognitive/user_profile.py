@@ -182,6 +182,8 @@ def get_profile_context() -> str:
         facts = profile.get(key) or []
         values = [fact["fact_value"] for fact in facts if fact.get("fact_value")]
         if values:
+            if key == "name":
+                values[0] = _format_name(values[0])
             if key in {"technology", "project", "goal"}:
                 lines.append(f"{label}: {', '.join(values[:8])}")
             else:

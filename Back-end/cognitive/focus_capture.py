@@ -147,12 +147,36 @@ def _category(normalized: str) -> str:
     return "other"
 
 
-def candidate_key(item_type: str, content: str, due_date: Optional[str]) -> str:
+def _place_context(normalized: str) -> tuple[str, bool]:
+    trigger = bool(re.search(r"\b(quando|assim que)\s+(?:eu\s+)?(?:chegar|entrar|voltar)\b", normalized))
+    if re.search(r"\b(casa|em casa|pra casa|para casa)\b", normalized):
+        return "home", trigger
+    if re.search(r"\b(trabalho|empresa|escritorio)\b", normalized):
+        return "work", trigger
+    if re.search(r"\b(academia|treino)\b", normalized):
+        return "gym", trigger
+    if re.search(r"\b(faculdade|escola|curso|biblioteca)\b", normalized):
+        return "study", trigger
+    return "anywhere", False
+
+
+def _strip_arrival_clause(content: str) -> str:
+    value = re.sub(
+        r"\b(?:quando|assim que)\s+(?:eu\s+)?(?:chegar|entrar|voltar)\s+(?:em|no|na|ao|a|pra|para)?\s*(?:casa|trabalho|empresa|escrit[oó]rio|academia|treino|faculdade|escola|curso|biblioteca)\b[,]?",
+        "",
+        content,
+        flags=re.I,
+    )
+    value = re.sub(r"\s+", " ", value).strip(" ,.;:-")
+    return value[0].upper() + value[1:] if value else ""
+
+
+def candidate_key(item_type: str, content: str, due_date: Optional[str], place_context: str = "anywhere") -> str:
     day = (due_date or "")[:10]
     semantic = re.sub(r"[^a-z0-9 ]", " ", normalize_text(content))
     semantic = re.sub(r"\b(o|a|os|as|um|uma|de|do|da|para|que)\b", " ", semantic)
     semantic = re.sub(r"\s+", " ", semantic).strip()
-    return hashlib.sha256(f"{item_type}:{semantic}:{day}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{item_type}:{semantic}:{day}:{place_context}".encode("utf-8")).hexdigest()
 
 
 def detect_focus_candidates(text: str, now: Optional[datetime] = None) -> list[dict[str, Any]]:
@@ -181,7 +205,11 @@ def detect_focus_candidates(text: str, now: Optional[datetime] = None) -> list[d
         if item_type not in ACTION_TYPES:
             continue
 
-        content = _clean_content(phrase, item_type)
+        place_context, trigger_on_arrival = _place_context(normalized)
+        # Remova primeiro "quando eu chegar em..." para que o prefixo
+        # "me lembre de" passe a ficar no início e também seja limpo.
+        content_source = _strip_arrival_clause(phrase) if trigger_on_arrival else phrase
+        content = _clean_content(content_source, item_type)
         if len(content) < 3:
             continue
         due_date = parse_natural_due(phrase, now=now) if item_type in {"TASK", "REMINDER"} else None
@@ -200,8 +228,10 @@ def detect_focus_candidates(text: str, now: Optional[datetime] = None) -> list[d
             "due_date": due_date,
             "auto_apply": auto_apply,
             "explicit": confidence >= 0.9,
+            "place_context": place_context,
+            "trigger_on_arrival": trigger_on_arrival,
         }
-        candidate["dedup_key"] = candidate_key(item_type, content, due_date)
+        candidate["dedup_key"] = candidate_key(item_type, content, due_date, place_context)
         candidates.append(candidate)
 
     unique: dict[str, dict[str, Any]] = {}

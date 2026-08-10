@@ -15,10 +15,12 @@ import {
   House,
   Smartphone,
   Target,
+  MapPinned,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Transition } from 'framer-motion'
 import { Sidebar } from './components/Sidebar'
+import type { ChatFolderFilter } from './components/Sidebar'
 import { ChatWindow } from './components/ChatWindow'
 import { ChatInput } from './components/ChatInput'
 import { BootScreen } from './components/BootScreen'
@@ -29,8 +31,18 @@ import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { useMobilePerformanceMonitor } from './plataformas'
 import { useHealthPolling } from './hooks/useHealthPolling'
-import { getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig, updateSessionTitle, getSessionKnowledge, importKnowledge, getLocalBackupStatus, getConversationStorage, purgeConversationStorage, exportLocalMemoryBackup, importLocalMemoryBackup, clearLocalStorage, getCognitiveMemories, getKnowledgeGraph, isNativeIOSRuntime } from './services/api'
-import type { AiState, BackendConfig, Session, InterfaceSettings, LocalBackupStatus, ConversationStorageStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource } from './types'
+import {
+  getSessions, createSession, deleteSession, getSessionMessages, getBackendConfig,
+  updateSessionTitle, updateSessionFolder, getChatFolders, createChatFolder,
+  updateChatFolder, deleteChatFolder, getSessionKnowledge, importKnowledge,
+  getLocalBackupStatus, getConversationStorage, purgeConversationStorage,
+  exportLocalMemoryBackup, importLocalMemoryBackup, clearLocalStorage,
+  getCognitiveMemories, getKnowledgeGraph, isNativeIOSRuntime,
+} from './services/api'
+import type {
+  AiState, BackendConfig, Session, ChatFolder, InterfaceSettings, LocalBackupStatus,
+  ConversationStorageStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource,
+} from './types'
 import { formatSessionDate } from './utils/formatters'
 import { getRuntimePlatform, isIOSRuntime, isWindowsRuntime } from './plataformas'
 import { toastStyles } from './styles/notificacoes'
@@ -53,6 +65,7 @@ const MemoryPanel = lazy(() => import('./components/panels/MemoryPanel').then(mo
 const FilesPanel = lazy(() => import('./components/panels/FilesPanel').then(module => ({ default: module.FilesPanel })))
 const SummaryPanel = lazy(() => import('./components/panels/SummaryPanel').then(module => ({ default: module.SummaryPanel })))
 const FocusPage = lazy(() => import('./components/focus/FocusPage').then(module => ({ default: module.FocusPage })))
+const PaginaMapaBuds = lazy(() => import('./components/mapa/PaginaMapaBuds').then(module => ({ default: module.PaginaMapaBuds })))
 
 const SETTINGS_KEY = 'buds-interface-settings'
 const DESKTOP_THEME_BOOT_KEY = 'buds-desktop-theme-boot-v1'
@@ -92,7 +105,7 @@ const MOBILE_CHAT_INTRO_KEY = 'buds-mobile-chat-intro-seen-v1'
 const FALLBACK_MODEL = 'qwen2.5-coder:3b'
 const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
-type AppView = 'home' | 'chat' | 'voice' | 'obsidian' | 'mobile' | 'focus'
+type AppView = 'home' | 'chat' | 'voice' | 'obsidian' | 'mobile' | 'focus' | 'map'
 
 const VIEW_HASHES: Record<AppView, string> = {
   home: '',
@@ -101,6 +114,7 @@ const VIEW_HASHES: Record<AppView, string> = {
   obsidian: '#obsidian',
   mobile: '#mobile',
   focus: '#focus',
+  map: '#map',
 }
 
 function viewFromHash(hash: string): AppView {
@@ -163,7 +177,7 @@ function isDesktopApp() {
 
 function isMobileViewport() {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
-  return window.matchMedia('(max-width: 760px)').matches
+  return window.matchMedia('(max-width: 760px), ((pointer: coarse) and (orientation: landscape) and (max-height: 560px))').matches
 }
 
 function getInitialSettings(): InterfaceSettings {
@@ -217,6 +231,8 @@ export default function App() {
   const sessionLoadRequestRef = useRef(0)
   const [aiState, setAiState] = useState<AiState>('idle')
   const [sessions, setSessions] = useState<Session[]>([])
+  const [chatFolders, setChatFolders] = useState<ChatFolder[]>([])
+  const [activeChatFolderId, setActiveChatFolderId] = useState<ChatFolderFilter>('all')
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [currentSessionTitle, setCurrentSessionTitle] = useState<string | null>(null)
   const [currentSessionCreatedAt, setCurrentSessionCreatedAt] = useState<string | null>(null)
@@ -252,6 +268,31 @@ export default function App() {
   const [voiceSilenceMode, setVoiceSilenceMode] = useState<VoiceSilenceMode>(getInitialVoiceSilenceMode)
 
   const [activeView, setActiveView] = useState<AppView>(() => viewFromHash(window.location.hash))
+
+  useEffect(() => {
+    const landscapeQuery = window.matchMedia('(pointer: coarse) and (orientation: landscape) and (max-height: 560px)')
+    const syncViewportProfile = () => {
+      const landscape = landscapeQuery.matches
+      document.documentElement.toggleAttribute('data-mobile-landscape', landscape)
+      document.documentElement.style.setProperty(
+        '--app-viewport-height',
+        `${Math.round(window.visualViewport?.height ?? window.innerHeight)}px`,
+      )
+    }
+    syncViewportProfile()
+    landscapeQuery.addEventListener('change', syncViewportProfile)
+    window.visualViewport?.addEventListener('resize', syncViewportProfile)
+    window.addEventListener('resize', syncViewportProfile)
+    window.addEventListener('orientationchange', syncViewportProfile)
+    return () => {
+      landscapeQuery.removeEventListener('change', syncViewportProfile)
+      window.visualViewport?.removeEventListener('resize', syncViewportProfile)
+      window.removeEventListener('resize', syncViewportProfile)
+      window.removeEventListener('orientationchange', syncViewportProfile)
+      document.documentElement.removeAttribute('data-mobile-landscape')
+      document.documentElement.style.removeProperty('--app-viewport-height')
+    }
+  }, [])
   const isWindowsUi = isWindowsRuntime()
   const isIOSUi = isIOSRuntime()
   const isNativeIOS = isNativeIOSRuntime()
@@ -285,7 +326,7 @@ export default function App() {
   const handleBootDone = useCallback((h: SystemHealth) => {
     setSystemHealth(h)
     setBootDone(true)
-    if (!['#chat', '#voice', '#obsidian', '#mobile', '#focus'].includes(window.location.hash)) {
+    if (!['#chat', '#voice', '#obsidian', '#mobile', '#focus', '#map'].includes(window.location.hash)) {
       setActiveView('home')
     }
   }, [])
@@ -432,7 +473,10 @@ export default function App() {
 
   const ensureSession = useCallback(async (): Promise<string> => {
     if (currentSessionId) return currentSessionId
-    const session = await createSession()
+    const folderId = activeChatFolderId !== 'all' && activeChatFolderId !== 'unfiled'
+      ? activeChatFolderId
+      : null
+    const session = await createSession(undefined, folderId)
     setCurrentSessionId(session.id)
     setCurrentSessionTitle(session.title)
     setCurrentSessionCreatedAt(session.created_at)
@@ -440,7 +484,7 @@ export default function App() {
     setIsEditingTitle(false)
     setSessions(prev => [session, ...prev])
     return session.id
-  }, [currentSessionId])
+  }, [activeChatFolderId, currentSessionId])
 
   const handleSessionUpdate = useCallback((session: Session) => {
     setCurrentSessionTitle(session.title)
@@ -530,10 +574,11 @@ export default function App() {
     if (!bootDone) return
     let cancelled = false
 
-    getSessions()
-      .then(async loadedSessions => {
+    Promise.all([getSessions(), getChatFolders()])
+      .then(async ([loadedSessions, loadedFolders]) => {
         if (cancelled) return
         setSessions(loadedSessions)
+        setChatFolders(loadedFolders)
         const latestSession = loadedSessions[0]
         if (latestSession && !didAutoLoadSessionRef.current) {
           didAutoLoadSessionRef.current = true
@@ -624,7 +669,10 @@ export default function App() {
 
   const handleNewChat = async () => {
     const requestId = ++sessionLoadRequestRef.current
-    const session = await createSession()
+    const folderId = activeChatFolderId !== 'all' && activeChatFolderId !== 'unfiled'
+      ? activeChatFolderId
+      : null
+    const session = await createSession(undefined, folderId)
     if (sessionLoadRequestRef.current !== requestId) return
 
     setCurrentSessionId(session.id)
@@ -666,6 +714,67 @@ export default function App() {
       clearMessages()
     }
     void refreshLocalBackupStatus()
+  }
+
+  const handleCreateChatFolder = async (
+    input: Pick<ChatFolder, 'name' | 'icon' | 'color'>,
+  ): Promise<ChatFolder> => {
+    try {
+      const folder = await createChatFolder(input)
+      setChatFolders(prev => [...prev, folder].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')))
+      showToast(`Pasta ${folder.name} criada.`, 'success')
+      return folder
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Não foi possível criar a pasta.'
+      alert(message)
+      throw err
+    }
+  }
+
+  const handleUpdateChatFolder = async (
+    id: string,
+    updates: Partial<Pick<ChatFolder, 'name' | 'icon' | 'color'>>,
+  ) => {
+    try {
+      const folder = await updateChatFolder(id, updates)
+      setChatFolders(prev => prev
+        .map(item => item.id === id ? folder : item)
+        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')))
+      showToast('Pasta atualizada.', 'success')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Não foi possível atualizar a pasta.')
+      throw err
+    }
+  }
+
+  const handleDeleteChatFolder = async (id: string) => {
+    const folder = chatFolders.find(item => item.id === id)
+    if (!confirm(`Apagar a pasta “${folder?.name ?? 'selecionada'}”? Os chats serão mantidos em “Sem pasta”.`)) return false
+    try {
+      await deleteChatFolder(id)
+      setChatFolders(prev => prev.filter(item => item.id !== id))
+      setSessions(prev => prev.map(session => session.folder_id === id
+        ? { ...session, folder_id: null }
+        : session))
+      setActiveChatFolderId(current => current === id ? 'unfiled' : current)
+      showToast('Pasta apagada; as conversas foram preservadas.', 'success')
+      return true
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Não foi possível apagar a pasta.')
+      return false
+    }
+  }
+
+  const handleMoveSession = async (sessionId: string, folderId: string | null) => {
+    try {
+      const session = await updateSessionFolder(sessionId, folderId)
+      setSessions(prev => prev.map(item => item.id === sessionId ? { ...item, ...session } : item))
+      const folder = chatFolders.find(item => item.id === folderId)
+      showToast(folder ? `Conversa movida para ${folder.name}.` : 'Conversa movida para Sem pasta.', 'success')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Não foi possível mover a conversa.')
+      throw err
+    }
   }
 
   const handleSendText = async (text: string) => {
@@ -760,8 +869,10 @@ export default function App() {
       await importLocalMemoryBackup(file)
       await refreshLocalBackupStatus()
       await refreshCognitiveBrain()
-      const loadedSessions = await getSessions()
+      const [loadedSessions, loadedFolders] = await Promise.all([getSessions(), getChatFolders()])
       setSessions(loadedSessions)
+      setChatFolders(loadedFolders)
+      setActiveChatFolderId('all')
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao importar backup local.')
     } finally {
@@ -854,6 +965,8 @@ export default function App() {
 
   const handleOpenFocus = () => activateView('focus')
 
+  const handleOpenMap = () => activateView('map')
+
   const handleOpenSettings = () => {
     prepareViewportForView(activeView, true)
     setSettingsOpen(true)
@@ -884,13 +997,17 @@ export default function App() {
         <Target size={14} />
         <span>Focus</span>
       </button>
+      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'map' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenMap} aria-current={!settingsOpen && activeView === 'map' ? 'page' : undefined}>
+        <MapPinned size={14} />
+        <span>Map</span>
+      </button>
       <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'obsidian' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenObsidian} aria-current={!settingsOpen && activeView === 'obsidian' ? 'page' : undefined}>
         <BrainCircuit size={14} />
         <span>Obsidian</span>
       </button>
       <button
         type="button"
-        className={`${navigationStyles.button} ${navigationStyles.desktopOnly} ${!settingsOpen && activeView === 'mobile' ? `is-active ${navigationStyles.active}` : ''}`}
+        className={`view-nav-desktop-only ${navigationStyles.button} ${navigationStyles.desktopOnly} ${!settingsOpen && activeView === 'mobile' ? `is-active ${navigationStyles.active}` : ''}`}
         onClick={handleOpenMobile}
         aria-current={!settingsOpen && activeView === 'mobile' ? 'page' : undefined}
       >
@@ -951,7 +1068,7 @@ export default function App() {
             {...viewMotionProps}
           >
             <div className={homeStyles.content}>
-              <div className={homeStyles.hero}>
+              <div className={`home-hero ${homeStyles.hero}`}>
                 <div className={homeStyles.brandCopy}>
                   <span className={homeStyles.eyebrow}>Assistente local inteligente</span>
                   <h1 className={homeStyles.title}>Buds Memory</h1>
@@ -961,7 +1078,7 @@ export default function App() {
                   <p className={homeStyles.subtitle}>Chat, memória Obsidian e configurações em uma experiência compacta e local.</p>
                 </div>
 
-                <div className={homeStyles.brandMark}>
+                <div className={`home-brand-mark ${homeStyles.brandMark}`}>
                   <Suspense fallback={<HomeBrainLoader />}>
                     <HomeBrain
                       theme={settings.theme}
@@ -978,7 +1095,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className={homeStyles.info}>
+              <div className={`home-info ${homeStyles.info}`}>
                 <div className={homeStyles.projectCard} aria-label="O que é o Buds Memory">
                   <div className={homeStyles.projectCopy}>
                     <span className={homeStyles.projectEyebrow}>Por que ele existe</span>
@@ -1047,12 +1164,19 @@ export default function App() {
                   <Sidebar
                     isClosing={sidebarClosing}
                     sessions={sessions}
+                    folders={chatFolders}
+                    activeFolderId={activeChatFolderId}
                     currentSessionId={currentSessionId}
                     searchQuery={searchQuery}
                     onSearchChange={setSearchQuery}
+                    onFolderFilterChange={setActiveChatFolderId}
                     onNewChat={handleNewChat}
                     onSelect={handleSelectSession}
                     onDelete={handleDeleteSession}
+                    onCreateFolder={handleCreateChatFolder}
+                    onUpdateFolder={handleUpdateChatFolder}
+                    onDeleteFolder={handleDeleteChatFolder}
+                    onMoveSession={handleMoveSession}
                     systemUptime={formatUptime()}
                     aiState={aiState}
                     systemHealth={systemHealth}
@@ -1225,13 +1349,13 @@ export default function App() {
         {activeView === 'obsidian' && (
           <motion.section
             key="obsidian"
-            className={obsidianSceneStyles.scene}
+            className={`obsidian-scroll-scene ${obsidianSceneStyles.scene}`}
             id="obsidian"
             ref={obsidianSceneRef}
             {...viewMotionProps}
           >
-            <div className={obsidianSceneStyles.stage}>
-              <div className={obsidianSceneStyles.graph}>
+            <div className={`obsidian-stage ${obsidianSceneStyles.stage}`}>
+              <div className={`obsidian-graph-shell ${obsidianSceneStyles.graph}`}>
                 <div className={obsidianSceneStyles.toolbar} aria-label="Ensinar e fazer backup da Obsidian">
                   {!isNativeIOS && (
                     <button
@@ -1314,6 +1438,18 @@ export default function App() {
           >
             <Suspense fallback={<DeferredSurface label="Carregando Buds Focus..." />}>
               <FocusPage visible={activeView === 'focus'} />
+            </Suspense>
+          </motion.div>
+        )}
+
+        {activeView === 'map' && (
+          <motion.div
+            key="map"
+            className="fixed inset-0 z-[1] h-dvh min-h-0 w-full overflow-hidden"
+            {...viewMotionProps}
+          >
+            <Suspense fallback={<DeferredSurface label="Carregando Buds Map..." />}>
+              <PaginaMapaBuds visible={activeView === 'map'} />
             </Suspense>
           </motion.div>
         )}

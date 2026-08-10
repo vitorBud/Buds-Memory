@@ -10,6 +10,17 @@ export interface Session {
   id: string
   title: string
   created_at: string
+  folder_id?: string | null
+}
+
+export interface ChatFolder {
+  id: string
+  name: string
+  icon: string
+  color: string
+  created_at: string
+  updated_at: string
+  chat_count: number
 }
 
 export interface Message {
@@ -204,6 +215,91 @@ export interface FocusTask {
   source_session_id: string | null
   source_message_id: number | null
   confidence: number
+  place_context: LocationPlaceContext | 'anywhere'
+  trigger_on_arrival: boolean
+  location_relevant?: boolean
+  current_location_context?: LocationSemanticContext
+}
+
+export type LocationPlaceContext = 'home' | 'work' | 'gym' | 'study' | 'other'
+export type LocationSemanticContext = LocationPlaceContext | 'commuting' | 'away' | 'unknown'
+
+export interface KnownPlace {
+  id: number
+  name: string
+  context: LocationPlaceContext
+  latitude: number
+  longitude: number
+  radius_m: number
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface LocationState {
+  id: number
+  place_id: number | null
+  place_name?: string | null
+  context: LocationSemanticContext
+  status: 'inside' | 'away' | 'manual' | 'unknown'
+  latitude: number | null
+  longitude: number | null
+  accuracy_m: number | null
+  source: string
+  updated_at: string | null
+  changed?: boolean
+  distance_m?: number | null
+}
+
+export interface LocationEvent {
+  id: number
+  place_id: number | null
+  place_name?: string | null
+  event_type: 'enter' | 'exit' | 'context_changed' | string
+  context: LocationSemanticContext
+  source: string
+  created_at: string
+}
+
+export interface LocationDashboard {
+  state: LocationState
+  places: KnownPlace[]
+  events: LocationEvent[]
+  monitoring?: { enabled: boolean; authorization: string }
+  policy: {
+    continuous_gps: boolean
+    precise_only_on_demand: boolean
+    coordinates_sent_to_model: boolean
+  }
+}
+
+export interface LocationRoutePoint {
+  id: number
+  route_id: number
+  latitude: number
+  longitude: number
+  accuracy_m: number | null
+  altitude_m: number | null
+  speed_mps: number | null
+  recorded_at: string
+}
+
+export interface LocationRoute {
+  id: number
+  name: string
+  status: 'active' | 'completed' | 'interrupted'
+  started_at: string
+  ended_at: string | null
+  distance_m: number
+  duration_s: number
+  point_count: number
+  created_at: string
+  points?: LocationRoutePoint[]
+}
+
+export interface LocationRouteDashboard {
+  active: LocationRoute | null
+  routes: LocationRoute[]
 }
 
 export interface FocusIdea {
@@ -251,6 +347,8 @@ export interface FocusAnalyzeItem {
   priority?: FocusTaskPriority
   confidence?: number
   due_date?: string | null
+  place_context?: LocationPlaceContext | 'anywhere'
+  trigger_on_arrival?: boolean
 }
 
 export interface FocusAnalyzePreview {

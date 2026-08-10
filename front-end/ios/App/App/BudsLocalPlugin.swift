@@ -15,7 +15,12 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "listSessions", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "createSession", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateSessionTitle", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateSessionFolder", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteSession", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listChatFolders", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "createChatFolder", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateChatFolder", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deleteChatFolder", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listConversationStorage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "purgeConversation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getMessages", returnType: CAPPluginReturnPromise),
@@ -36,6 +41,17 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "listFocusInbox", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateFocusInbox", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "syncFocusNotifications", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getLocationDashboard", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "requestCurrentLocation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "saveKnownPlace", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deleteKnownPlace", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "setLocationContext", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "configureLocationMonitoring", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getLocationRoutes", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getLocationRoute", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startLocationRoute", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopLocationRoute", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deleteLocationRoute", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startSpeechRecognition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopSpeechRecognition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelSpeechRecognition", returnType: CAPPluginReturnPromise),
@@ -45,6 +61,18 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private let runtime = BudsLocalRuntime.shared
     private let speechRecognizer = BudsSpeechRecognizer()
+
+    public override func load() {
+        super.load()
+        // Reativa somente geofences/mudanças significativas que o usuário já
+        // habilitou; nunca inicia GPS preciso contínuo ao abrir o app.
+        if runtime.locationMonitor.monitoringEnabled {
+            try? runtime.refreshLocationRegions()
+        }
+        if (try? runtime.activeLocationRoute()) != nil {
+            runtime.locationMonitor.startRouteTracking()
+        }
+    }
 
     @objc func status(_ call: CAPPluginCall) {
         call.resolve(statusPayload(runtime.status()))
@@ -98,7 +126,9 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func createSession(_ call: CAPPluginCall) {
         resolve(call) {
-            sessionPayload(try runtime.createSession(title: call.getString("title")))
+            sessionPayload(try runtime.createSession(
+                title: call.getString("title"), folderId: call.getString("folderId")
+            ))
         }
     }
 
@@ -109,6 +139,58 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         resolve(call) {
             sessionPayload(try runtime.updateSessionTitle(id: id, title: title))
+        }
+    }
+
+    @objc func updateSessionFolder(_ call: CAPPluginCall) {
+        guard let id = call.getString("id") else {
+            call.reject("Conversa não informada.")
+            return
+        }
+        resolve(call) {
+            sessionPayload(try runtime.updateSessionFolder(id: id, folderId: call.getString("folderId")))
+        }
+    }
+
+    @objc func listChatFolders(_ call: CAPPluginCall) {
+        resolve(call) { ["folders": try runtime.chatFolders().map(chatFolderPayload)] }
+    }
+
+    @objc func createChatFolder(_ call: CAPPluginCall) {
+        guard let name = call.getString("name") else {
+            call.reject("Nome da pasta não informado.")
+            return
+        }
+        resolve(call) {
+            chatFolderPayload(try runtime.createChatFolder(
+                name: name,
+                icon: call.getString("icon") ?? "folder",
+                color: call.getString("color") ?? "#8b5cf6"
+            ))
+        }
+    }
+
+    @objc func updateChatFolder(_ call: CAPPluginCall) {
+        guard let id = call.getString("id") else {
+            call.reject("Pasta não informada.")
+            return
+        }
+        resolve(call) {
+            chatFolderPayload(try runtime.updateChatFolder(
+                id: id, name: call.getString("name"),
+                icon: call.getString("icon"), color: call.getString("color")
+            ))
+        }
+    }
+
+    @objc func deleteChatFolder(_ call: CAPPluginCall) {
+        guard let id = call.getString("id") else {
+            call.reject("Pasta não informada.")
+            return
+        }
+        resolve(call) {
+            try runtime.deleteChatFolder(id: id)
+            return [:]
         }
     }
 
@@ -224,7 +306,9 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                 priority: call.getString("priority") ?? "medium",
                 isFocus: call.getBool("isFocus") ?? false,
                 dueDate: call.getString("dueDate"),
-                itemType: call.getString("itemType") ?? "TASK"
+                itemType: call.getString("itemType") ?? "TASK",
+                placeContext: call.getString("placeContext") ?? "anywhere",
+                triggerOnArrival: call.getBool("triggerOnArrival") ?? false
             ))
         }
     }
@@ -241,7 +325,9 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                 category: call.getString("category"),
                 priority: call.getString("priority"),
                 completed: call.getBool("completed"),
-                isFocus: call.getBool("isFocus")
+                isFocus: call.getBool("isFocus"),
+                placeContext: call.getString("placeContext"),
+                triggerOnArrival: call.getBool("triggerOnArrival")
             ))
         }
     }
@@ -371,6 +457,126 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func getLocationDashboard(_ call: CAPPluginCall) {
+        resolve(call) {
+            let state = try runtime.locationState()
+            return locationDashboardPayload(
+                state: state,
+                places: try runtime.knownPlaces(),
+                events: try runtime.locationEvents(),
+                monitoring: runtime.locationMonitor.monitoringEnabled,
+                authorization: runtime.locationMonitor.authorizationName
+            )
+        }
+    }
+
+    @objc func requestCurrentLocation(_ call: CAPPluginCall) {
+        Task {
+            do {
+                call.resolve(locationStatePayload(try await runtime.requestCurrentLocation()))
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
+    @objc func saveKnownPlace(_ call: CAPPluginCall) {
+        guard let name = call.getString("name"),
+              let context = call.getString("context"),
+              let latitude = call.getDouble("latitude"),
+              let longitude = call.getDouble("longitude") else {
+            call.reject("Nome, contexto e localização são obrigatórios.")
+            return
+        }
+        resolve(call) {
+            let place = try runtime.saveKnownPlace(
+                id: call.getInt("id").map(Int64.init),
+                name: name,
+                context: context,
+                latitude: latitude,
+                longitude: longitude,
+                radiusMeters: call.getDouble("radiusM") ?? 180,
+                enabled: call.getBool("enabled") ?? true
+            )
+            try runtime.refreshLocationRegions()
+            return knownPlacePayload(place)
+        }
+    }
+
+    @objc func deleteKnownPlace(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id") else {
+            call.reject("Lugar não informado.")
+            return
+        }
+        resolve(call) {
+            try runtime.deleteKnownPlace(id: Int64(id))
+            try runtime.refreshLocationRegions()
+            return [:]
+        }
+    }
+
+    @objc func setLocationContext(_ call: CAPPluginCall) {
+        guard let context = call.getString("context") else {
+            call.reject("Contexto não informado.")
+            return
+        }
+        resolve(call) {
+            locationStatePayload(try runtime.setSemanticLocationContext(context))
+        }
+    }
+
+    @objc func configureLocationMonitoring(_ call: CAPPluginCall) {
+        do {
+            let result = try runtime.configureLocationMonitoring(enabled: call.getBool("enabled") ?? false)
+            call.resolve(["enabled": result.enabled, "authorization": result.authorization])
+        } catch {
+            call.reject(error.localizedDescription)
+        }
+    }
+
+    @objc func getLocationRoutes(_ call: CAPPluginCall) {
+        resolve(call) {
+            [
+                "active": try runtime.activeLocationRoute().map(locationRoutePayload) ?? NSNull(),
+                "routes": try runtime.locationRoutes(limit: call.getInt("limit") ?? 30).map(locationRoutePayload),
+            ]
+        }
+    }
+
+    @objc func getLocationRoute(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id") else {
+            call.reject("Trajeto não informado.")
+            return
+        }
+        resolve(call) {
+            guard let route = try runtime.locationRoute(id: Int64(id)) else {
+                throw NSError(domain: "BudsLocation", code: 404, userInfo: [NSLocalizedDescriptionKey: "Trajeto não encontrado."])
+            }
+            return locationRoutePayload(route)
+        }
+    }
+
+    @objc func startLocationRoute(_ call: CAPPluginCall) {
+        resolve(call) { locationRoutePayload(try runtime.startLocationRoute(name: call.getString("name"))) }
+    }
+
+    @objc func stopLocationRoute(_ call: CAPPluginCall) {
+        resolve(call) {
+            ["route": try runtime.finishLocationRoute().map(locationRoutePayload) ?? NSNull()]
+        }
+    }
+
+    @objc func deleteLocationRoute(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id") else {
+            call.reject("Trajeto não informado.")
+            return
+        }
+        resolve(call) {
+            try runtime.deleteLocationRoute(id: Int64(id))
+            return [:]
+        }
+    }
+
     @objc func startSpeechRecognition(_ call: CAPPluginCall) {
         guard let recordingId = call.getString("recordingId") else {
             call.reject("Identificador da gravação não informado.")
@@ -493,7 +699,20 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func sessionPayload(_ session: BudsSessionRecord) -> [String: Any] {
-        ["id": session.id, "title": session.title, "created_at": session.createdAt]
+        [
+            "id": session.id,
+            "title": session.title,
+            "created_at": session.createdAt,
+            "folder_id": session.folderId ?? NSNull(),
+        ]
+    }
+
+    private func chatFolderPayload(_ folder: BudsChatFolderRecord) -> [String: Any] {
+        [
+            "id": folder.id, "name": folder.name, "icon": folder.icon,
+            "color": folder.color, "created_at": folder.createdAt,
+            "updated_at": folder.updatedAt, "chat_count": folder.chatCount,
+        ]
     }
 
     private func conversationStoragePayload(_ item: BudsConversationStorageRecord) -> [String: Any] {
@@ -559,7 +778,105 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         payload["source_session_id"] = task.sourceSessionId ?? NSNull()
         payload["source_message_id"] = task.sourceMessageId ?? NSNull()
         payload["confidence"] = task.confidence
+        payload["place_context"] = task.placeContext
+        payload["trigger_on_arrival"] = task.triggerOnArrival
+        payload["location_relevant"] = task.locationRelevant
+        payload["current_location_context"] = task.currentLocationContext
         return payload
+    }
+
+    private func knownPlacePayload(_ place: BudsKnownPlaceRecord) -> [String: Any] {
+        [
+            "id": place.id,
+            "name": place.name,
+            "context": place.context,
+            "latitude": place.latitude,
+            "longitude": place.longitude,
+            "radius_m": place.radiusMeters,
+            "enabled": place.enabled,
+            "created_at": place.createdAt,
+            "updated_at": place.updatedAt,
+        ]
+    }
+
+    private func locationStatePayload(_ state: BudsLocationStateRecord) -> [String: Any] {
+        [
+            "id": 1,
+            "place_id": state.placeId ?? NSNull(),
+            "place_name": state.placeName ?? NSNull(),
+            "context": state.context,
+            "status": state.status,
+            "latitude": state.latitude ?? NSNull(),
+            "longitude": state.longitude ?? NSNull(),
+            "accuracy_m": state.accuracyMeters ?? NSNull(),
+            "source": state.source,
+            "updated_at": state.updatedAt ?? NSNull(),
+            "changed": state.changed,
+        ]
+    }
+
+    private func locationEventPayload(_ event: BudsLocationEventRecord) -> [String: Any] {
+        [
+            "id": event.id,
+            "place_id": event.placeId ?? NSNull(),
+            "place_name": event.placeName ?? NSNull(),
+            "event_type": event.eventType,
+            "context": event.context,
+            "source": event.source,
+            "created_at": event.createdAt,
+        ]
+    }
+
+    private func locationRoutePointPayload(_ point: BudsLocationRoutePointRecord) -> [String: Any] {
+        [
+            "id": point.id,
+            "route_id": point.routeId,
+            "latitude": point.latitude,
+            "longitude": point.longitude,
+            "accuracy_m": point.accuracyMeters ?? NSNull(),
+            "altitude_m": point.altitudeMeters ?? NSNull(),
+            "speed_mps": point.speedMetersPerSecond ?? NSNull(),
+            "recorded_at": point.recordedAt,
+        ]
+    }
+
+    private func locationRoutePayload(_ route: BudsLocationRouteRecord) -> [String: Any] {
+        [
+            "id": route.id,
+            "name": route.name,
+            "status": route.status,
+            "started_at": route.startedAt,
+            "ended_at": route.endedAt ?? NSNull(),
+            "distance_m": route.distanceMeters,
+            "duration_s": route.durationSeconds,
+            "point_count": route.pointCount,
+            "created_at": route.createdAt,
+            "points": route.points.map(locationRoutePointPayload),
+        ]
+    }
+
+    private func locationDashboardPayload(
+        state: BudsLocationStateRecord,
+        places: [BudsKnownPlaceRecord],
+        events: [BudsLocationEventRecord],
+        monitoring: Bool,
+        authorization: String
+    ) -> [String: Any] {
+        [
+            "state": locationStatePayload(state),
+            "places": places.map(knownPlacePayload),
+            "events": events.map(locationEventPayload),
+            "monitoring": [
+                "enabled": monitoring,
+                "authorization": authorization,
+                "mode": "significant_changes_and_geofences",
+            ],
+            "policy": [
+                "continuous_gps": false,
+                "precise_only_on_demand": true,
+                "coordinates_sent_to_model": false,
+            ],
+        ]
     }
 
     private func focusTimelinePayload(_ event: BudsFocusTimelineRecord) -> [String: Any] {

@@ -6,6 +6,7 @@ import {
   getBase,
   getLocalDeviceToken,
   getRemoteSessionToken,
+  isDesktopRuntime,
   isNativeIOSRuntime,
   loginLocal,
   loginRemote,
@@ -66,6 +67,7 @@ function formatGigabytes(bytes: number) {
 
 export function BootScreen({ onDone }: BootScreenProps) {
   const nativeIOS = isNativeIOSRuntime()
+  const desktopApp = isDesktopRuntime()
   const [visible, setVisible] = useState(true)
   const [closing, setClosing] = useState(false)
   const [health, setHealth] = useState<SystemHealth>({
@@ -289,20 +291,37 @@ export function BootScreen({ onDone }: BootScreenProps) {
         })
         updatedHealth.database = true
         if (healthPayload.remote?.auth_required && !healthPayload.authenticated) {
-          const deviceToken = await getLocalDeviceToken().catch(() => '')
-          if (deviceToken) {
+          if (desktopApp) {
             try {
-              await loginRemote(deviceToken)
-              updatedHealth.authMode = 'remote'
-            } catch {
-              setNeedsAuth(true)
+              const localSession = await loginLocal()
+              updatedHealth.authMode = localSession.auth_mode || 'local'
+            } catch (error) {
+              setStep('backend', {
+                state: 'error',
+                detail: 'Sessão local indisponível',
+                errorMsg: error instanceof Error
+                  ? error.message
+                  : 'Não foi possível abrir uma sessão local no Mac.',
+              })
               setHealth(updatedHealth)
               return
             }
           } else {
-            setNeedsAuth(true)
-            setHealth(updatedHealth)
-            return
+            const deviceToken = await getLocalDeviceToken().catch(() => '')
+            if (deviceToken) {
+              try {
+                await loginRemote(deviceToken)
+                updatedHealth.authMode = 'remote'
+              } catch {
+                setNeedsAuth(true)
+                setHealth(updatedHealth)
+                return
+              }
+            } else {
+              setNeedsAuth(true)
+              setHealth(updatedHealth)
+              return
+            }
           }
         }
         if (!getRemoteSessionToken()) {

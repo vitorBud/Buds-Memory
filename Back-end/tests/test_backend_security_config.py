@@ -153,6 +153,42 @@ class ApiOriginSecurityTests(unittest.TestCase):
         self.assertEqual(lan_response.status_code, 403)
         self.assertNotIn("master-secret-token", lan_response.get_data(as_text=True))
 
+    def test_electron_can_create_local_session_without_mobile_token(self):
+        with (
+            patch.object(remote_access, "REMOTE_MODE", True),
+            patch.object(remote_access, "AUTH_TOKEN", "master-secret-token"),
+        ):
+            response = self.client.post(
+                "/api/auth/local",
+                json={"label": "Buds Electron"},
+                environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                headers={
+                    "Origin": "null",
+                    "User-Agent": "Mozilla/5.0 Electron/39.0.0",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["auth_mode"], "local")
+        self.assertTrue(payload["access_token"])
+        self.assertNotIn("master-secret-token", response.get_data(as_text=True))
+
+    def test_lan_client_cannot_create_token_free_local_session(self):
+        with (
+            patch.object(remote_access, "REMOTE_MODE", True),
+            patch.object(remote_access, "AUTH_TOKEN", "master-secret-token"),
+        ):
+            response = self.client.post(
+                "/api/auth/local",
+                json={"label": "remote-browser"},
+                environ_base={"REMOTE_ADDR": "192.168.1.45"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertNotIn("access_token", response.get_data(as_text=True))
+
 
 class RemoteTokenPersistenceTests(unittest.TestCase):
     def test_non_loopback_host_automatically_enables_remote_auth(self):
