@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BatteryCharging, Crosshair, Download, HardDrive, Home, Map, MapPin, Navigation, Plus, Route, Square, Trash2 } from 'lucide-react'
+import { BatteryCharging, ChevronDown, Crosshair, Download, HardDrive, Home, Map, MapPin, Navigation, Plus, Route, Square, Trash2 } from 'lucide-react'
 import {
   configureLocationMonitoring,
   deleteKnownPlace,
@@ -287,12 +287,15 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
 
   const state = dashboard?.state
   const routeOnMap = routes.active ?? visibleRoute
+  const hasSavedRoutes = Boolean(routes.active || routes.routes.length)
+  const hasOfflineStorage = (offline?.used_bytes ?? 0) > 0
+  const showOfflinePanel = !nativeIOS || hasOfflineStorage
   return (
     <section className={`buds-map grid min-w-0 gap-3 overflow-hidden border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] shadow-[var(--liquid-shadow-soft)] platform-windows:shadow-none ${expanded ? 'buds-map-expanded rounded-[28px] p-3 sm:p-4' : 'rounded-[24px] p-4'}`}>
       <header className="flex min-w-0 items-start justify-between gap-3">
         <div className="grid min-w-0 gap-1">
           <span className="flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.08em] text-[var(--muted)]">
-            <Map size={14} /> Buds Map
+            <Map size={14} /> Contexto atual
           </span>
           <strong className="truncate text-[18px] text-[var(--text)]">
             {CONTEXT_LABELS[state?.context ?? 'unknown']}
@@ -306,13 +309,13 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
         </button>
       </header>
 
-      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6" aria-label="Contexto manual">
+      <div className="flex snap-x snap-mandatory gap-1.5 overflow-x-auto pb-1 sm:grid sm:grid-cols-6 sm:overflow-visible sm:pb-0" aria-label="Contexto manual">
         {MANUAL_CONTEXTS.map(item => (
           <button
             key={item.value}
             type="button"
             onClick={() => void chooseContext(item.value)}
-            className={`min-h-9 rounded-xl border px-2 text-[11px] font-bold transition-colors ${state?.context === item.value ? 'border-transparent bg-buds-action text-buds-action-ink' : 'border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] text-[var(--muted)] hover:text-[var(--text)]'}`}
+            className={`min-h-11 min-w-[92px] snap-start rounded-xl border px-2 text-[11px] font-bold transition-colors sm:min-h-9 sm:min-w-0 ${state?.context === item.value ? 'border-transparent bg-buds-action text-buds-action-ink' : 'border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] text-[var(--muted)] hover:text-[var(--text)]'}`}
           >
             {item.label}
           </button>
@@ -345,17 +348,17 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
             <span className="grid size-14 place-items-center rounded-full border border-[var(--liquid-border-strong)] bg-[var(--liquid-panel)] text-[var(--accent-hot)]"><Navigation size={23} /></span>
             <strong className="text-sm text-[var(--text)]">Mapa sob demanda</strong>
             <small className="text-[11px] leading-[1.45] text-[var(--muted)]">O mapa e a precisão alta só são ativados quando você solicitar.</small>
-            <button type="button" onClick={() => void openMap()} disabled={busy} className="min-h-9 rounded-full bg-buds-action px-4 text-xs font-bold text-buds-action-ink disabled:opacity-40">{busy ? 'Localizando…' : 'Ativar e abrir mapa'}</button>
+            <button type="button" onClick={() => void openMap()} disabled={busy} className="min-h-11 rounded-full bg-buds-action px-4 text-xs font-bold text-buds-action-ink disabled:opacity-40">{busy ? 'Localizando…' : 'Ativar e abrir mapa'}</button>
           </div>
         )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={() => setFormOpen(value => !value)} className="inline-flex min-h-9 items-center gap-2 rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-3 text-xs font-bold text-[var(--text)]">
+        <button type="button" onClick={() => setFormOpen(value => !value)} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-3 text-xs font-bold text-[var(--text)]">
           <Plus size={14} /> Salvar lugar atual
         </button>
         {nativeIOS && (
-          <button type="button" onClick={() => void toggleMonitoring()} disabled={busy} className={`inline-flex min-h-9 items-center gap-2 rounded-full border px-3 text-xs font-bold ${dashboard?.monitoring?.enabled ? 'border-emerald-400/30 bg-emerald-400/12 text-emerald-300' : 'border-[var(--liquid-border)] bg-[var(--liquid-panel)] text-[var(--muted)]'}`}>
+          <button type="button" onClick={() => void toggleMonitoring()} disabled={busy} className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 text-xs font-bold ${dashboard?.monitoring?.enabled ? 'border-emerald-400/30 bg-emerald-400/12 text-emerald-300' : 'border-[var(--liquid-border)] bg-[var(--liquid-panel)] text-[var(--muted)]'}`}>
             <BatteryCharging size={14} /> Econômico {dashboard?.monitoring?.enabled ? 'ativo' : 'desativado'}
           </button>
         )}
@@ -363,18 +366,20 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
 
       {formOpen && (
         <div className="grid gap-2 rounded-[18px] border border-[var(--liquid-border)] bg-[var(--surface)] p-3 sm:grid-cols-[1fr_140px_110px_auto]">
-          <input value={placeName} onChange={event => setPlaceName(event.target.value)} placeholder="Nome do lugar" className="min-h-10 min-w-0 rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 text-sm outline-none" />
-          <select value={placeContext} onChange={event => setPlaceContext(event.target.value as LocationPlaceContext)} className="min-h-10 rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-2 text-xs outline-none">
+          <input value={placeName} onChange={event => setPlaceName(event.target.value)} placeholder="Nome do lugar" className="min-h-11 min-w-0 rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 text-sm outline-none" />
+          <select value={placeContext} onChange={event => setPlaceContext(event.target.value as LocationPlaceContext)} className="min-h-11 rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-2 text-xs outline-none">
             {CONTEXTS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
-          <select value={radius} onChange={event => setRadius(Number(event.target.value))} className="min-h-10 rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-2 text-xs outline-none">
+          <select value={radius} onChange={event => setRadius(Number(event.target.value))} className="min-h-11 rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-2 text-xs outline-none">
             <option value={100}>100 m</option><option value={180}>180 m</option><option value={300}>300 m</option><option value={500}>500 m</option>
           </select>
-          <button type="button" onClick={() => void addCurrentPlace()} disabled={busy} className="min-h-10 rounded-xl bg-buds-action px-4 text-xs font-bold text-buds-action-ink disabled:opacity-50">Salvar</button>
+          <button type="button" onClick={() => void addCurrentPlace()} disabled={busy} className="min-h-11 rounded-xl bg-buds-action px-4 text-xs font-bold text-buds-action-ink disabled:opacity-50">Salvar</button>
         </div>
       )}
 
-      <div className="grid min-w-0 gap-2 lg:grid-cols-2">
+      {(hasSavedRoutes || showOfflinePanel) && (
+      <div className={`grid min-w-0 gap-2 ${hasSavedRoutes && showOfflinePanel ? 'lg:grid-cols-2' : ''}`}>
+        {hasSavedRoutes && (
         <div className="grid min-w-0 content-start gap-2 rounded-[18px] border border-[var(--liquid-border)] bg-[var(--surface)] p-3">
           <header className="flex items-center justify-between gap-2">
             <span className="inline-flex items-center gap-2 text-xs font-extrabold text-[var(--text)]"><Route size={14} /> Trajetos salvos</span>
@@ -392,46 +397,67 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
                 <strong className="truncate text-xs text-[var(--text)]">{route.name}</strong>
                 <small className="text-[10px] text-[var(--muted)]">{formatDistance(route.distance_m)} · {formatDuration(route.duration_s)} · {route.point_count} pontos</small>
               </button>
-              <button type="button" onClick={() => void removeRoute(route)} className="grid size-8 place-items-center rounded-full text-[var(--muted)] hover:bg-rose-500/12 hover:text-rose-300" aria-label={`Apagar ${route.name}`}><Trash2 size={13} /></button>
+              <button type="button" onClick={() => void removeRoute(route)} className="grid size-10 place-items-center rounded-full text-[var(--muted)] hover:bg-rose-500/12 hover:text-rose-300" aria-label={`Apagar ${route.name}`}><Trash2 size={13} /></button>
             </div>
           ))}
-          {!routes.active && !routes.routes.length && <small className="py-2 text-center text-[10px] text-[var(--muted)]">Nenhum trajeto gravado ainda.</small>}
         </div>
+        )}
 
+        {showOfflinePanel && (
         <div className="grid min-w-0 content-start gap-2 rounded-[18px] border border-[var(--liquid-border)] bg-[var(--surface)] p-3">
-          <header className="flex items-center justify-between gap-2">
+          <header className="flex flex-wrap items-center justify-between gap-2">
             <span className="inline-flex items-center gap-2 text-xs font-extrabold text-[var(--text)]"><HardDrive size={14} /> Mapa offline</span>
-            <small className="text-[10px] text-[var(--muted)]">{formatBytes(offline?.used_bytes ?? 0)} / 750 MB</small>
+            <div className="flex items-center gap-2">
+              <small className="text-[10px] text-[var(--muted)]">{formatBytes(offline?.used_bytes ?? 0)} / 750 MB</small>
+              <button
+                type="button"
+                onClick={() => void clearOfflineStorage()}
+                disabled={busy || (offline?.used_bytes ?? 0) === 0}
+                className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-rose-400/20 bg-rose-500/8 px-3 text-[11px] font-extrabold text-rose-200 transition-colors hover:bg-rose-500/14 disabled:cursor-not-allowed disabled:opacity-35"
+                aria-label="Apagar todos os mapas baixados"
+              >
+                <Trash2 size={13} /> Apagar downloads
+              </button>
+            </div>
           </header>
           <div className="h-1.5 overflow-hidden rounded-full bg-white/8">
             <span className="block h-full rounded-full bg-[var(--accent-hot)] transition-[width]" style={{ width: `${Math.min(100, ((offline?.used_bytes ?? 0) / (offline?.limit_bytes || 1)) * 100)}%` }} />
           </div>
-          <button type="button" onClick={() => void downloadCurrentArea()} disabled={busy || offline?.supported === false} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[var(--liquid-border-strong)] bg-[var(--liquid-panel)] px-3 text-xs font-bold text-[var(--text)] disabled:opacity-40">
-            <Download size={14} /> {offlineProgress == null ? 'Baixar 15 km ao redor' : `Baixando ${Math.round(offlineProgress * 100)}%`}
+          <button type="button" onClick={() => void downloadCurrentArea()} disabled={busy || offline?.supported === false || nativeIOS} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--liquid-border-strong)] bg-[var(--liquid-panel)] px-3 text-xs font-bold text-[var(--text)] disabled:opacity-40">
+            <Download size={14} /> {nativeIOS ? 'Mapa online no iPhone' : offlineProgress == null ? 'Baixar 15 km ao redor' : `Baixando ${Math.round(offlineProgress * 100)}%`}
           </button>
-          <small className="text-[10px] leading-relaxed text-[var(--muted)]">Ruas vetoriais em preto e branco. A área continua disponível sem internet e o limite nunca passa de 750 MB.</small>
+          <small className="text-[10px] leading-relaxed text-[var(--muted)]">
+            {nativeIOS
+              ? 'Fallback HTTPS temporário para garantir que o mapa abra no app. O cache offline continua disponível no desktop e na web.'
+              : 'Ruas vetoriais em preto e branco. A área continua disponível sem internet e o limite nunca passa de 750 MB.'}
+          </small>
           {offline?.regions.map(region => (
             <div key={region.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 py-2">
               <span className="grid min-w-0"><strong className="truncate text-xs text-[var(--text)]">{region.name}</strong><small className="text-[10px] text-[var(--muted)]">{region.radius_km} km · {formatBytes(region.bytes)}</small></span>
-              <button type="button" onClick={() => void removeOfflineRegion(region.id)} aria-label={`Apagar ${region.name}`} className="grid size-8 place-items-center rounded-full text-[var(--muted)] hover:bg-rose-500/12 hover:text-rose-300"><Trash2 size={13} /></button>
+              <button type="button" onClick={() => void removeOfflineRegion(region.id)} aria-label={`Apagar ${region.name}`} className="inline-flex min-h-10 items-center gap-1.5 rounded-xl px-2.5 text-[11px] font-bold text-[var(--muted)] hover:bg-rose-500/12 hover:text-rose-300"><Trash2 size={13} /> Apagar</button>
             </div>
           ))}
-          {(offline?.used_bytes ?? 0) > 0 && (
-            <button type="button" onClick={() => void clearOfflineStorage()} disabled={busy} className="justify-self-start text-[10px] font-bold text-rose-300/80 hover:text-rose-200 disabled:opacity-40">Limpar todo o mapa offline</button>
-          )}
         </div>
+        )}
       </div>
+      )}
 
       {dashboard?.places.length ? (
-        <div className="grid gap-1.5">
-          {dashboard.places.map(place => (
+        <details className="group grid gap-1.5 rounded-[18px] border border-[var(--liquid-border)] bg-[var(--surface)] p-3">
+          <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-3 text-xs font-extrabold text-[var(--text)] [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-center gap-2"><MapPin size={14} /> Lugares conhecidos <small className="font-normal text-[var(--muted)]">({dashboard.places.length})</small></span>
+            <ChevronDown size={15} className="text-[var(--muted)] transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="grid gap-1.5 pt-1">
+            {dashboard.places.map(place => (
             <div key={place.id} className="grid min-w-0 grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-2 rounded-[15px] border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] p-2">
               <span className="grid size-[34px] place-items-center rounded-xl bg-[rgb(var(--accent-hot-rgb)/0.1)] text-[var(--accent-hot)]">{place.context === 'home' ? <Home size={15} /> : <MapPin size={15} />}</span>
               <span className="grid min-w-0"><strong className="truncate text-xs text-[var(--text)]">{place.name}</strong><small className="text-[10px] text-[var(--muted)]">{CONTEXT_LABELS[place.context]} · raio de {Math.round(place.radius_m)} m</small></span>
-              <button type="button" onClick={() => void removePlace(place.id)} className="grid size-8 place-items-center rounded-full text-[var(--muted)] hover:bg-rose-500/12 hover:text-rose-300" aria-label={`Apagar ${place.name}`}><Trash2 size={14} /></button>
+              <button type="button" onClick={() => void removePlace(place.id)} className="grid size-10 place-items-center rounded-full text-[var(--muted)] hover:bg-rose-500/12 hover:text-rose-300" aria-label={`Apagar ${place.name}`}><Trash2 size={14} /></button>
             </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </details>
       ) : null}
 
       {dashboard?.events.length ? (

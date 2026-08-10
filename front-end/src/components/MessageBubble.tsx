@@ -243,7 +243,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
         <div
           className={`message-bubble min-w-0 max-w-[min(760px,78vw)] overflow-hidden rounded-3xl border px-[15px] py-[13px] text-sm leading-[1.62] text-buds-text shadow-[var(--liquid-shadow-soft),inset_0_1px_0_rgba(255,255,255,0.16)] ![backdrop-filter:none] [transform:translateZ(0)] max-[760px]:max-w-full max-[760px]:break-words max-[760px]:[overflow-wrap:anywhere] max-[760px]:rounded-[18px] max-[760px]:px-[13px] max-[760px]:py-2.5 max-[760px]:text-[15px] max-[760px]:leading-[1.45] ${
             isUser
-              ? 'border-[rgba(var(--accent-hot-rgb)/0.16)] [background:linear-gradient(135deg,rgba(var(--accent-hot-rgb)/0.18),transparent_52%),rgba(var(--accent-hot-rgb)/0.09)] max-[760px]:rounded-br-md max-[760px]:border-[#0a84ff] max-[760px]:bg-[#0a84ff] max-[760px]:text-white'
+              ? 'border-[rgba(var(--accent-hot-rgb)/0.2)] [background:linear-gradient(135deg,rgba(var(--accent-hot-rgb)/0.2),transparent_52%),rgba(var(--accent-hot-rgb)/0.1)] max-[760px]:rounded-br-md max-[760px]:border-transparent max-[760px]:bg-buds-action max-[760px]:text-buds-action-ink'
               : 'border-[var(--liquid-border)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_42%),var(--liquid-panel-soft)] max-[760px]:rounded-bl-md max-[760px]:border-[var(--line)] max-[760px]:[background:color-mix(in_srgb,var(--surface-3)_86%,white_6%)]'
           } ${
             message.streaming && !isThinking
@@ -288,7 +288,7 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
             <button
               type="button"
               onClick={speakMessage}
-              className="inline-flex items-center gap-[5px] rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-2 py-[3px] text-buds-text hover:border-[rgba(255,209,102,0.46)] hover:bg-[rgba(245,158,11,0.12)] hover:text-[var(--jarvis-hot)]"
+              className="inline-flex min-h-8 items-center gap-[5px] rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-2.5 py-[3px] text-buds-text hover:border-[var(--liquid-border-strong)] hover:bg-[var(--liquid-panel-strong)] hover:text-[var(--accent-hot)]"
             >
               <Volume2 size={11} />
               Ouvir

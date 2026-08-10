@@ -44,9 +44,11 @@ export function ActivityTimeline({ refreshKey = 0 }: ActivityTimelineProps) {
 
   return (
     <div className={focusStyles.card}>
-      <div 
-        className="flex items-center justify-between cursor-pointer"
+      <button
+        type="button"
+        className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-3 text-left"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
       >
         <h3 className={focusStyles.cardTitle}>
           <Clock size={18} className="text-[var(--text)] opacity-80" />
@@ -55,21 +57,21 @@ export function ActivityTimeline({ refreshKey = 0 }: ActivityTimelineProps) {
         <span className="text-[12px] text-[var(--muted)]">
           {events.length} {events.length === 1 ? 'evento' : 'eventos'}
         </span>
-      </div>
+      </button>
 
       {isExpanded && (
-        <div className="mt-4 flex flex-col gap-3 relative before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-white/10 ml-1">
+        <div className="relative mt-4 ml-1 flex flex-col gap-3 before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-[var(--liquid-border)]">
           {!loading && events.length === 0 && <div className="pl-9 text-[13px] text-[var(--muted)]">A atividade do seu dia aparecerá aqui.</div>}
           {events.map((event) => {
             const time = new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             return (
               <div key={event.id} className="flex items-start gap-3 relative z-10">
-                <div className="w-6 h-6 rounded-full bg-[#1A1A1A] border border-white/10 flex items-center justify-center shrink-0">
+                <div className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[var(--liquid-border)] bg-[var(--surface)]">
                   {getIcon(event.event_type)}
                 </div>
                 <div className="flex-1 min-w-0 pt-0.5">
-                  <div className="text-[13px] text-white/90 leading-snug">{event.title}</div>
-                  <div className="text-[11px] text-white/40 mt-0.5">{time}</div>
+                  <div className="text-[13px] leading-snug text-[var(--text)]">{event.title}</div>
+                  <div className="mt-0.5 text-[11px] text-[var(--muted)]">{time}</div>
                 </div>
               </div>
             )

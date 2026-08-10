@@ -19,9 +19,9 @@ export function FocusHeader({ openCount, completedToday, inboxCount }: FocusHead
         Sua central do dia: compromissos que o Buds percebeu e o que você decidiu priorizar.
       </p>
       <div className="mt-2 flex min-w-0 flex-wrap gap-2" aria-label="Resumo do dia">
-        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] text-[var(--muted)]"><strong className="text-[var(--text)]">{openCount}</strong> em aberto</span>
-        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] text-[var(--muted)]"><strong className="text-[var(--text)]">{completedToday}</strong> concluídas hoje</span>
-        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[12px] text-[var(--muted)]"><strong className="text-[var(--text)]">{inboxCount}</strong> para revisar</span>
+        <span className="rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 py-1.5 text-[12px] text-[var(--muted)]"><strong className="text-[var(--text)]">{openCount}</strong> em aberto</span>
+        <span className="rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 py-1.5 text-[12px] text-[var(--muted)]"><strong className="text-[var(--text)]">{completedToday}</strong> concluídas hoje</span>
+        <span className="rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 py-1.5 text-[12px] text-[var(--muted)]"><strong className="text-[var(--text)]">{inboxCount}</strong> para revisar</span>
       </div>
     </div>
   )

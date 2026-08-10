@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { addProtocol, Map as MapLibre, NavigationControl } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { GeoJSONSource, Map as MapLibreMap, RequestParameters, StyleSpecification } from 'maplibre-gl'
 import type { KnownPlace, LocationRoutePoint } from '../../types'
 import { getMapVectorTile } from '../../services/mapaOffline'
+import { MapaRasterIOS } from './MapaRasterIOS'
+
+const OPEN_FREE_MAP_TILEJSON = 'https://tiles.openfreemap.org/planet'
+const USE_DIRECT_IOS_SOURCE = Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios'
 
 interface MapaInterativoEscuroProps {
   latitude: number
@@ -70,7 +75,11 @@ function darkVectorStyle(
   return {
     version: 8,
     sources: {
-      budsmap: {
+      budsmap: USE_DIRECT_IOS_SOURCE ? {
+        type: 'vector',
+        url: OPEN_FREE_MAP_TILEJSON,
+        attribution: 'OpenFreeMap © OpenMapTiles · OpenStreetMap',
+      } : {
         type: 'vector',
         tiles: ['buds://tiles/{z}/{x}/{y}'],
         minzoom: 0,
@@ -111,13 +120,22 @@ function darkVectorStyle(
 export function MapaInterativoEscuro({
   latitude, longitude, places, routePoints = [],
 }: MapaInterativoEscuroProps) {
+  if (USE_DIRECT_IOS_SOURCE) {
+    return <MapaRasterIOS latitude={latitude} longitude={longitude} places={places} routePoints={routePoints} />
+  }
+  return <MapaVetorial latitude={latitude} longitude={longitude} places={places} routePoints={routePoints} />
+}
+
+function MapaVetorial({
+  latitude, longitude, places, routePoints,
+}: Required<MapaInterativoEscuroProps>) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const [mapError, setMapError] = useState('')
 
   useEffect(() => {
     if (!containerRef.current || !Number.isFinite(latitude) || !Number.isFinite(longitude)) return
-    ensureOfflineProtocol()
+    if (!USE_DIRECT_IOS_SOURCE) ensureOfflineProtocol()
     setMapError('')
     let map: MapLibreMap | null = null
     try {

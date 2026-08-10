@@ -176,46 +176,46 @@ export function Sidebar({
       </div>
 
       <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-        <section className="grid gap-1.5 border-b border-[var(--liquid-border)] px-3 py-3">
+        <section className="grid min-w-0 gap-2 overflow-hidden border-b border-[var(--liquid-border)] px-3 py-3">
           <div className="flex items-center justify-between px-1 text-[10px] font-extrabold uppercase tracking-[0.08em] text-buds-muted">
             <span>Pastas</span>
-            <button type="button" onClick={() => { setEditingFolderId(null); setFolderName(''); setFolderComposerOpen(value => !value) }} className="grid size-7 place-items-center rounded-lg text-buds-muted hover:bg-[var(--liquid-panel-soft)] hover:text-buds-text" aria-label="Criar pasta"><FolderPlus size={15} /></button>
+            <button type="button" onClick={() => { setEditingFolderId(null); setFolderName(''); setFolderComposerOpen(value => !value) }} className="inline-flex min-h-9 items-center gap-1.5 rounded-xl px-2.5 text-[10px] font-extrabold normal-case tracking-normal text-buds-muted hover:bg-[var(--liquid-panel-soft)] hover:text-buds-text max-[760px]:min-h-11 max-[760px]:text-xs" aria-label="Criar pasta"><FolderPlus size={15} /><span>Nova pasta</span></button>
           </div>
 
-          <div className="flex gap-1.5 overflow-x-auto pb-0.5 max-[760px]:[-webkit-overflow-scrolling:touch] min-[901px]:grid min-[901px]:overflow-visible">
-            <button type="button" onClick={() => onFolderFilterChange('all')} className={`flex min-h-9 min-w-max items-center gap-2 rounded-xl px-2.5 text-left text-xs font-bold transition-colors ${activeFolderId === 'all' ? 'bg-[var(--liquid-panel-strong)] text-buds-text' : 'text-buds-muted hover:bg-[var(--liquid-panel-soft)] hover:text-buds-text'}`}>
+          <div className="flex w-full min-w-0 snap-x snap-mandatory gap-1.5 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[901px]:grid min-[901px]:snap-none min-[901px]:overflow-visible">
+            <button type="button" onClick={() => onFolderFilterChange('all')} className={`flex min-h-9 min-w-max snap-start items-center gap-2 rounded-xl px-2.5 text-left text-xs font-bold transition-colors max-[760px]:min-h-11 ${activeFolderId === 'all' ? 'bg-[var(--liquid-panel-strong)] text-buds-text' : 'text-buds-muted hover:bg-[var(--liquid-panel-soft)] hover:text-buds-text'}`}>
               <MessageSquare size={14} /> Todos <small className="opacity-60">{sessions.length}</small>
             </button>
             {folders.map(folder => {
               const count = sessions.filter(session => session.folder_id === folder.id).length
               return (
-                <div key={folder.id} className={`group/folder flex min-w-max items-center rounded-xl pr-1 ${activeFolderId === folder.id ? 'bg-[var(--liquid-panel-strong)]' : 'hover:bg-[var(--liquid-panel-soft)]'}`}>
-                  <button type="button" onClick={() => onFolderFilterChange(folder.id)} className={`flex min-h-9 items-center gap-2 px-2 text-left text-xs font-bold ${activeFolderId === folder.id ? 'text-buds-text' : 'text-buds-muted'}`}>
+                <div key={folder.id} className={`group/folder flex min-w-max snap-start items-center rounded-xl pr-0.5 max-[760px]:max-w-[220px] ${activeFolderId === folder.id ? 'bg-[var(--liquid-panel-strong)]' : 'hover:bg-[var(--liquid-panel-soft)]'}`}>
+                  <button type="button" onClick={() => onFolderFilterChange(folder.id)} className={`flex min-h-9 min-w-0 items-center gap-2 px-2 text-left text-xs font-bold max-[760px]:min-h-11 ${activeFolderId === folder.id ? 'text-buds-text' : 'text-buds-muted'}`}>
                     <FolderGlyph icon={folder.icon} color={folder.color} /><span className="max-w-28 truncate">{folder.name}</span><small className="opacity-60">{count}</small>
                   </button>
-                  <button type="button" onClick={() => editFolder(folder)} className="grid size-7 place-items-center rounded-lg text-buds-faint opacity-60 hover:text-buds-text group-hover/folder:opacity-100" aria-label={`Editar pasta ${folder.name}`}><MoreHorizontal size={14} /></button>
+                  <button type="button" onClick={() => editFolder(folder)} className="grid size-8 shrink-0 place-items-center rounded-lg text-buds-faint opacity-60 hover:text-buds-text group-hover/folder:opacity-100 max-[760px]:size-10 max-[760px]:opacity-100" aria-label={`Editar pasta ${folder.name}`}><MoreHorizontal size={14} /></button>
                 </div>
               )
             })}
-            <button type="button" onClick={() => onFolderFilterChange('unfiled')} className={`flex min-h-9 min-w-max items-center gap-2 rounded-xl px-2.5 text-left text-xs font-bold ${activeFolderId === 'unfiled' ? 'bg-[var(--liquid-panel-strong)] text-buds-text' : 'text-buds-muted hover:bg-[var(--liquid-panel-soft)] hover:text-buds-text'}`}>
+            <button type="button" onClick={() => onFolderFilterChange('unfiled')} className={`flex min-h-9 min-w-max snap-start items-center gap-2 rounded-xl px-2.5 text-left text-xs font-bold max-[760px]:min-h-11 ${activeFolderId === 'unfiled' ? 'bg-[var(--liquid-panel-strong)] text-buds-text' : 'text-buds-muted hover:bg-[var(--liquid-panel-soft)] hover:text-buds-text'}`}>
               <Inbox size={14} /> Sem pasta <small className="opacity-60">{sessions.filter(session => !session.folder_id).length}</small>
             </button>
           </div>
 
           {folderComposerOpen && (
-            <div className="grid gap-2 rounded-[16px] border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] p-2.5">
+            <div className="grid min-w-0 gap-2.5 rounded-[16px] border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] p-2.5">
               <div className="flex items-center gap-2">
                 <FolderGlyph icon={suggestedIcon(folderName)} color={folderColor} />
-                <input autoFocus value={folderName} onChange={event => setFolderName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void submitFolder() }} placeholder="Ex.: Trabalho" className="min-h-9 min-w-0 flex-1 rounded-xl border border-[var(--liquid-border)] bg-[var(--surface)] px-3 text-sm text-buds-text outline-none focus:border-[var(--accent-hot)]" />
-                <button type="button" onClick={() => setFolderComposerOpen(false)} className="grid size-8 place-items-center rounded-lg text-buds-muted"><X size={14} /></button>
+                <input autoFocus value={folderName} onChange={event => setFolderName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') void submitFolder() }} placeholder="Ex.: Trabalho" className="min-h-10 min-w-0 flex-1 rounded-xl border border-[var(--liquid-border)] bg-[var(--surface)] px-3 text-sm text-buds-text outline-none focus:border-[var(--accent-hot)] max-[760px]:min-h-11" />
+                <button type="button" onClick={() => setFolderComposerOpen(false)} className="grid size-9 shrink-0 place-items-center rounded-xl text-buds-muted hover:bg-[var(--liquid-panel-strong)] max-[760px]:size-11" aria-label="Fechar editor de pasta"><X size={15} /></button>
               </div>
-              <div className="flex items-center gap-1.5" aria-label="Cor da pasta">
+              <div className="flex flex-wrap items-center gap-1.5" aria-label="Cor da pasta">
                 <Palette size={13} className="mr-1 text-buds-muted" />
-                {FOLDER_COLORS.map(color => <button key={color} type="button" onClick={() => setFolderColor(color)} className="grid size-7 place-items-center rounded-full border" style={{ backgroundColor: color, borderColor: folderColor === color ? 'white' : 'transparent' }} aria-label={`Usar cor ${color}`}>{folderColor === color && <Check size={13} color="white" />}</button>)}
+                {FOLDER_COLORS.map(color => <button key={color} type="button" onClick={() => setFolderColor(color)} className="grid size-8 place-items-center rounded-full border max-[760px]:size-10" style={{ backgroundColor: color, borderColor: folderColor === color ? 'white' : 'transparent' }} aria-label={`Usar cor ${color}`}>{folderColor === color && <Check size={13} color="white" />}</button>)}
               </div>
-              <div className="flex gap-2">
-                {editingFolderId && <button type="button" disabled={busy} onClick={() => void removeEditingFolder()} className="min-h-9 rounded-xl px-3 text-xs font-bold text-rose-300 hover:bg-rose-500/10 disabled:opacity-40"><Trash2 size={13} className="inline" /> Apagar</button>}
-                <button type="button" disabled={!folderName.trim() || busy} onClick={() => void submitFolder()} className="ml-auto min-h-9 rounded-xl bg-buds-action px-4 text-xs font-extrabold text-buds-action-ink disabled:opacity-40">{busy ? 'Salvando…' : editingFolderId ? 'Salvar pasta' : 'Criar pasta'}</button>
+              <div className="flex flex-wrap gap-2">
+                {editingFolderId && <button type="button" disabled={busy} onClick={() => void removeEditingFolder()} className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-bold text-rose-300 hover:bg-rose-500/10 disabled:opacity-40 max-[760px]:min-h-11 max-[760px]:flex-1"><Trash2 size={13} /> Apagar</button>}
+                <button type="button" disabled={!folderName.trim() || busy} onClick={() => void submitFolder()} className="ml-auto min-h-10 rounded-xl bg-buds-action px-4 text-xs font-extrabold text-buds-action-ink disabled:opacity-40 max-[760px]:min-h-11 max-[760px]:flex-1">{busy ? 'Salvando…' : editingFolderId ? 'Salvar pasta' : 'Criar pasta'}</button>
               </div>
             </div>
           )}

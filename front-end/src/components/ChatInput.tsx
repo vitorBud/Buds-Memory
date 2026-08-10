@@ -81,7 +81,7 @@ export function ChatInput({
           value={isRecording ? `Gravando... ${recSeconds}s` : text}
           onChange={e => !isRecording && setText(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="Digite um comando ou mensagem"
+          placeholder="Digite uma mensagem"
           disabled={isRecording}
           rows={1}
           className={chatInputStyles.textarea}

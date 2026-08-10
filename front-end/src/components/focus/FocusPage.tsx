@@ -101,11 +101,11 @@ export function FocusPage({ visible }: FocusPageProps) {
           inboxCount={inboxCount}
         />
 
-        <div className="grid w-full min-w-0 max-w-full grid-cols-1 items-start gap-4 lg:grid-cols-[1fr_340px] lg:gap-6">
+        <div className="grid w-full min-w-0 max-w-full grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(290px,0.75fr)] lg:gap-5">
           {/* Main Column */}
           <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
             <div className={focusStyles.card}>
-              <div className="flex items-center justify-between mb-2">
+              <div className="mb-1 flex items-center justify-between">
                 <h3 className={focusStyles.cardTitle}>
                   <ListTodo size={18} className="text-[var(--text)] opacity-80" />
                   Tarefas

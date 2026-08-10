@@ -16,8 +16,9 @@ import {
   Smartphone,
   Target,
   MapPinned,
+  MoreHorizontal,
 } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import type { Transition } from 'framer-motion'
 import { Sidebar } from './components/Sidebar'
 import type { ChatFolderFilter } from './components/Sidebar'
@@ -115,6 +116,14 @@ const VIEW_HASHES: Record<AppView, string> = {
   mobile: '#mobile',
   focus: '#focus',
   map: '#map',
+}
+
+const MOBILE_VIEW_ORDER: AppView[] = ['home', 'chat', 'voice', 'focus', 'map', 'obsidian', 'mobile']
+
+const MOBILE_VIEW_VARIANTS = {
+  enter: (direction: number) => ({ opacity: 0, x: direction * 24, scale: 0.992 }),
+  center: { opacity: 1, x: 0, scale: 1 },
+  exit: (direction: number) => ({ opacity: 0, x: direction * -18, scale: 0.996 }),
 }
 
 function viewFromHash(hash: string): AppView {
@@ -243,6 +252,7 @@ export default function App() {
   const [googleSearchAvailable, setGoogleSearchAvailable] = useState(false)
   const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [settings, setSettings] = useState<InterfaceSettings>(getInitialSettings)
   const [uptimeSeconds, setUptimeSeconds] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
@@ -268,6 +278,8 @@ export default function App() {
   const [voiceSilenceMode, setVoiceSilenceMode] = useState<VoiceSilenceMode>(getInitialVoiceSilenceMode)
 
   const [activeView, setActiveView] = useState<AppView>(() => viewFromHash(window.location.hash))
+  const [viewDirection, setViewDirection] = useState(1)
+  const activeViewRef = useRef(activeView)
 
   useEffect(() => {
     const landscapeQuery = window.matchMedia('(pointer: coarse) and (orientation: landscape) and (max-height: 560px)')
@@ -296,24 +308,29 @@ export default function App() {
   const isWindowsUi = isWindowsRuntime()
   const isIOSUi = isIOSRuntime()
   const isNativeIOS = isNativeIOSRuntime()
-  const lowCostUi = isWindowsUi || isIOSUi
-  const viewTransition: Transition = isWindowsUi
+  const isMobileUi = isMobileViewport()
+  const prefersReducedMotion = useReducedMotion()
+  const animateMobileUi = isMobileUi && !prefersReducedMotion
+  const lowCostUi = isWindowsUi || isMobileUi
+  const viewTransition: Transition = isWindowsUi || prefersReducedMotion
     ? { duration: 0 }
-    : isIOSUi
-      ? { duration: 0.16, ease: [0.25, 1, 0.5, 1] }
+    : animateMobileUi
+      ? { duration: 0.22, ease: [0.22, 1, 0.36, 1] }
       : { duration: 0.28, ease: 'easeOut' }
-  const viewMotionProps = isWindowsUi
+  const viewMotionProps = isWindowsUi || prefersReducedMotion
     ? {
         initial: { opacity: 1, scale: 1 },
         animate: { opacity: 1, scale: 1 },
         exit: { opacity: 1, scale: 1 },
         transition: viewTransition,
       }
-    : isIOSUi
+    : animateMobileUi
       ? {
-          initial: { opacity: 0, x: 6 },
-          animate: { opacity: 1, x: 0 },
-          exit: { opacity: 0, x: -4 },
+          custom: viewDirection,
+          variants: MOBILE_VIEW_VARIANTS,
+          initial: 'enter',
+          animate: 'center',
+          exit: 'exit',
           transition: viewTransition,
         }
       : {
@@ -922,7 +939,14 @@ export default function App() {
   }, [cancelRecording, clearMessages, currentSessionId, refreshCognitiveBrain, refreshLocalBackupStatus, showToast, stopOutput])
 
   const activateView = useCallback((view: AppView) => {
+    const currentIndex = MOBILE_VIEW_ORDER.indexOf(activeViewRef.current)
+    const nextIndex = MOBILE_VIEW_ORDER.indexOf(view)
+    if (currentIndex !== nextIndex) {
+      setViewDirection(nextIndex >= currentIndex ? 1 : -1)
+    }
+    activeViewRef.current = view
     prepareViewportForView(view)
+    setMobileMoreOpen(false)
     setSettingsOpen(false)
     setActiveView(view)
     window.history.replaceState(null, '', `${window.location.pathname}${VIEW_HASHES[view]}`)
@@ -969,8 +993,11 @@ export default function App() {
 
   const handleOpenSettings = () => {
     prepareViewportForView(activeView, true)
+    setMobileMoreOpen(false)
     setSettingsOpen(true)
   }
+
+  const handleCloseSettings = () => setSettingsOpen(false)
 
   const hasMessages = messages.length > 0
   const railTabs: Array<{ id: RailTab; label: string; icon: typeof Database }> = [
@@ -979,29 +1006,86 @@ export default function App() {
     { id: 'summary', label: 'Resumo', icon: ListChecks },
   ]
 
-  const renderViewNav = () => (
-    <nav className={`view-nav view-nav-floating ${navigationStyles.nav} ${navigationStyles.floating}`} aria-label="Trocar seção">
+  const renderViewNav = () => {
+    const moreIsActive = settingsOpen || activeView === 'map' || activeView === 'obsidian'
+    const renderMobileIndicator = (active: boolean) => active ? (
+      <motion.div
+        layoutId="mobile-bottom-nav-indicator"
+        className={navigationStyles.mobileIndicator}
+        transition={prefersReducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 470, damping: 38, mass: 0.72 }}
+        aria-hidden="true"
+      />
+    ) : null
+
+    return (
+      <>
+        <AnimatePresence initial={false}>
+          {mobileMoreOpen && (
+            <>
+              <motion.button
+                key="mobile-more-backdrop"
+                type="button"
+                aria-label="Fechar menu Mais"
+                className={navigationStyles.mobileMoreBackdrop}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.16 }}
+                onClick={() => setMobileMoreOpen(false)}
+              />
+              <motion.div
+                key="mobile-more-menu"
+                className={navigationStyles.mobileMoreMenu}
+                role="menu"
+                aria-label="Mais seções"
+                initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
+                <button type="button" role="menuitem" className={`${navigationStyles.mobileMoreItem} ${!settingsOpen && activeView === 'map' ? navigationStyles.mobileMoreItemActive : ''}`} onClick={handleOpenMap}>
+                  <MapPinned />
+                  <span>Mapa</span>
+                </button>
+                <button type="button" role="menuitem" className={`${navigationStyles.mobileMoreItem} ${!settingsOpen && activeView === 'obsidian' ? navigationStyles.mobileMoreItemActive : ''}`} onClick={handleOpenObsidian}>
+                  <BrainCircuit />
+                  <span>Obsidian</span>
+                </button>
+                <button type="button" role="menuitem" className={`${navigationStyles.mobileMoreItem} ${settingsOpen ? navigationStyles.mobileMoreItemActive : ''}`} onClick={handleOpenSettings}>
+                  <SettingsIcon />
+                  <span>Configurações</span>
+                </button>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+
+        <nav className={`view-nav view-nav-floating ${navigationStyles.nav} ${navigationStyles.floating}`} aria-label="Trocar seção">
       <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'home' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenHome} aria-current={!settingsOpen && activeView === 'home' ? 'page' : undefined}>
+        {renderMobileIndicator(!settingsOpen && activeView === 'home')}
         <House size={14} />
         <span>Início</span>
       </button>
       <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'chat' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleSmoothScrollToChat} aria-current={!settingsOpen && activeView === 'chat' ? 'page' : undefined}>
+        {renderMobileIndicator(!settingsOpen && activeView === 'chat')}
         <MessageSquare size={14} />
         <span>Chat</span>
       </button>
       <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'voice' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenVoice} aria-current={!settingsOpen && activeView === 'voice' ? 'page' : undefined}>
+        {renderMobileIndicator(!settingsOpen && activeView === 'voice')}
         <Mic2 size={14} />
         <span>Voz</span>
       </button>
       <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'focus' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenFocus} aria-current={!settingsOpen && activeView === 'focus' ? 'page' : undefined}>
+        {renderMobileIndicator(!settingsOpen && activeView === 'focus')}
         <Target size={14} />
         <span>Focus</span>
       </button>
-      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'map' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenMap} aria-current={!settingsOpen && activeView === 'map' ? 'page' : undefined}>
+      <button type="button" className={`${navigationStyles.button} ${navigationStyles.desktopOnly} ${!settingsOpen && activeView === 'map' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenMap} aria-current={!settingsOpen && activeView === 'map' ? 'page' : undefined}>
         <MapPinned size={14} />
         <span>Map</span>
       </button>
-      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'obsidian' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenObsidian} aria-current={!settingsOpen && activeView === 'obsidian' ? 'page' : undefined}>
+      <button type="button" className={`${navigationStyles.button} ${navigationStyles.desktopOnly} ${!settingsOpen && activeView === 'obsidian' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenObsidian} aria-current={!settingsOpen && activeView === 'obsidian' ? 'page' : undefined}>
         <BrainCircuit size={14} />
         <span>Obsidian</span>
       </button>
@@ -1016,15 +1100,29 @@ export default function App() {
       </button>
       <button
         type="button"
-        className={`${navigationStyles.button} ${settingsOpen ? `is-active ${navigationStyles.active}` : ''}`}
+        className={`${navigationStyles.button} ${navigationStyles.desktopOnly} ${settingsOpen ? `is-active ${navigationStyles.active}` : ''}`}
         onClick={handleOpenSettings}
         aria-current={settingsOpen ? 'page' : undefined}
       >
         <SettingsIcon size={14} />
         <span>Config</span>
       </button>
-    </nav>
-  )
+      <button
+        type="button"
+        className={`${navigationStyles.button} ${navigationStyles.mobileOnly} ${moreIsActive ? `is-active ${navigationStyles.active}` : ''}`}
+        onClick={() => setMobileMoreOpen(open => !open)}
+        aria-expanded={mobileMoreOpen}
+        aria-haspopup="menu"
+        aria-current={moreIsActive ? 'page' : undefined}
+      >
+        {renderMobileIndicator(moreIsActive)}
+        <MoreHorizontal size={14} />
+        <span>Mais</span>
+      </button>
+        </nav>
+      </>
+    )
+  }
 
   return (
     <div className={`scroll-experience ${navigationStyles.experience}`}>
@@ -1058,7 +1156,7 @@ export default function App() {
       {renderViewNav()}
 
 
-      <AnimatePresence mode={lowCostUi ? 'sync' : 'wait'} initial={false}>
+      <AnimatePresence mode={lowCostUi ? 'sync' : 'wait'} initial={false} custom={viewDirection}>
         {activeView === 'home' && (
           <motion.section
             key="home"
@@ -1455,10 +1553,15 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      <AnimatePresence initial={false}>
       {settingsOpen && (
-        <section
+        <motion.section
           className={settingsLayoutStyles.shell}
           aria-label="Configurações do Buds Memory"
+          initial={animateMobileUi ? { opacity: 0, x: 24 } : false}
+          animate={{ opacity: 1, x: 0 }}
+          exit={animateMobileUi ? { opacity: 0, x: 20 } : { opacity: 1, x: 0 }}
+          transition={animateMobileUi ? viewTransition : { duration: 0 }}
         >
           <Suspense fallback={<DeferredSurface label="Carregando configurações..." />}>
             <StatusPanel
@@ -1482,7 +1585,7 @@ export default function App() {
               onClearStorage={handleClearLocalStorage}
               onPurgeConversation={handlePurgeConversation}
               onSettingChange={updateSetting}
-              onClose={() => setSettingsOpen(false)}
+              onClose={handleCloseSettings}
             >
               <div className={`settings-section settings-insights-block ${settingsControlStyles.memoryPanel}`}>
                 <div className={settingsControlStyles.panelHeading}>
@@ -1520,8 +1623,9 @@ export default function App() {
               </div>
             </StatusPanel>
           </Suspense>
-        </section>
+        </motion.section>
       )}
+      </AnimatePresence>
     </div>
   )
 }

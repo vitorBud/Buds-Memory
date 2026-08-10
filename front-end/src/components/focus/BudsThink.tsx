@@ -35,16 +35,17 @@ export function BudsThink() {
       
       {/* Popover content */}
       {isExpanded && (
-        <div className="pointer-events-auto flex w-[340px] max-w-full max-h-[calc(100dvh-var(--mobile-nav-height)-env(safe-area-inset-top)-env(safe-area-inset-bottom)-104px)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#1c1c1c] shadow-2xl transition-all platform-ios:shadow-none">
+        <div className="pointer-events-auto flex w-[360px] max-w-full max-h-[calc(100dvh-var(--mobile-nav-height)-env(safe-area-inset-top)-env(safe-area-inset-bottom)-104px)] flex-col overflow-hidden rounded-[22px] border border-[var(--liquid-border-strong)] bg-[var(--liquid-panel-strong)] text-[var(--text)] shadow-[var(--liquid-shadow)] transition-all platform-ios:bg-[var(--surface)] platform-ios:shadow-none">
           {/* Header */}
-          <div className="flex items-center justify-between p-3 border-b border-white/5 bg-white/5">
+          <div className="flex items-center justify-between border-b border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] p-3">
             <div className="flex items-center gap-2">
               <Bot size={16} className="text-[var(--accent)]" />
-              <span className="text-[13px] font-bold text-white">Buds Think</span>
+              <span className="text-[13px] font-bold text-[var(--text)]">Buds Think</span>
             </div>
             <button 
               onClick={() => setIsExpanded(false)}
-              className="p-1.5 rounded-md hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+              className="grid size-10 place-items-center rounded-xl text-[var(--muted)] transition-colors hover:bg-[var(--liquid-panel)] hover:text-[var(--text)]"
+              aria-label="Fechar Buds Think"
             >
               <X size={14} />
             </button>
@@ -52,7 +53,7 @@ export function BudsThink() {
 
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-3">
             {suggestion && (
-              <div className="p-3 rounded-xl bg-white/5 border border-white/5 text-[13px] leading-relaxed text-white/90">
+              <div className="rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] p-3 text-[13px] leading-relaxed text-[var(--text)]">
                 <div className="font-bold text-[var(--accent)] mb-2 text-[11px] uppercase tracking-wider">Conselho</div>
                 <div className="whitespace-pre-wrap">{suggestion}</div>
               </div>
@@ -70,7 +71,8 @@ export function BudsThink() {
               <button
                 onClick={handleThink}
                 disabled={isThinking}
-                className="absolute right-2 bottom-2 p-1.5 rounded-md bg-[var(--accent)] hover:opacity-90 text-white transition-colors disabled:opacity-50"
+                className="absolute right-2 bottom-2 grid size-9 place-items-center rounded-[10px] bg-buds-action text-buds-action-ink transition-transform hover:-translate-y-px disabled:opacity-50"
+                aria-label="Enviar pergunta ao Buds Think"
               >
                 {isThinking ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
               </button>
@@ -81,7 +83,7 @@ export function BudsThink() {
                 <button
                   key={suggestionText}
                   onClick={() => setQuery(suggestionText)}
-                  className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-[11px] text-white/70 hover:bg-white/10 hover:text-white transition-colors whitespace-nowrap"
+                  className="min-h-9 whitespace-nowrap rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-2.5 py-1 text-[11px] text-[var(--muted)] transition-colors hover:border-[var(--liquid-border-strong)] hover:text-[var(--text)]"
                 >
                   {suggestionText}
                 </button>
@@ -94,13 +96,12 @@ export function BudsThink() {
       {/* FAB Button */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className={`size-12 rounded-full flex items-center justify-center shadow-lg transition-all pointer-events-auto hover:scale-105 ${
-          isExpanded ? 'bg-white/10 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-500'
+        className={`pointer-events-auto flex size-12 items-center justify-center rounded-full border shadow-lg transition-all hover:scale-105 ${
+          isExpanded ? 'border-[var(--liquid-border-strong)] bg-[var(--liquid-panel-strong)] text-[var(--text)]' : 'border-transparent bg-buds-action text-buds-action-ink'
         }`}
         title="Buds Think - Conselhos"
-        style={{
-          background: isExpanded ? undefined : 'linear-gradient(135deg, var(--accent) 0%, #a855f7 100%)'
-        }}
+        aria-expanded={isExpanded}
+        aria-label={isExpanded ? 'Fechar Buds Think' : 'Abrir Buds Think'}
       >
         {isExpanded ? <X size={20} /> : <Bot size={20} />}
       </button>
