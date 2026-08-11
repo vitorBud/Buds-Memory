@@ -35,18 +35,23 @@ public final class BudsLocalStore: @unchecked Sendable {
         }
     }
 
-    public func listSessions() throws -> [BudsSessionRecord] {
+    public func listSessions(channel: String = "chat") throws -> [BudsSessionRecord] {
         try queue.sync {
-            let sql = "SELECT id, title, created_at, folder_id FROM sessions WHERE deleted_at IS NULL ORDER BY created_at DESC"
+            guard ["chat", "voice"].contains(channel) else {
+                throw BudsNativeError.databaseUnavailable("Canal de conversa inválido.")
+            }
+            let sql = "SELECT id, title, created_at, folder_id, channel FROM sessions WHERE deleted_at IS NULL AND channel=? ORDER BY created_at DESC"
             let statement = try prepare(sql)
             defer { sqlite3_finalize(statement) }
+            bind(channel, statement, 1)
             var records: [BudsSessionRecord] = []
             while sqlite3_step(statement) == SQLITE_ROW {
                 records.append(BudsSessionRecord(
                     id: text(statement, 0),
                     title: text(statement, 1),
                     createdAt: text(statement, 2),
-                    folderId: optionalText(statement, 3)
+                    folderId: optionalText(statement, 3),
+                    channel: text(statement, 4)
                 ))
             }
             return records
@@ -57,24 +62,29 @@ public final class BudsLocalStore: @unchecked Sendable {
         try queue.sync { try session(id: id) }
     }
 
-    public func createSession(title: String?, folderId: String? = nil) throws -> BudsSessionRecord {
+    public func createSession(title: String?, folderId: String? = nil, channel: String = "chat") throws -> BudsSessionRecord {
         try queue.sync {
             try ensureWritable()
+            guard ["chat", "voice"].contains(channel) else {
+                throw BudsNativeError.databaseUnavailable("Canal de conversa inválido.")
+            }
             if let folderId, try chatFolder(id: folderId) == nil {
                 throw BudsNativeError.databaseUnavailable("Pasta não encontrada.")
             }
             let record = BudsSessionRecord(
                 id: UUID().uuidString.lowercased(),
-                title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "Nova conversa",
+                title: title?.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? (channel == "voice" ? "Conversa por voz" : "Nova conversa"),
                 createdAt: Self.now(),
-                folderId: folderId
+                folderId: folderId,
+                channel: channel
             )
-            let statement = try prepare("INSERT INTO sessions (id, title, created_at, folder_id) VALUES (?, ?, ?, ?)")
+            let statement = try prepare("INSERT INTO sessions (id, title, created_at, folder_id, channel) VALUES (?, ?, ?, ?, ?)")
             defer { sqlite3_finalize(statement) }
             bind(record.id, statement, 1)
             bind(record.title, statement, 2)
             bind(record.createdAt, statement, 3)
             bindOptional(record.folderId, statement, 4)
+            bind(record.channel, statement, 5)
             try stepDone(statement)
             return record
         }
@@ -105,7 +115,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                        folder.created_at, folder.updated_at, COUNT(session.id)
                 FROM chat_folders folder
                 LEFT JOIN sessions session
-                  ON session.folder_id=folder.id AND session.deleted_at IS NULL
+                  ON session.folder_id=folder.id AND session.deleted_at IS NULL AND session.channel='chat'
                 GROUP BY folder.id
                 ORDER BY folder.name COLLATE NOCASE
                 """)
@@ -1088,7 +1098,8 @@ public final class BudsLocalStore: @unchecked Sendable {
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                deleted_at TEXT
+                deleted_at TEXT,
+                channel TEXT NOT NULL DEFAULT 'chat'
             )
             """)
         if !((try? tableColumns("sessions")) ?? []).contains("deleted_at") {
@@ -1107,7 +1118,11 @@ public final class BudsLocalStore: @unchecked Sendable {
         if !((try? tableColumns("sessions")) ?? []).contains("folder_id") {
             try execute("ALTER TABLE sessions ADD COLUMN folder_id TEXT")
         }
+        if !((try? tableColumns("sessions")) ?? []).contains("channel") {
+            try execute("ALTER TABLE sessions ADD COLUMN channel TEXT NOT NULL DEFAULT 'chat'")
+        }
         try execute("CREATE INDEX IF NOT EXISTS idx_sessions_folder ON sessions(folder_id, created_at DESC)")
+        try execute("CREATE INDEX IF NOT EXISTS idx_sessions_channel_created ON sessions(channel, deleted_at, created_at DESC)")
         try execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1527,7 +1542,7 @@ public final class BudsLocalStore: @unchecked Sendable {
     }
 
     private func session(id: String) throws -> BudsSessionRecord? {
-        let statement = try prepare("SELECT id, title, created_at, folder_id FROM sessions WHERE id = ? LIMIT 1")
+        let statement = try prepare("SELECT id, title, created_at, folder_id, channel FROM sessions WHERE id = ? LIMIT 1")
         defer { sqlite3_finalize(statement) }
         bind(id, statement, 1)
         guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
@@ -1535,7 +1550,8 @@ public final class BudsLocalStore: @unchecked Sendable {
             id: text(statement, 0),
             title: text(statement, 1),
             createdAt: text(statement, 2),
-            folderId: optionalText(statement, 3)
+            folderId: optionalText(statement, 3),
+            channel: text(statement, 4)
         )
     }
 
@@ -1545,7 +1561,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                    folder.created_at, folder.updated_at, COUNT(session.id)
             FROM chat_folders folder
             LEFT JOIN sessions session
-              ON session.folder_id=folder.id AND session.deleted_at IS NULL
+              ON session.folder_id=folder.id AND session.deleted_at IS NULL AND session.channel='chat'
             WHERE folder.id=? GROUP BY folder.id LIMIT 1
             """)
         defer { sqlite3_finalize(statement) }

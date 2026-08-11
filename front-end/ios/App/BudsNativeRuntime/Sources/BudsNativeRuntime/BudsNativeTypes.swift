@@ -103,6 +103,7 @@ public struct BudsSessionRecord: Sendable {
     public let title: String
     public let createdAt: String
     public let folderId: String?
+    public let channel: String
 }
 
 public struct BudsChatFolderRecord: Sendable {

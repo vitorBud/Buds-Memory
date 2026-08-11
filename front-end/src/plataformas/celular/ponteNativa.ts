@@ -1,4 +1,4 @@
-import { registerPlugin } from '@capacitor/core'
+import { Capacitor, registerPlugin } from '@capacitor/core'
 import type { PluginListenerHandle } from '@capacitor/core'
 import type {
   ChatStreamEvent,
@@ -49,8 +49,8 @@ interface IOSLocalPlugin {
   downloadModel(): Promise<IOSLocalStatus>
   cancelModelDownload(): Promise<void>
   clearAllData(options: { confirmation: string }): Promise<IOSLocalStatus>
-  listSessions(): Promise<{ sessions: Session[] }>
-  createSession(options: { title?: string; folderId?: string }): Promise<Session>
+  listSessions(options: { channel: 'chat' | 'voice' }): Promise<{ sessions: Session[] }>
+  createSession(options: { title?: string; folderId?: string; channel: 'chat' | 'voice' }): Promise<Session>
   updateSessionTitle(options: { id: string; title: string }): Promise<Session>
   updateSessionFolder(options: { id: string; folderId?: string }): Promise<Session>
   deleteSession(options: { id: string }): Promise<void>
@@ -118,6 +118,9 @@ interface IOSLocalPlugin {
   startSpeechRecognition(options: { recordingId: string }): Promise<void>
   stopSpeechRecognition(options: { recordingId: string }): Promise<{ text: string; recordingId: string }>
   cancelSpeechRecognition(options: { recordingId?: string }): Promise<void>
+  prepareNeuralVoice(): Promise<{ ready: boolean; voice: string; language: string }>
+  enqueueNeuralSpeech(options: { text: string }): Promise<void>
+  stopNeuralSpeech(options: { releaseEngine: boolean }): Promise<void>
   generate(options: { sessionId: string; text: string; generationId: string }): Promise<{
     generationId: string
     text: string
@@ -137,6 +140,10 @@ interface IOSLocalPlugin {
   addListener(
     eventName: 'speechRecognitionUpdate',
     listener: (event: { text: string; isFinal: boolean; volume: number; recordingId: string }) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(
+    eventName: 'neuralSpeechState',
+    listener: (event: { state: 'speaking' | 'idle' | 'error'; message?: string }) => void,
   ): Promise<PluginListenerHandle>
 }
 
@@ -167,14 +174,15 @@ export function clearIOSLocalData(confirmation: string) {
   return native.clearAllData({ confirmation })
 }
 
-export async function listIOSLocalSessions(): Promise<Session[]> {
-  return (await native.listSessions()).sessions
+export async function listIOSLocalSessions(channel: 'chat' | 'voice' = 'chat'): Promise<Session[]> {
+  return (await native.listSessions({ channel })).sessions
 }
 
-export function createIOSLocalSession(title?: string, folderId?: string | null): Promise<Session> {
+export function createIOSLocalSession(title?: string, folderId?: string | null, channel: 'chat' | 'voice' = 'chat'): Promise<Session> {
   return native.createSession({
     ...(title ? { title } : {}),
     ...(folderId ? { folderId } : {}),
+    channel,
   })
 }
 
@@ -407,6 +415,30 @@ export function stopIOSSpeechRecognition(recordingId: string): Promise<{ text: s
 
 export function cancelIOSSpeechRecognition(recordingId?: string): Promise<void> {
   return native.cancelSpeechRecognition(recordingId ? { recordingId } : {})
+}
+
+export function isIOSNeuralVoiceRuntime(): boolean {
+  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios'
+}
+
+export function prepareIOSNeuralVoice() {
+  return native.prepareNeuralVoice()
+}
+
+export function enqueueIOSNeuralSpeech(text: string): Promise<void> {
+  const cleanText = text.trim().replace(/\s+/g, ' ')
+  if (!cleanText) return Promise.resolve()
+  return native.enqueueNeuralSpeech({ text: cleanText })
+}
+
+export function stopIOSNeuralSpeech(releaseEngine = false): Promise<void> {
+  return native.stopNeuralSpeech({ releaseEngine })
+}
+
+export function listenIOSNeuralSpeechState(
+  listener: (event: { state: 'speaking' | 'idle' | 'error'; message?: string }) => void,
+): Promise<PluginListenerHandle> {
+  return native.addListener('neuralSpeechState', listener)
 }
 
 export async function streamIOSLocalChat(

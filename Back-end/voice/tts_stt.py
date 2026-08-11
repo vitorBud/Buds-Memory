@@ -33,8 +33,9 @@ from storage import get_output_dir
 _BASE = Path(__file__).resolve().parent.parent  # Back-end/
 
 PIPER_EXE = _BASE / "piper" / "piper.exe"
-MODEL     = _BASE / "voz" / "pt_BR-faber-medium.onnx"
-CONFIG    = _BASE / "voz" / "pt_BR-faber-medium.onnx.json"
+PIPER_VOICE = os.getenv("BUDS_PIPER_VOICE", "pt_BR-cadu-medium").strip() or "pt_BR-cadu-medium"
+MODEL     = _BASE / "voz" / f"{PIPER_VOICE}.onnx"
+CONFIG    = _BASE / "voz" / f"{PIPER_VOICE}.onnx.json"
 
 STT_MODEL_PATH = _BASE / "models" / "faster-whisper-base"
 

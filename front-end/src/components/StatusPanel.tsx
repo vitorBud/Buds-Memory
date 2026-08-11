@@ -86,8 +86,8 @@ const VOICE_PROVIDER_OPTIONS: Array<{
   label: string
   hint: string
 }> = [
-  { value: 'browser', label: 'Navegador', hint: 'usa as vozes instaladas no sistema, Safari ou Chrome' },
-  { value: 'piper', label: 'Piper local', hint: 'gera áudio offline no backend com a voz pt-BR instalada' },
+  { value: 'browser', label: 'Voz natural do sistema', hint: 'prioriza vozes Premium ou Aprimoradas instaladas no aparelho' },
+  { value: 'piper', label: 'Cadu neural local', hint: 'voz brasileira offline executada pelo backend' },
 ]
 
 type SettingsSection = 'account' | 'appearance' | 'ai' | 'voice' | 'backup' | 'storage' | 'codebase' | 'memory' | 'system'
@@ -354,7 +354,7 @@ export function StatusPanel({
         <div className={settingsControlStyles.toggleStack}>
           <ToggleRow
             label="Falar respostas automaticamente"
-            description={nativeIOS ? 'Usa a voz instalada no iPhone.' : 'Reproduz em voz alta as novas respostas do chat.'}
+            description={nativeIOS ? 'Usa a Dora neural local e começa a falar durante a resposta.' : 'Reproduz em voz alta as novas respostas do chat.'}
             checked={settings.autoPlayAudio}
             onChange={(checked) => {
               if (nativeIOS && checked && settings.voiceProvider !== 'browser') {
@@ -364,22 +364,37 @@ export function StatusPanel({
             }}
           />
         </div>
-        <div className={settingsControlStyles.optionGrid} aria-label="Selecionar motor de voz">
-          {VOICE_PROVIDER_OPTIONS.filter(option => !nativeIOS || option.value === 'browser').map(option => (
-            <button
-              key={option.value}
-              type="button"
-              className={`${settingsControlStyles.optionButton} ${settings.voiceProvider === option.value ? settingsControlStyles.optionButtonActive : ''}`}
-              onClick={() => onSettingChange('voiceProvider', option.value)}
-            >
-              <Volume2 size={15} className={settingsControlStyles.optionIcon} />
-              <span className={settingsControlStyles.optionCopy}>
-                <strong className={settingsControlStyles.optionLabel}>{option.label}</strong>
-                <small className={settingsControlStyles.optionHint}>{option.hint}</small>
+        {!nativeIOS && (
+          <div className={settingsControlStyles.optionGrid} aria-label="Selecionar motor de voz">
+            {VOICE_PROVIDER_OPTIONS.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                className={`${settingsControlStyles.optionButton} ${settings.voiceProvider === option.value ? settingsControlStyles.optionButtonActive : ''}`}
+                onClick={() => onSettingChange('voiceProvider', option.value)}
+              >
+                <Volume2 size={15} className={settingsControlStyles.optionIcon} />
+                <span className={settingsControlStyles.optionCopy}>
+                  <strong className={settingsControlStyles.optionLabel}>{option.label}</strong>
+                  <small className={settingsControlStyles.optionHint}>{option.hint}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {nativeIOS && (
+          <div className={settingsControlStyles.statusCard}>
+            <div className={`${settingsControlStyles.statusOrb} ${settingsControlStyles.statusOrbOnline}`}>
+              <Volume2 size={16} />
+            </div>
+            <div className={settingsControlStyles.statusCardCopy}>
+              <strong className={settingsControlStyles.statusCardLabel}>Dora neural local no iPhone</strong>
+              <span className={settingsControlStyles.statusCardHint}>
+                Voz feminina brasileira executada offline pelo próprio app. Ela começa após a primeira frase ficar pronta e continua enquanto o Buds ainda gera o restante.
               </span>
-            </button>
-          ))}
-        </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="settings-section settings-codebase-block">

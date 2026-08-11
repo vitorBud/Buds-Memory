@@ -25,6 +25,7 @@ front-end/release/
 front-end/dist/
 front-end/ios/App/BudsNativeRuntime/Vendor/
 front-end/ios/App/BudsNativeRuntime/.build/
+front-end/ios/App/BudsNativeRuntime/Sources/BudsNativeRuntime/Resources/Kokoro/
 
 # ====== Modelos baixados pelo Whisper (cache) ======
 ~/.cache/huggingface/

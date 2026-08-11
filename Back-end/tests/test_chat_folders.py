@@ -62,6 +62,18 @@ class ChatFolderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             database.create_session("Chat inválido", "missing-folder")
 
+    def test_voice_session_is_kept_out_of_regular_chat_lists(self):
+        chat = database.create_session("Chat principal")
+        voice = database.create_session(channel="voice")
+
+        self.assertEqual([item["id"] for item in database.get_all_sessions()], [chat["id"]])
+        self.assertEqual([item["id"] for item in database.get_all_sessions("voice")], [voice["id"]])
+        self.assertEqual(voice["title"], "Conversa por voz")
+        self.assertEqual(voice["channel"], "voice")
+
+        with self.assertRaises(ValueError):
+            database.create_session(channel="desconhecido")
+
 
 if __name__ == "__main__":
     unittest.main()

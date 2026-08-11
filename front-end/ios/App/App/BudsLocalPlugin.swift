@@ -55,6 +55,9 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "startSpeechRecognition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopSpeechRecognition", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancelSpeechRecognition", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "prepareNeuralVoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "enqueueNeuralSpeech", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopNeuralSpeech", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "generate", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopGeneration", returnType: CAPPluginReturnPromise),
     ]
@@ -64,6 +67,13 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
 
     public override func load() {
         super.load()
+        runtime.neuralVoice.onStateChange = { [weak self] state, message in
+            DispatchQueue.main.async {
+                var payload: [String: Any] = ["state": state]
+                if let message { payload["message"] = message }
+                self?.notifyListeners("neuralSpeechState", data: payload)
+            }
+        }
         // Reativa somente geofences/mudanças significativas que o usuário já
         // habilitou; nunca inicia GPS preciso contínuo ao abrir o app.
         if runtime.locationMonitor.monitoringEnabled {
@@ -120,14 +130,16 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func listSessions(_ call: CAPPluginCall) {
         resolve(call) {
-            ["sessions": try runtime.listSessions().map(sessionPayload)]
+            ["sessions": try runtime.listSessions(channel: call.getString("channel") ?? "chat").map(sessionPayload)]
         }
     }
 
     @objc func createSession(_ call: CAPPluginCall) {
         resolve(call) {
             sessionPayload(try runtime.createSession(
-                title: call.getString("title"), folderId: call.getString("folderId")
+                title: call.getString("title"),
+                folderId: call.getString("folderId"),
+                channel: call.getString("channel") ?? "chat"
             ))
         }
     }
@@ -621,6 +633,34 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func prepareNeuralVoice(_ call: CAPPluginCall) {
+        runtime.neuralVoice.prepare { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    call.resolve(["ready": true, "voice": "pf_dora", "language": "pt-BR"])
+                case let .failure(error):
+                    call.reject(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    @objc func enqueueNeuralSpeech(_ call: CAPPluginCall) {
+        guard let text = call.getString("text")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            call.reject("Texto da fala não informado.")
+            return
+        }
+        runtime.neuralVoice.enqueue(text)
+        call.resolve()
+    }
+
+    @objc func stopNeuralSpeech(_ call: CAPPluginCall) {
+        runtime.neuralVoice.stop(releaseEngine: call.getBool("releaseEngine") ?? false)
+        call.resolve()
+    }
+
     @objc func generate(_ call: CAPPluginCall) {
         guard let sessionId = call.getString("sessionId"),
               let text = call.getString("text")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -704,6 +744,7 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
             "title": session.title,
             "created_at": session.createdAt,
             "folder_id": session.folderId ?? NSNull(),
+            "channel": session.channel,
         ]
     }
 

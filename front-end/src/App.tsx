@@ -45,7 +45,7 @@ import type {
   ConversationStorageStatus, CognitiveMemory, KnowledgeGraph, KnowledgeSource,
 } from './types'
 import { formatSessionDate } from './utils/formatters'
-import { getRuntimePlatform, isIOSRuntime, isWindowsRuntime } from './plataformas'
+import { getRuntimePlatform, isIOSRuntime, isWindowsRuntime, prepareIOSNeuralVoice } from './plataformas'
 import { toastStyles } from './styles/notificacoes'
 import { sidebarStyles } from './styles/barraLateral'
 import { chatSessionStyles } from './styles/sessaoChat'
@@ -209,7 +209,7 @@ function getInitialSettings(): InterfaceSettings {
     if (parsed.voiceProvider !== 'browser' && parsed.voiceProvider !== 'piper') {
       parsed.voiceProvider = DEFAULT_SETTINGS.voiceProvider
     }
-    if (isWindowsRuntime() && parsed.voiceProvider === 'piper') {
+    if ((isWindowsRuntime() || isIOSRuntime()) && parsed.voiceProvider === 'piper') {
       parsed.voiceProvider = 'browser'
     }
     // Migra instalações antigas, cujo padrão era reproduzir toda resposta.
@@ -238,11 +238,14 @@ export default function App() {
   const sidebarCloseTimerRef = useRef<number | null>(null)
   const didAutoLoadSessionRef = useRef(false)
   const sessionLoadRequestRef = useRef(0)
+  const voiceSessionPromiseRef = useRef<Promise<string> | null>(null)
   const [aiState, setAiState] = useState<AiState>('idle')
   const [sessions, setSessions] = useState<Session[]>([])
   const [chatFolders, setChatFolders] = useState<ChatFolder[]>([])
   const [activeChatFolderId, setActiveChatFolderId] = useState<ChatFolderFilter>('all')
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
+  const [voiceSessionId, setVoiceSessionId] = useState<string | null>(null)
+  const [voiceAiState, setVoiceAiState] = useState<AiState>('idle')
   const [currentSessionTitle, setCurrentSessionTitle] = useState<string | null>(null)
   const [currentSessionCreatedAt, setCurrentSessionCreatedAt] = useState<string | null>(null)
   const [latency, setLatency] = useState('')
@@ -503,6 +506,24 @@ export default function App() {
     return session.id
   }, [activeChatFolderId, currentSessionId])
 
+  const ensureVoiceSession = useCallback(async (): Promise<string> => {
+    if (voiceSessionId) return voiceSessionId
+    if (voiceSessionPromiseRef.current) return voiceSessionPromiseRef.current
+
+    const pending = (async () => {
+      const existing = (await getSessions('voice'))[0]
+      const session = existing ?? await createSession('Conversa por voz', null, 'voice')
+      setVoiceSessionId(session.id)
+      return session.id
+    })()
+    voiceSessionPromiseRef.current = pending
+    try {
+      return await pending
+    } finally {
+      if (voiceSessionPromiseRef.current === pending) voiceSessionPromiseRef.current = null
+    }
+  }, [voiceSessionId])
+
   const handleSessionUpdate = useCallback((session: Session) => {
     setCurrentSessionTitle(session.title)
     setCurrentSessionCreatedAt(session.created_at)
@@ -535,19 +556,44 @@ export default function App() {
     onLatency: (ms) => setLatency(ms + 'ms'),
     onMsgCountChange: setMsgCount,
     onSessionUpdate: handleSessionUpdate,
-    autoPlayAudio: activeView === 'voice' || settings.autoPlayAudio,
+    autoPlayAudio: settings.autoPlayAudio && activeView !== 'voice',
+  })
+
+  const {
+    isProcessing: isVoiceProcessing,
+    availableVoices: voiceAvailableVoices,
+    sendText: sendVoiceText,
+    sendAudio: sendVoiceAudio,
+    stopOutput: stopVoiceOutput,
+  } = useChat({
+    sessionId: voiceSessionId,
+    selectedModel,
+    webSearchEnabled: settings.webSearchEnabled,
+    selectedVoiceURI,
+    voiceProvider: settings.voiceProvider,
+    onNeedSession: ensureVoiceSession,
+    onStateChange: setVoiceAiState,
+    onLatency: () => undefined,
+    onMsgCountChange: () => undefined,
+    autoPlayAudio: activeView === 'voice',
+    offlineQueueEnabled: false,
   })
 
   const voiceRecorderConfig = VOICE_SILENCE_CONFIG[voiceSilenceMode]
 
   const { isRecording, seconds, volume: micVolume, toggle: toggleMic, cancel: cancelRecording } = useRecorder({
     onStop: async (blob) => {
-      await sendAudio(blob)
+      if (activeViewRef.current === 'voice') await sendVoiceAudio(blob)
+      else await sendAudio(blob)
     },
     onTranscript: (text) => {
-      void sendText(text)
+      if (activeViewRef.current === 'voice') void sendVoiceText(text)
+      else void sendText(text)
     },
-    onStateChange: setAiState,
+    onStateChange: (state) => {
+      if (activeViewRef.current === 'voice') setVoiceAiState(state)
+      else setAiState(state)
+    },
     autoStopOnSilence: activeView === 'voice',
     silenceSeconds: activeView === 'voice' ? voiceRecorderConfig.silenceSeconds : 1.15,
     speechThreshold: activeView === 'voice' ? voiceRecorderConfig.speechThreshold : 0.075,
@@ -902,19 +948,21 @@ export default function App() {
     try {
       cancelRecording()
       stopOutput()
+      stopVoiceOutput()
       await clearLocalStorage(confirmation)
       window.location.reload()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao apagar os dados locais.')
       setIsStorageBusy(false)
     }
-  }, [cancelRecording, stopOutput])
+  }, [cancelRecording, stopOutput, stopVoiceOutput])
 
   const handlePurgeConversation = useCallback(async (id: string) => {
     setIsStorageBusy(true)
     try {
       cancelRecording()
       stopOutput()
+      stopVoiceOutput()
       const updated = await purgeConversationStorage(id)
       setConversationStorage(updated)
       setSessions(prev => prev.filter(session => session.id !== id))
@@ -929,6 +977,9 @@ export default function App() {
         setKnowledgeInput('')
         clearMessages()
       }
+      if (voiceSessionId === id) {
+        setVoiceSessionId(null)
+      }
       await Promise.all([refreshLocalBackupStatus(), refreshCognitiveBrain()])
       showToast('Conversa e memórias apagadas definitivamente.', 'success')
     } catch (err) {
@@ -936,7 +987,7 @@ export default function App() {
     } finally {
       setIsStorageBusy(false)
     }
-  }, [cancelRecording, clearMessages, currentSessionId, refreshCognitiveBrain, refreshLocalBackupStatus, showToast, stopOutput])
+  }, [cancelRecording, clearMessages, currentSessionId, refreshCognitiveBrain, refreshLocalBackupStatus, showToast, stopOutput, stopVoiceOutput, voiceSessionId])
 
   const activateView = useCallback((view: AppView) => {
     const currentIndex = MOBILE_VIEW_ORDER.indexOf(activeViewRef.current)
@@ -970,11 +1021,23 @@ export default function App() {
     if (!isIOSUi) window.setTimeout(() => setChatRevealActive(false), 1900)
   }
 
-  const handleOpenVoice = () => activateView('voice')
+  const handleOpenVoice = () => {
+    activateView('voice')
+    if (isNativeIOS) {
+      // Carrega o Kokoro enquanto o usuário começa a conversa. A sessão de
+      // áudio só é ativada na primeira frase, para não disputar o microfone.
+      void prepareIOSNeuralVoice().catch(error => console.error('[Buds Voice] Pré-carga indisponível:', error))
+    }
+    void ensureVoiceSession().catch((error) => {
+      console.error(error)
+      setVoiceAiState('error')
+      showToast('Não foi possível preparar a conversa por voz.', 'info')
+    })
+  }
 
   const handleExitVoice = () => {
     cancelRecording()
-    stopOutput()
+    stopVoiceOutput()
     activateView('chat')
     if (isMobileViewport()) setFocusMode(true)
   }
@@ -1425,17 +1488,18 @@ export default function App() {
           >
             <Suspense fallback={<DeferredSurface label="Carregando conversa..." />}>
               <VoiceMode
-                aiState={aiState}
+                aiState={voiceAiState}
                 theme={settings.theme}
                 isRecording={isRecording}
                 recSeconds={seconds}
                 micVolume={micVolume}
-                isProcessing={isProcessing}
-                availableVoices={availableVoices}
+                isProcessing={isVoiceProcessing}
+                availableVoices={voiceAvailableVoices.length ? voiceAvailableVoices : availableVoices}
                 selectedVoiceURI={selectedVoiceURI}
                 silenceMode={voiceSilenceMode}
+                usesNeuralVoice={isNativeIOS}
                 onMicToggle={toggleMic}
-                onStopOutput={stopOutput}
+                onStopOutput={stopVoiceOutput}
                 onVoiceChange={handleVoiceChange}
                 onSilenceModeChange={handleVoiceSilenceModeChange}
                 onExit={handleExitVoice}

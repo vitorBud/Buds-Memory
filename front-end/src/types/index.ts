@@ -11,6 +11,7 @@ export interface Session {
   title: string
   created_at: string
   folder_id?: string | null
+  channel?: 'chat' | 'voice'
 }
 
 export interface ChatFolder {

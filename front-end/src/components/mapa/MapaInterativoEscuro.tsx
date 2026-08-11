@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
-import { addProtocol, Map as MapLibre, NavigationControl } from 'maplibre-gl'
+import { addProtocol, LngLatBounds, Map as MapLibre, NavigationControl } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { GeoJSONSource, Map as MapLibreMap, RequestParameters, StyleSpecification } from 'maplibre-gl'
 import type { KnownPlace, LocationRoutePoint } from '../../types'
@@ -66,6 +66,18 @@ function routeCollection(points: LocationRoutePoint[]) {
   }
 }
 
+function routeEndpointsCollection(points: LocationRoutePoint[]) {
+  const endpoints = points.length > 1 ? [points[0], points[points.length - 1]] : points
+  return {
+    type: 'FeatureCollection' as const,
+    features: endpoints.map((point, index) => ({
+      type: 'Feature' as const,
+      properties: { kind: index === 0 ? 'start' : 'end' },
+      geometry: { type: 'Point' as const, coordinates: [point.longitude, point.latitude] },
+    })),
+  }
+}
+
 function darkVectorStyle(
   latitude: number,
   longitude: number,
@@ -89,6 +101,7 @@ function darkVectorStyle(
       current: { type: 'geojson', data: pointCollection(latitude, longitude) },
       places: { type: 'geojson', data: placesCollection(places) },
       route: { type: 'geojson', data: routeCollection(routePoints) },
+      routeEndpoints: { type: 'geojson', data: routeEndpointsCollection(routePoints) },
     },
     layers: [
       { id: 'background', type: 'background', paint: { 'background-color': '#070707' } },
@@ -109,6 +122,8 @@ function darkVectorStyle(
       { id: 'boundaries', type: 'line', source: 'budsmap', 'source-layer': 'boundary', paint: { 'line-color': '#303030', 'line-dasharray': [2, 2], 'line-width': 1 } },
       { id: 'route-halo', type: 'line', source: 'route', paint: { 'line-color': '#000000', 'line-width': 7, 'line-opacity': 0.82 } },
       { id: 'route-line', type: 'line', source: 'route', paint: { 'line-color': '#f5f5f5', 'line-width': 3.2, 'line-opacity': 0.96 } },
+      { id: 'route-endpoints-halo', type: 'circle', source: 'routeEndpoints', paint: { 'circle-radius': 8, 'circle-color': '#070707', 'circle-stroke-color': '#f5f5f5', 'circle-stroke-width': 2 } },
+      { id: 'route-endpoints', type: 'circle', source: 'routeEndpoints', paint: { 'circle-radius': 3.5, 'circle-color': ['match', ['get', 'kind'], 'start', '#f5f5f5', '#737373'] } },
       { id: 'known-places-halo', type: 'circle', source: 'places', paint: { 'circle-radius': 10, 'circle-color': '#0a0a0a', 'circle-stroke-color': '#858585', 'circle-stroke-width': 1.5 } },
       { id: 'known-places', type: 'circle', source: 'places', paint: { 'circle-radius': 4, 'circle-color': '#a3a3a3' } },
       { id: 'current-halo', type: 'circle', source: 'current', paint: { 'circle-radius': 10, 'circle-color': '#050505', 'circle-stroke-color': '#f5f5f5', 'circle-stroke-width': 2.5 } },
@@ -174,6 +189,16 @@ function MapaVetorial({
       ;(map.getSource('current') as GeoJSONSource | undefined)?.setData(pointCollection(latitude, longitude))
       ;(map.getSource('places') as GeoJSONSource | undefined)?.setData(placesCollection(places))
       ;(map.getSource('route') as GeoJSONSource | undefined)?.setData(routeCollection(routePoints))
+      ;(map.getSource('routeEndpoints') as GeoJSONSource | undefined)?.setData(routeEndpointsCollection(routePoints))
+      if (routePoints.length > 1) {
+        const bounds = new LngLatBounds()
+        routePoints.forEach(point => bounds.extend([point.longitude, point.latitude]))
+        map.fitBounds(bounds, { padding: 56, maxZoom: 17, duration: 350 })
+      } else if (routePoints.length === 1) {
+        map.easeTo({ center: [routePoints[0].longitude, routePoints[0].latitude], zoom: 16, duration: 250 })
+      } else {
+        map.easeTo({ center: [longitude, latitude], duration: 250 })
+      }
     }
     if (map.isStyleLoaded()) updateSources()
     else map.once('load', updateSources)

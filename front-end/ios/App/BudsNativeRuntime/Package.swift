@@ -12,11 +12,24 @@ let package = Package(
             name: "llama",
             path: "Vendor/llama.xcframework"
         ),
+        .binaryTarget(
+            name: "SherpaOnnxC",
+            path: "Vendor/SherpaOnnxC.xcframework"
+        ),
+        .binaryTarget(
+            name: "OnnxRuntimeC",
+            path: "Vendor/OnnxRuntimeC.xcframework"
+        ),
         .target(
             name: "BudsNativeRuntime",
-            dependencies: ["llama"],
+            dependencies: ["llama", "SherpaOnnxC", "OnnxRuntimeC"],
+            resources: [
+                .copy("Resources/Kokoro"),
+            ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
+                .linkedLibrary("c++"),
+                .linkedLibrary("z"),
                 .linkedFramework("Accelerate"),
                 .linkedFramework("Metal"),
                 .linkedFramework("MetalKit"),

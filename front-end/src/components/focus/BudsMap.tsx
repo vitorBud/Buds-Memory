@@ -63,6 +63,12 @@ const formatDuration = (seconds: number) => {
   return hours ? `${hours}h ${minutes % 60}min` : `${Math.max(1, minutes)} min`
 }
 
+const hasCompleteRouteGeometry = (route: LocationRoute) => (
+  Array.isArray(route.points)
+  && route.points.length > 0
+  && route.points.length >= route.point_count
+)
+
 interface BudsMapProps {
   onContextChanged?: () => void
   expanded?: boolean
@@ -88,9 +94,15 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
       const [location, routeDashboard] = await Promise.all([getLocationDashboard(), getLocationRoutes()])
       setDashboard(location)
       setRoutes(routeDashboard)
-      setVisibleRoute(current => routeDashboard.active ?? (
-        current ? routeDashboard.routes.find(route => route.id === current.id) ?? null : null
-      ))
+      setVisibleRoute(current => {
+        if (routeDashboard.active) return routeDashboard.active
+        if (!current) return null
+        const summary = routeDashboard.routes.find(route => route.id === current.id)
+        if (!summary) return null
+        // A listagem traz apenas o resumo. Preserve os pontos já carregados
+        // para o percurso não desaparecer ao finalizar ou atualizar a tela.
+        return { ...summary, ...(current.points?.length ? { points: current.points } : {}) }
+      })
       setError('')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível carregar o Buds Map.')
@@ -198,7 +210,11 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
     setError('')
     try {
       if (routes.active) {
-        await stopLocationRoute()
+        const completedRoute = await stopLocationRoute()
+        if (completedRoute) {
+          setVisibleRoute(completedRoute)
+          setMapOpen(true)
+        }
       } else {
         await startLocationRoute()
         setMapOpen(true)
@@ -212,11 +228,21 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
   }
 
   const showRoute = async (route: LocationRoute) => {
+    setBusy(true)
+    setError('')
     try {
-      setVisibleRoute(route.points ? route : await getLocationRoute(route.id))
+      const detailedRoute = hasCompleteRouteGeometry(route)
+        ? route
+        : await getLocationRoute(route.id)
+      setVisibleRoute(detailedRoute)
       setMapOpen(true)
+      if (!detailedRoute.points?.length) {
+        setError('Este trajeto foi salvo, mas não possui pontos de localização para desenhar.')
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível abrir este trajeto.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -287,6 +313,9 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
 
   const state = dashboard?.state
   const routeOnMap = routes.active ?? visibleRoute
+  const routePointsOnMap = routeOnMap?.points ?? []
+  const mapLatitude = routePointsOnMap[0]?.latitude ?? state?.latitude
+  const mapLongitude = routePointsOnMap[0]?.longitude ?? state?.longitude
   const hasSavedRoutes = Boolean(routes.active || routes.routes.length)
   const hasOfflineStorage = (offline?.used_bytes ?? 0) > 0
   const showOfflinePanel = !nativeIOS || hasOfflineStorage
@@ -338,10 +367,16 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
       )}
 
       <div className={`buds-map-canvas relative grid place-items-center overflow-hidden rounded-[19px] border border-[var(--liquid-border)] bg-black ${expanded ? 'min-h-[clamp(310px,58dvh,720px)]' : 'min-h-[180px]'}`}>
-        {mapOpen && state?.latitude != null && state.longitude != null ? (
+        {mapOpen && mapLatitude != null && mapLongitude != null ? (
           <>
-            <MapaInterativoEscuro latitude={state.latitude} longitude={state.longitude} places={dashboard?.places ?? []} routePoints={routeOnMap?.points ?? []} />
+            <MapaInterativoEscuro latitude={mapLatitude} longitude={mapLongitude} places={dashboard?.places ?? []} routePoints={routePointsOnMap} />
             <span className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_50%_44%,transparent_35%,rgba(0,0,0,0.22)_100%)]" aria-hidden="true" />
+            {routeOnMap && (routeOnMap.points?.length ?? 0) > 0 && (
+              <span className="pointer-events-none absolute top-3 left-3 z-[2] grid max-w-[calc(100%-24px)] gap-0.5 rounded-xl border border-white/15 bg-black/78 px-3 py-2 text-left shadow-lg backdrop-blur-md platform-windows:backdrop-blur-none">
+                <strong className="truncate text-[11px] text-white">{routeOnMap.name}</strong>
+                <small className="text-[9px] text-white/60">{formatDistance(routeOnMap.distance_m)} · {formatDuration(routeOnMap.duration_s)} · percurso no mapa</small>
+              </span>
+            )}
           </>
         ) : (
           <div className="grid max-w-[290px] justify-items-center gap-2 p-5 text-center">
@@ -391,15 +426,22 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
               <span className="size-2 animate-pulse rounded-full bg-rose-400" />
             </button>
           )}
-          {routes.routes.slice(0, 5).map(route => (
-            <div key={route.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl border border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)] px-3 py-2">
-              <button type="button" onClick={() => void showRoute(route)} className="grid min-w-0 text-left">
+          <div className="grid max-h-[min(42dvh,360px)] gap-2 overflow-y-auto overscroll-contain pr-0.5">
+          {routes.routes.map(route => {
+            const selected = visibleRoute?.id === route.id
+            return (
+            <div key={route.id} className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-xl border px-3 py-2 transition-colors ${selected ? 'border-white/28 bg-white/10' : 'border-[var(--liquid-border)] bg-[var(--liquid-panel-soft)]'}`}>
+              <button type="button" onClick={() => void showRoute(route)} disabled={busy} className="grid min-w-0 gap-0.5 text-left disabled:opacity-55" aria-pressed={selected}>
                 <strong className="truncate text-xs text-[var(--text)]">{route.name}</strong>
                 <small className="text-[10px] text-[var(--muted)]">{formatDistance(route.distance_m)} · {formatDuration(route.duration_s)} · {route.point_count} pontos</small>
+                <span className={`mt-1 inline-flex items-center gap-1 text-[9px] font-extrabold uppercase tracking-[0.06em] ${selected ? 'text-white' : 'text-[var(--accent-hot)]'}`}>
+                  <MapPin size={10} /> {selected ? 'Exibindo no mapa' : 'Ver percurso'}
+                </span>
               </button>
               <button type="button" onClick={() => void removeRoute(route)} className="grid size-10 place-items-center rounded-full text-[var(--muted)] hover:bg-rose-500/12 hover:text-rose-300" aria-label={`Apagar ${route.name}`}><Trash2 size={13} /></button>
             </div>
-          ))}
+          )})}
+          </div>
         </div>
         )}
 

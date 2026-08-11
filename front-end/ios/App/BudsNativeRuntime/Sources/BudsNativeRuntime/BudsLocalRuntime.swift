@@ -4,6 +4,7 @@ public final class BudsLocalRuntime: @unchecked Sendable {
     public static let shared = BudsLocalRuntime()
 
     public let modelManager: BudsModelManager
+    public let neuralVoice = BudsNeuralVoice()
     private let inferenceQueue = DispatchQueue(label: "com.budsmemory.ios.inference", qos: .userInitiated)
     private let storeLock = NSLock()
     private var store: BudsLocalStore?
@@ -52,12 +53,12 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         )
     }
 
-    public func listSessions() throws -> [BudsSessionRecord] {
-        try ensureStore().listSessions()
+    public func listSessions(channel: String = "chat") throws -> [BudsSessionRecord] {
+        try ensureStore().listSessions(channel: channel)
     }
 
-    public func createSession(title: String?, folderId: String? = nil) throws -> BudsSessionRecord {
-        try ensureStore().createSession(title: title, folderId: folderId)
+    public func createSession(title: String?, folderId: String? = nil, channel: String = "chat") throws -> BudsSessionRecord {
+        try ensureStore().createSession(title: title, folderId: folderId, channel: channel)
     }
 
     public func updateSessionTitle(id: String, title: String) throws -> BudsSessionRecord {

@@ -526,17 +526,17 @@ export async function indexCodebase(projectRoot: string, maxFiles = 900): Promis
 
 // ── Sessions ────────────────────────────────────────────────────────────────
 
-export async function getSessions(): Promise<Session[]> {
-  if (isNativeIOSRuntime()) return listIOSLocalSessions()
-  return fetchJsonWithStartupRetry<Session[]>(`${getBase()}/sessions`)
+export async function getSessions(channel: 'chat' | 'voice' = 'chat'): Promise<Session[]> {
+  if (isNativeIOSRuntime()) return listIOSLocalSessions(channel)
+  return fetchJsonWithStartupRetry<Session[]>(`${getBase()}/sessions?channel=${encodeURIComponent(channel)}`)
 }
 
-export async function createSession(title?: string, folderId?: string | null): Promise<Session> {
-  if (isNativeIOSRuntime()) return createIOSLocalSession(title, folderId)
+export async function createSession(title?: string, folderId?: string | null, channel: 'chat' | 'voice' = 'chat'): Promise<Session> {
+  if (isNativeIOSRuntime()) return createIOSLocalSession(title, folderId, channel)
   const res = await authFetch(`${getBase()}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title: title ?? null, folder_id: folderId ?? null }),
+    body: JSON.stringify({ title: title ?? null, folder_id: folderId ?? null, channel }),
   })
   if (!res.ok) throw new Error(`createSession: ${res.status}`)
   return res.json()

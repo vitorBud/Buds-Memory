@@ -99,7 +99,8 @@ def init_db():
                 title TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 deleted_at TEXT,
-                folder_id TEXT
+                folder_id TEXT,
+                channel TEXT NOT NULL DEFAULT 'chat'
             );
         """)
         session_columns = {
@@ -109,6 +110,12 @@ def init_db():
             conn.execute("ALTER TABLE sessions ADD COLUMN deleted_at TEXT")
         if "folder_id" not in session_columns:
             conn.execute("ALTER TABLE sessions ADD COLUMN folder_id TEXT")
+        if "channel" not in session_columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN channel TEXT NOT NULL DEFAULT 'chat'")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_channel_created "
+            "ON sessions(channel, deleted_at, created_at DESC)"
+        )
         # Tabela de mensagens vinculadas
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
@@ -161,20 +168,23 @@ def _folder_exists(conn, folder_id):
     return bool(conn.execute("SELECT 1 FROM chat_folders WHERE id=?", (folder_id,)).fetchone())
 
 
-def create_session(title=None, folder_id=None):
+def create_session(title=None, folder_id=None, channel="chat"):
+    channel = str(channel or "chat").strip().lower()
+    if channel not in {"chat", "voice"}:
+        raise ValueError("Canal de conversa inválido.")
     session_id = str(uuid.uuid4())
     if not title:
-        title = f"Conversa {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        title = "Conversa por voz" if channel == "voice" else f"Conversa {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}"
     created_at = datetime.datetime.now().isoformat()
     with get_db_connection() as conn:
         if folder_id and not _folder_exists(conn, folder_id):
             raise ValueError("Pasta não encontrada.")
         conn.execute(
-            "INSERT INTO sessions (id, title, created_at, folder_id) VALUES (?, ?, ?, ?);",
-            (session_id, title, created_at, folder_id)
+            "INSERT INTO sessions (id, title, created_at, folder_id, channel) VALUES (?, ?, ?, ?, ?);",
+            (session_id, title, created_at, folder_id, channel)
         )
         conn.commit()
-    return {"id": session_id, "title": title, "created_at": created_at, "folder_id": folder_id}
+    return {"id": session_id, "title": title, "created_at": created_at, "folder_id": folder_id, "channel": channel}
 
 def make_title_from_message(text):
     title = re.sub(r"```[\s\S]*?```", " ", text or "")
@@ -202,10 +212,14 @@ def get_session(session_id):
         ).fetchone()
         return dict(row) if row else None
 
-def get_all_sessions():
+def get_all_sessions(channel="chat"):
+    channel = str(channel or "chat").strip().lower()
+    if channel not in {"chat", "voice"}:
+        raise ValueError("Canal de conversa inválido.")
     with get_db_connection() as conn:
         rows = conn.execute(
-            "SELECT * FROM sessions WHERE deleted_at IS NULL ORDER BY created_at DESC;"
+            "SELECT * FROM sessions WHERE deleted_at IS NULL AND channel=? ORDER BY created_at DESC;",
+            (channel,),
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -358,7 +372,7 @@ def get_chat_folders():
             SELECT folder.*, COUNT(session.id) AS chat_count
             FROM chat_folders folder
             LEFT JOIN sessions session
-              ON session.folder_id=folder.id AND session.deleted_at IS NULL
+              ON session.folder_id=folder.id AND session.deleted_at IS NULL AND session.channel='chat'
             GROUP BY folder.id
             ORDER BY folder.name COLLATE NOCASE
         """).fetchall()

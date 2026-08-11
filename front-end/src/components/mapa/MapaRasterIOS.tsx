@@ -108,14 +108,28 @@ export function MapaRasterIOS({ latitude, longitude, places, routePoints }: Mapa
     }
 
     if (routePoints.length > 1) {
-      L.polyline(routePoints.map(point => [point.latitude, point.longitude] as L.LatLngTuple), {
+      const routeCoordinates = routePoints.map(point => [point.latitude, point.longitude] as L.LatLngTuple)
+      L.polyline(routeCoordinates, {
         color: '#ffffff',
         opacity: 0.96,
         weight: 4,
       }).addTo(overlays)
+      L.circleMarker(routeCoordinates[0], {
+        color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, radius: 6, weight: 2,
+      }).addTo(overlays).bindTooltip('Início', { direction: 'top' })
+      L.circleMarker(routeCoordinates[routeCoordinates.length - 1], {
+        color: '#ffffff', fillColor: '#303030', fillOpacity: 1, radius: 6, weight: 2,
+      }).addTo(overlays).bindTooltip('Fim', { direction: 'top' })
+      map.fitBounds(L.latLngBounds(routeCoordinates), { animate: false, padding: [28, 28], maxZoom: 17 })
+    } else if (routePoints.length === 1) {
+      const point = routePoints[0]
+      L.circleMarker([point.latitude, point.longitude], {
+        color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1, radius: 6, weight: 2,
+      }).addTo(overlays).bindTooltip('Início', { direction: 'top' })
+      map.setView([point.latitude, point.longitude], 16, { animate: false })
+    } else {
+      map.panTo([latitude, longitude], { animate: false })
     }
-
-    map.panTo([latitude, longitude], { animate: false })
   }, [latitude, longitude, places, routePoints])
 
   return (

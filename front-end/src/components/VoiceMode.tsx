@@ -16,6 +16,7 @@ interface VoiceModeProps {
   availableVoices: SpeechSynthesisVoice[]
   selectedVoiceURI: string
   silenceMode: VoiceSilenceMode
+  usesNeuralVoice?: boolean
   onMicToggle: () => void
   onStopOutput: () => void
   onVoiceChange: (voiceURI: string) => void
@@ -57,6 +58,7 @@ export function VoiceMode({
   availableVoices,
   selectedVoiceURI,
   silenceMode,
+  usesNeuralVoice = false,
   onMicToggle,
   onStopOutput,
   onVoiceChange,
@@ -111,6 +113,9 @@ export function VoiceMode({
       <div className={`voice-ambient ${voiceModeStyles.ambient}`} aria-hidden="true" />
 
       <div className={`voice-center-stage ${voiceModeStyles.stage}`}>
+        <span className={voiceModeStyles.sessionBadge}>
+          Conversa por voz · canal independente
+        </span>
         <button
           type="button"
           className={`voice-core ${voiceModeStyles.core}`}
@@ -134,22 +139,29 @@ export function VoiceMode({
         </div>
 
         <div className={`voice-controls ${voiceModeStyles.controls}`} aria-label="Controles do modo conversa">
-          <label className={`voice-select-wrap ${voiceModeStyles.selectWrap}`}>
-            <Volume2 size={15} />
-            <select
-              className={voiceModeStyles.select}
-              value={selectedVoiceURI}
-              onChange={(event) => onVoiceChange(event.target.value)}
-              aria-label="Selecionar voz"
-            >
-              <option value="">Voz automática</option>
-              {voiceOptions.map(voice => (
-                <option key={voice.voiceURI} value={voice.voiceURI}>
-                  {voice.name} · {voice.lang}
-                </option>
-              ))}
-            </select>
-          </label>
+          {usesNeuralVoice ? (
+            <div className={`voice-select-wrap ${voiceModeStyles.selectWrap}`} aria-label="Voz neural selecionada">
+              <Volume2 size={15} />
+              <span className={voiceModeStyles.neuralVoiceLabel}>Dora neural · pt-BR · no aparelho</span>
+            </div>
+          ) : (
+            <label className={`voice-select-wrap ${voiceModeStyles.selectWrap}`}>
+              <Volume2 size={15} />
+              <select
+                className={voiceModeStyles.select}
+                value={selectedVoiceURI}
+                onChange={(event) => onVoiceChange(event.target.value)}
+                aria-label="Selecionar voz"
+              >
+                <option value="">Automática · melhor voz instalada</option>
+                {voiceOptions.map(voice => (
+                  <option key={voice.voiceURI} value={voice.voiceURI}>
+                    {voice.name} · {voice.lang}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className={`voice-sensitivity ${voiceModeStyles.sensitivity}`} aria-label="Tempo de resposta">
             {[

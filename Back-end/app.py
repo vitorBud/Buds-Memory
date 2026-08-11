@@ -248,7 +248,8 @@ def prepare_session_context(
         trace.set("history_message_limit", budget["history_messages"])
     with trace.span("conversation_summary_load") if trace else _nullcontext():
         conversation_summary = cognitive_summarizer.get_conversation_summary(session_id)
-    if not history:
+    session = database.get_session(session_id)
+    if not history and (session or {}).get("channel", "chat") == "chat":
         title = database.make_title_from_message(user_text)
         title_update = database.update_session_title(session_id, title)
 
@@ -736,8 +737,10 @@ def auth_local():
 def get_sessions():
     """Retorna todas as sessões de chat em ordem cronológica reversa."""
     try:
-        sessions = database.get_all_sessions()
+        sessions = database.get_all_sessions(request.args.get("channel", "chat"))
         return jsonify(sessions), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -888,7 +891,7 @@ def create_session():
     try:
         data = request.json or {}
         title = data.get("title")
-        session = database.create_session(title, data.get("folder_id"))
+        session = database.create_session(title, data.get("folder_id"), data.get("channel", "chat"))
         return jsonify(session), 201
     except ValueError as e:
         return jsonify({"error": str(e)}), 400

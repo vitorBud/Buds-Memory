@@ -5,6 +5,8 @@ export const voiceModeStyles = {
     'pointer-events-none absolute top-1/2 left-1/2 -z-[1] size-[min(72vw,680px)] -translate-x-1/2 -translate-y-1/2 animate-[voice-ambient-drift_14s_linear_infinite] rounded-full opacity-18 blur-[18px] [background:radial-gradient(circle_at_50%_50%,color-mix(in_srgb,var(--voice-a)_18%,transparent),transparent_28%),repeating-conic-gradient(from_0deg,color-mix(in_srgb,var(--voice-a)_18%,transparent)_0_8deg,transparent_8deg_22deg)] platform-windows:animate-none platform-windows:blur-none max-[760px]:size-[min(118vw,460px)]',
   stage:
     'relative z-[2] flex max-h-full w-[min(92vw,780px)] flex-col items-center justify-center [--core-size:clamp(238px,min(32vw,36dvh),400px)] max-[760px]:w-full max-[760px]:![--core-size:min(58vw,28dvh,230px)] platform-ios:![--core-size:min(56vw,27dvh,224px)]',
+  sessionBadge:
+    'mb-3 inline-flex min-h-8 items-center rounded-full border border-[color-mix(in_srgb,var(--voice-c)_18%,transparent)] bg-[color-mix(in_srgb,var(--glass)_52%,transparent)] px-3 text-[10px] font-extrabold uppercase tracking-[0.09em] text-buds-muted [backdrop-filter:blur(14px)] platform-windows:[backdrop-filter:none] platform-ios:[backdrop-filter:none] max-[760px]:mb-2',
   core:
     'grid size-[var(--core-size)] shrink-0 cursor-pointer appearance-none border-0 bg-transparent p-0 [-webkit-tap-highlight-color:transparent] transition-[opacity,transform] duration-250 hover:scale-[1.018] disabled:cursor-default disabled:opacity-90 disabled:hover:scale-100 platform-windows:transition-none platform-windows:hover:scale-100 max-[760px]:mx-auto platform-ios:transition-[opacity,transform] platform-ios:duration-150',
   coreLayer:
@@ -31,6 +33,8 @@ export const voiceModeStyles = {
     'inline-flex min-h-[38px] min-w-[min(48vw,260px)] items-center gap-2 rounded-[18px] border border-white/10 bg-white/8 px-2.5 text-[var(--voice-c)] max-[760px]:w-full max-[760px]:min-w-0',
   select:
     'w-full min-w-0 appearance-none border-0 bg-transparent text-xs font-bold text-buds-text outline-none [&>option]:text-slate-900',
+  neuralVoiceLabel:
+    'min-w-0 flex-1 truncate text-xs font-extrabold text-buds-text',
   sensitivity:
     'inline-flex min-h-[38px] items-center gap-1 rounded-[18px] border border-white/8 bg-white/6 p-[3px] max-[760px]:grid max-[760px]:w-full max-[760px]:grid-cols-3',
   sensitivityButton:

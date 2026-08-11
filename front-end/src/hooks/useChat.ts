@@ -1,7 +1,14 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { streamChat } from '../services/api'
 import type { Message, AiState, Session, ChatStreamEvent, VoiceProvider } from '../types'
-import { isWindowsRuntime } from '../plataformas'
+import {
+  enqueueIOSNeuralSpeech,
+  isIOSNeuralVoiceRuntime,
+  isIOSRuntime,
+  isWindowsRuntime,
+  listenIOSNeuralSpeechState,
+  stopIOSNeuralSpeech,
+} from '../plataformas'
 import { createOperationId } from '../utils/controleOperacoes'
 import { stripInternalReasoning } from '../utils/respostaVisivel'
 
@@ -17,6 +24,7 @@ interface UseChatOptions {
   onMsgCountChange: (n: number) => void
   onSessionUpdate?: (session: Session) => void
   autoPlayAudio?: boolean
+  offlineQueueEnabled?: boolean
 }
 
 const OFFLINE_QUEUE_KEY = 'buds-offline-message-queue-v1'
@@ -32,6 +40,7 @@ const MALE_PT_VOICE_HINTS = [
   'masculino',
 ]
 const ROBOTIC_VOICE_HINTS = ['compact', 'eloquence', 'novelty']
+const NATURAL_PT_VOICE_HINTS = ['felipe', 'luciana', 'helena', 'premium', 'enhanced', 'aprimorada', 'siri']
 
 function normalizeVoiceText(text: string) {
   return text
@@ -48,7 +57,9 @@ function scoreVoice(voice: SpeechSynthesisVoice) {
   if (lang === 'pt-br') score += 90
   else if (lang.startsWith('pt')) score += 60
   if (MALE_PT_VOICE_HINTS.some(hint => name.includes(normalizeVoiceText(hint)))) score += 35
-  if (name.includes('premium') || name.includes('enhanced')) score += 10
+  if (NATURAL_PT_VOICE_HINTS.some(hint => name.includes(normalizeVoiceText(hint)))) score += 55
+  if (name.includes('premium')) score += 60
+  if (name.includes('enhanced') || name.includes('aprimorada')) score += 40
   if (ROBOTIC_VOICE_HINTS.some(hint => name.includes(hint))) score -= 25
 
   return score
@@ -124,6 +135,7 @@ export function useChat({
   onMsgCountChange,
   onSessionUpdate,
   autoPlayAudio = false,
+  offlineQueueEnabled = true,
 }: UseChatOptions) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
@@ -132,6 +144,7 @@ export function useChat({
   const isPlayingRef  = useRef(false)
   const speechQueueRef = useRef<string[]>([])
   const isSpeechPlayingRef = useRef(false)
+  const isNativeSpeechPlayingRef = useRef(false)
   const preferredVoiceRef = useRef<SpeechSynthesisVoice | null>(null)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const activeAbortRef = useRef<AbortController | null>(null)
@@ -179,8 +192,8 @@ export function useChat({
 
     if (voice) utterance.voice = voice
     utterance.lang = voice?.lang || 'pt-BR'
-    utterance.rate = 1.07
-    utterance.pitch = 0.86
+    utterance.rate = 0.98
+    utterance.pitch = 1
     utterance.volume = 1
     let ttsStartedAt = 0
     isSpeechPlayingRef.current = true
@@ -203,6 +216,20 @@ export function useChat({
 
     speechQueueRef.current.push(cleanText.replace(/\s+/g, ' '))
     if (!isSpeechPlayingRef.current) playNextSpeech(outputEpochRef.current)
+  }
+
+  function queueStreamingSpeech(text: string, useNativeVoice: boolean) {
+    const cleanText = text.trim().replace(/\s+/g, ' ')
+    if (!cleanText) return
+    if (useNativeVoice) {
+      void enqueueIOSNeuralSpeech(cleanText).catch((error) => {
+        console.error('[Buds Voice] Falha na voz neural:', error)
+        isNativeSpeechPlayingRef.current = false
+        onStateChange('error')
+      })
+      return
+    }
+    queueSpeech(cleanText)
   }
 
   function speakText(text: string) {
@@ -261,13 +288,47 @@ export function useChat({
     currentAudioRef.current = null
     isPlayingRef.current = false
     isSpeechPlayingRef.current = false
+    isNativeSpeechPlayingRef.current = false
     window.speechSynthesis?.cancel()
+    if (isIOSNeuralVoiceRuntime()) {
+      // Libera também a sessão de áudio antes de o microfone voltar a ouvir.
+      void stopIOSNeuralSpeech(true).catch(error => console.error('[Buds Voice] Falha ao interromper voz:', error))
+    }
     setMessages(prev => prev
       .map(msg => msg.streaming ? { ...msg, streaming: false } : msg)
       .filter(msg => msg.text !== '__thinking__'))
     setIsProcessing(false)
     onStateChange('idle')
   }, [onStateChange])
+
+  useEffect(() => {
+    if (!autoPlayAudio || !isIOSNeuralVoiceRuntime()) return
+    let disposed = false
+    let handle: Awaited<ReturnType<typeof listenIOSNeuralSpeechState>> | undefined
+
+    void listenIOSNeuralSpeechState((event) => {
+      if (disposed) return
+      if (event.state === 'speaking') {
+        isNativeSpeechPlayingRef.current = true
+        onStateChange('speaking')
+      } else if (event.state === 'idle') {
+        isNativeSpeechPlayingRef.current = false
+        if (!processingRef.current) onStateChange('idle')
+      } else {
+        isNativeSpeechPlayingRef.current = false
+        console.error('[Buds Voice]', event.message || 'Falha na voz neural local.')
+        onStateChange('error')
+      }
+    }).then(listenerHandle => {
+      if (disposed) void listenerHandle.remove()
+      else handle = listenerHandle
+    }).catch(error => console.error('[Buds Voice] Listener indisponível:', error))
+
+    return () => {
+      disposed = true
+      void handle?.remove()
+    }
+  }, [autoPlayAudio, onStateChange])
 
   // ── Append message helpers ─────────────────────────────────────────────────
   function addMessage(msg: Message) {
@@ -427,9 +488,10 @@ export function useChat({
     spokenLengthRef.current = 0
     let speechBuffer = ''
     let receivedAudio = false
-    const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
-    const useStreamingBrowserVoice = useBrowserVoice && !isWindowsRuntime()
-    const useBackendVoice = autoPlayAudio && voiceProvider === 'piper'
+    const useNativeVoice = autoPlayAudio && isIOSNeuralVoiceRuntime()
+    const useBrowserVoice = autoPlayAudio && !useNativeVoice && canUseBrowserVoice(voiceProvider)
+    const useStreamingVoice = useNativeVoice || (useBrowserVoice && !isWindowsRuntime() && !isIOSRuntime())
+    const useBackendVoice = autoPlayAudio && !useNativeVoice && voiceProvider === 'piper'
     try {
       await streamChat({ text, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled, tts: useBackendVoice }, (event) => {
         const active = activeOperationRef.current
@@ -437,14 +499,14 @@ export function useChat({
         if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
-          if (useStreamingBrowserVoice) {
+          if (useStreamingVoice) {
             const cleanFullText = stripInternalReasoning(streamedText, true)
             const cleanDelta = cleanFullText.slice(spokenLengthRef.current)
             if (cleanDelta.length > 0) {
               speechBuffer += cleanDelta
               spokenLengthRef.current = cleanFullText.length
               const extracted = extractCompleteSentences(speechBuffer)
-              extracted.sentences.forEach(queueSpeech)
+              extracted.sentences.forEach(sentence => queueStreamingSpeech(sentence, useNativeVoice))
               speechBuffer = extracted.rest
             }
           }
@@ -456,13 +518,13 @@ export function useChat({
           appendWebSearchStatus(assistantMessageId, event)
         } else if (event.type === 'session_update' && event.session) {
           onSessionUpdate?.(event.session)
-        } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio && !useBrowserVoice) {
+        } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio && !useBrowserVoice && !useNativeVoice) {
           receivedAudio = true
           queueAudio(event.url)
         } else if (event.type === 'done') {
           finalizeStreaming(assistantMessageId)
-          if (useStreamingBrowserVoice) {
-            if (speechBuffer.trim()) queueSpeech(speechBuffer)
+          if (useStreamingVoice) {
+            if (speechBuffer.trim()) queueStreamingSpeech(speechBuffer, useNativeVoice)
           } else if (useBrowserVoice) {
             speakText(stripInternalReasoning(streamedText))
           } else if (autoPlayAudio && !receivedAudio) {
@@ -499,12 +561,14 @@ export function useChat({
         activeAbortRef.current = null
         processingRef.current = false
         setIsProcessing(false)
-        if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
+        if (!isPlayingRef.current && !isSpeechPlayingRef.current && !isNativeSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
       }
     }
   }
 
   useEffect(() => {
+    if (!offlineQueueEnabled) return
+
     async function flushOfflineQueue() {
       if (flushingOfflineRef.current || isProcessing || !navigator.onLine) return
       const queue = getOfflineQueue()
@@ -523,7 +587,7 @@ export function useChat({
     flushOfflineQueue()
     return () => window.removeEventListener('online', flushOfflineQueue)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPlayAudio, isProcessing, selectedModel, selectedVoiceURI, sessionId, voiceProvider, webSearchEnabled])
+  }, [autoPlayAudio, isProcessing, offlineQueueEnabled, selectedModel, selectedVoiceURI, sessionId, voiceProvider, webSearchEnabled])
 
   // ── Send audio ─────────────────────────────────────────────────────────────
   async function sendAudio(blob: Blob) {
@@ -557,9 +621,10 @@ export function useChat({
     spokenLengthRef.current = 0
     let speechBuffer = ''
     let receivedAudio = false
-    const useBrowserVoice = autoPlayAudio && canUseBrowserVoice(voiceProvider)
-    const useStreamingBrowserVoice = useBrowserVoice && !isWindowsRuntime()
-    const useBackendVoice = autoPlayAudio && voiceProvider === 'piper'
+    const useNativeVoice = autoPlayAudio && isIOSNeuralVoiceRuntime()
+    const useBrowserVoice = autoPlayAudio && !useNativeVoice && canUseBrowserVoice(voiceProvider)
+    const useStreamingVoice = useNativeVoice || (useBrowserVoice && !isWindowsRuntime() && !isIOSRuntime())
+    const useBackendVoice = autoPlayAudio && !useNativeVoice && voiceProvider === 'piper'
     try {
       await streamChat({ audio: blob, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled, tts: useBackendVoice }, (event) => {
         const active = activeOperationRef.current
@@ -578,14 +643,14 @@ export function useChat({
         } else if (event.type === 'token' && event.content) {
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
-          if (useStreamingBrowserVoice) {
+          if (useStreamingVoice) {
             const cleanFullText = stripInternalReasoning(streamedText, true)
             const cleanDelta = cleanFullText.slice(spokenLengthRef.current)
             if (cleanDelta.length > 0) {
               speechBuffer += cleanDelta
               spokenLengthRef.current = cleanFullText.length
               const extracted = extractCompleteSentences(speechBuffer)
-              extracted.sentences.forEach(queueSpeech)
+              extracted.sentences.forEach(sentence => queueStreamingSpeech(sentence, useNativeVoice))
               speechBuffer = extracted.rest
             }
           }
@@ -597,13 +662,13 @@ export function useChat({
           appendWebSearchStatus(assistantMessageId, event)
         } else if (event.type === 'session_update' && event.session) {
           onSessionUpdate?.(event.session)
-        } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio && !useBrowserVoice) {
+        } else if (event.type === 'audio_sentence' && event.url && autoPlayAudio && !useBrowserVoice && !useNativeVoice) {
           receivedAudio = true
           queueAudio(event.url)
         } else if (event.type === 'done') {
           finalizeStreaming(assistantMessageId)
-          if (useStreamingBrowserVoice) {
-            if (speechBuffer.trim()) queueSpeech(speechBuffer)
+          if (useStreamingVoice) {
+            if (speechBuffer.trim()) queueStreamingSpeech(speechBuffer, useNativeVoice)
           } else if (useBrowserVoice) {
             speakText(stripInternalReasoning(streamedText))
           } else if (autoPlayAudio && !receivedAudio) {
@@ -631,7 +696,7 @@ export function useChat({
         activeAbortRef.current = null
         processingRef.current = false
         setIsProcessing(false)
-        if (!isPlayingRef.current && !isSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
+        if (!isPlayingRef.current && !isSpeechPlayingRef.current && !isNativeSpeechPlayingRef.current && !window.speechSynthesis?.speaking) onStateChange('idle')
       }
     }
   }
