@@ -62,6 +62,8 @@ from llm.ollama_client import (          # noqa: E402
 
 from llm.prompt_builder import (         # noqa: E402
     SYSTEM_STYLE,
+    CURRENT_PRODUCT_UPDATE_REPLY,
+    CURRENT_MAP_REPLY,
     DETAIL_KEYWORDS,
     SHORT_REPLY_KEYWORDS,
     CASUAL_SOCIAL_PATTERNS,

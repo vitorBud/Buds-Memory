@@ -73,6 +73,33 @@ class BudsIdentityTests(unittest.TestCase):
         self.assertIn("apenas o motor local", prompt)
         self.assertIn("nunca diga 'sou DeepSeek'", prompt)
 
+    def test_current_update_reply_knows_buds_map(self):
+        reply = get_direct_reply(
+            "o que há de novo nessa atualização?",
+            session_id=None,
+            selected_model="qwen2.5-coder:4b",
+            pipeline=STANDARD_PATH,
+        )
+
+        self.assertIsNotNone(reply)
+        self.assertIn("Buds Map", reply)
+        self.assertIn("Context Engine", reply)
+        self.assertIn("Buds Focus", reply)
+        self.assertNotIn("talvez", reply.lower())
+
+    def test_map_reply_is_product_aware_and_privacy_safe(self):
+        reply = get_direct_reply(
+            "você tem mapa? como ele funciona?",
+            session_id=None,
+            selected_model="qwen2.5-coder:4b",
+            pipeline=STANDARD_PATH,
+        )
+
+        self.assertIsNotNone(reply)
+        self.assertIn("Buds Map", reply)
+        self.assertIn("coordenadas", reply.lower())
+        self.assertIn("Qwen", reply)
+
 
 if __name__ == "__main__":
     unittest.main()

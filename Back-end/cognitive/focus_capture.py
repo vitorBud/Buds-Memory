@@ -171,6 +171,32 @@ def _strip_arrival_clause(content: str) -> str:
     return value[0].upper() + value[1:] if value else ""
 
 
+def _is_explicit_focus_command(normalized: str) -> bool:
+    action = r"(?:adicionar|adiciona|adicione|colocar|coloca|coloque|criar|cria|crie|incluir|inclui|inclua|salvar|salva|salve|jogar|joga|jogue|anotar|anota|anote)"
+    destination = r"(?:no|ao|pro|para o)\s+(?:buds\s+)?focus"
+    return bool(
+        re.search(rf"\b{action}\b.*\b{destination}\b", normalized)
+        or re.search(rf"\b{destination}\b.*\b{action}\b", normalized)
+    )
+
+
+def _strip_focus_command(content: str) -> str:
+    value = content.strip().strip('"“”')
+    value = re.sub(r"^(?:por favor[,]?\s*)?(?:voc[eê]\s+)?(?:pode|consegue|poderia)?\s*", "", value, flags=re.I)
+    value = re.sub(
+        r"^(?:adicionar|adiciona|adicione|colocar|coloca|coloque|criar|cria|crie|incluir|inclui|inclua|salvar|salva|salve|jogar|joga|jogue|anotar|anota|anote)\s+",
+        "",
+        value,
+        flags=re.I,
+    )
+    value = re.sub(r"^(?:no|ao|pro|para o)\s+(?:buds\s+)?focus\s*[:,\-]?\s*", "", value, flags=re.I)
+    value = re.sub(r"\s+(?:no|ao|pro|para o)\s+(?:buds\s+)?focus\b", "", value, flags=re.I)
+    value = re.sub(r"\s+como\s+(?:tarefa|lembrete)\b", "", value, flags=re.I)
+    value = re.sub(r"[?]+$", "", value)
+    value = re.sub(r"\s+", " ", value).strip(" ,.;:-")
+    return value[0].upper() + value[1:] if value else ""
+
+
 def candidate_key(item_type: str, content: str, due_date: Optional[str], place_context: str = "anywhere") -> str:
     day = (due_date or "")[:10]
     semantic = re.sub(r"[^a-z0-9 ]", " ", normalize_text(content))
@@ -188,9 +214,13 @@ def detect_focus_candidates(text: str, now: Optional[datetime] = None) -> list[d
         if len(normalized) < 6 or re.search(r"\b(nao preciso|nao tenho que|ja nao preciso)\b", normalized):
             continue
 
+        explicit_focus_command = _is_explicit_focus_command(normalized)
         item_type = None
         confidence = 0.0
-        if re.search(r"\b(me lembra|me lembre|lembrete|nao posso esquecer)\b", normalized):
+        if explicit_focus_command:
+            item_type = "REMINDER" if "lembrete" in normalized else "TASK"
+            confidence = 0.995
+        elif re.search(r"\b(me lembra|me lembre|lembrete|nao posso esquecer)\b", normalized):
             item_type, confidence = "REMINDER", 0.99
         elif re.search(r"\b(tenho que|preciso|devo|vou precisar)\b", normalized):
             item_type, confidence = "TASK", 0.96
@@ -209,13 +239,20 @@ def detect_focus_candidates(text: str, now: Optional[datetime] = None) -> list[d
         # Remova primeiro "quando eu chegar em..." para que o prefixo
         # "me lembre de" passe a ficar no início e também seja limpo.
         content_source = _strip_arrival_clause(phrase) if trigger_on_arrival else phrase
+        if explicit_focus_command:
+            content_source = _strip_focus_command(content_source)
         content = _clean_content(content_source, item_type)
         if len(content) < 3:
             continue
         due_date = parse_natural_due(phrase, now=now) if item_type in {"TASK", "REMINDER"} else None
         is_question = "?" in phrase
-        auto_apply = item_type in {"TASK", "REMINDER"} and confidence >= 0.9 and not is_question and not looks_like_example
-        if is_question or looks_like_example:
+        auto_apply = (
+            item_type in {"TASK", "REMINDER"}
+            and confidence >= 0.9
+            and (explicit_focus_command or not is_question)
+            and not looks_like_example
+        )
+        if (is_question and not explicit_focus_command) or looks_like_example:
             confidence = min(confidence, 0.74)
 
         candidate = {

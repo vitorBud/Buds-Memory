@@ -9,6 +9,10 @@ export const navigationStyles = {
     'inline-flex min-h-[34px] cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-transparent bg-transparent px-[13px] text-xs text-buds-icon transition-[background,border-color,color,transform,box-shadow] duration-180 hover:-translate-y-px hover:border-[var(--liquid-border-strong)] hover:bg-[rgba(var(--accent-hot-rgb)/0.11)] hover:text-buds-text hover:shadow-[0_10px_34px_rgba(var(--accent-hot-rgb)/0.12)] platform-windows:transition-none max-[760px]:relative max-[760px]:z-[1] max-[760px]:!min-h-[48px] max-[760px]:min-w-0 max-[760px]:flex-col max-[760px]:gap-[2px] max-[760px]:rounded-[19px] max-[760px]:!p-0 max-[760px]:text-[9px] max-[760px]:font-bold max-[760px]:leading-none max-[760px]:[&>svg]:relative max-[760px]:[&>svg]:z-[2] max-[760px]:[&>svg]:size-[18px] max-[760px]:[&>span]:relative max-[760px]:[&>span]:z-[2] max-[760px]:[&>span]:block',
   active:
     '-translate-y-px border-transparent !bg-buds-action !text-buds-action-ink shadow-[0_10px_30px_rgba(var(--accent-hot-rgb)/0.2)] hover:!bg-buds-action hover:!text-buds-action-ink max-[760px]:translate-y-0 max-[760px]:!bg-transparent max-[760px]:!shadow-none max-[760px]:hover:!bg-transparent',
+  backgroundProcessing:
+    'border-[color-mix(in_srgb,var(--accent-hot),transparent_48%)] text-buds-accent-hot shadow-[0_0_0_3px_rgba(var(--accent-hot-rgb)/0.08)] max-[760px]:border-transparent max-[760px]:shadow-none',
+  backgroundProcessingIcon:
+    'animate-spin motion-reduce:animate-none platform-windows:animate-none',
   mobileIndicator:
     'pointer-events-none absolute inset-0 z-0 hidden rounded-[19px] bg-buds-action shadow-[0_9px_24px_rgba(var(--accent-hot-rgb)/0.22),inset_0_1px_0_rgba(255,255,255,0.22)] max-[760px]:block',
   desktopOnly:

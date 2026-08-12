@@ -42,6 +42,12 @@ export function FocusPage({ visible }: FocusPageProps) {
     return () => window.clearTimeout(timeout)
   }, [visible, loadTasks])
 
+  useEffect(() => {
+    const refresh = () => { if (visible) void loadTasks() }
+    window.addEventListener('buds-focus-refresh', refresh)
+    return () => window.removeEventListener('buds-focus-refresh', refresh)
+  }, [visible, loadTasks])
+
   const handleAddQuickTask = async (title: string, category: FocusTaskCategory, priority: FocusTaskPriority) => {
     try {
       const task = await createFocusTask(title, category, priority)

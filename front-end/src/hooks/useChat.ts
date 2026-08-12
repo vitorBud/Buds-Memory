@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { streamChat } from '../services/api'
+import { isNativeIOSRuntime, refreshLocationContext, streamChat } from '../services/api'
 import type { Message, AiState, Session, ChatStreamEvent, VoiceProvider } from '../types'
 import {
   enqueueIOSNeuralSpeech,
@@ -23,6 +23,7 @@ interface UseChatOptions {
   onLatency: (ms: number) => void
   onMsgCountChange: (n: number) => void
   onSessionUpdate?: (session: Session) => void
+  onResponseComplete?: (sessionId: string) => void
   autoPlayAudio?: boolean
   offlineQueueEnabled?: boolean
 }
@@ -122,6 +123,11 @@ function queueOfflineText(text: string) {
   setOfflineQueue(queue)
 }
 
+function asksExactLocation(text: string) {
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  return /\b(onde estou|onde exatamente estou|localizacao exata|minha localizacao|localizacao atual|coordenadas?|latitude|longitude|em que lugar (?:estou|eu estou))\b/.test(normalized)
+}
+
 // Hook central do chat: envia texto/áudio, controla streaming, voz e interrupção da resposta.
 export function useChat({
   sessionId,
@@ -134,6 +140,7 @@ export function useChat({
   onLatency,
   onMsgCountChange,
   onSessionUpdate,
+  onResponseComplete,
   autoPlayAudio = false,
   offlineQueueEnabled = true,
 }: UseChatOptions) {
@@ -488,11 +495,17 @@ export function useChat({
     spokenLengthRef.current = 0
     let speechBuffer = ''
     let receivedAudio = false
+    let streamFailed = false
     const useNativeVoice = autoPlayAudio && isIOSNeuralVoiceRuntime()
     const useBrowserVoice = autoPlayAudio && !useNativeVoice && canUseBrowserVoice(voiceProvider)
     const useStreamingVoice = useNativeVoice || (useBrowserVoice && !isWindowsRuntime() && !isIOSRuntime())
     const useBackendVoice = autoPlayAudio && !useNativeVoice && voiceProvider === 'piper'
     try {
+      if (!isNativeIOSRuntime() && asksExactLocation(text)) {
+        // Atualização precisa e única, iniciada somente por uma pergunta
+        // explícita. Permissão negada não deve bloquear a conversa.
+        await refreshLocationContext().catch(error => console.warn('[BudsContext] Localização exata indisponível:', error))
+      }
       await streamChat({ text, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled, tts: useBackendVoice }, (event) => {
         const active = activeOperationRef.current
         if (!active || active.id !== requestId || active.sessionId !== sid) return
@@ -531,7 +544,9 @@ export function useChat({
             speakText(stripInternalReasoning(streamedText))
           }
           onLatency(Date.now() - start)
+          if (!streamFailed) onResponseComplete?.(sid)
         } else if (event.type === 'error') {
+          streamFailed = true
           console.error('[Chat] SSE error:', event.content)
           replaceStreamingText(assistantMessageId, `Falha no chat: ${event.content || 'o backend interrompeu a resposta.'}`)
           finalizeStreaming(assistantMessageId)
@@ -621,6 +636,7 @@ export function useChat({
     spokenLengthRef.current = 0
     let speechBuffer = ''
     let receivedAudio = false
+    let streamFailed = false
     const useNativeVoice = autoPlayAudio && isIOSNeuralVoiceRuntime()
     const useBrowserVoice = autoPlayAudio && !useNativeVoice && canUseBrowserVoice(voiceProvider)
     const useStreamingVoice = useNativeVoice || (useBrowserVoice && !isWindowsRuntime() && !isIOSRuntime())
@@ -675,7 +691,9 @@ export function useChat({
             speakText(stripInternalReasoning(streamedText))
           }
           onLatency(Date.now() - start)
+          if (!streamFailed) onResponseComplete?.(sid)
         } else if (event.type === 'error') {
+          streamFailed = true
           console.error('[Audio Chat] SSE error:', event.content)
           replaceStreamingText(assistantMessageId, `Falha no chat: ${event.content || 'o backend interrompeu a resposta.'}`)
           finalizeStreaming(assistantMessageId)

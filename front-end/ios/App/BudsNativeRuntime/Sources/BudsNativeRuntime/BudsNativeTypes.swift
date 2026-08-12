@@ -1,5 +1,9 @@
 import Foundation
 
+public extension Notification.Name {
+    static let budsLocationContextSignal = Notification.Name("BudsLocationContextSignal")
+}
+
 public enum BudsNativeError: LocalizedError {
     case insufficientStorage(available: Int64, required: Int64)
     case databaseUnavailable(String)
@@ -165,6 +169,98 @@ public struct BudsFocusTaskRecord: Sendable {
     public let triggerOnArrival: Bool
     public let locationRelevant: Bool
     public let currentLocationContext: String
+    public let contextualScore: Int
+    public let contextualReasons: [String]
+}
+
+public struct BudsLocalSyncDeviceRecord: Sendable, Codable {
+    public let deviceId: String
+    public let deviceName: String
+    public let deviceType: String
+}
+
+public struct BudsSyncFocusTaskRecord: Sendable, Codable {
+    public let syncUid: String
+    public let title: String
+    public let category: String
+    public let priority: String
+    public let completed: Bool
+    public let isFocus: Bool
+    public let createdAt: String
+    public let updatedAt: String
+    public let dueDate: String?
+    public let itemType: String
+    public let source: String
+    public let confidence: Double
+    public let placeContext: String
+    public let triggerOnArrival: Bool
+    public let syncVersion: Int64
+    public let syncOriginDeviceId: String
+    public let syncModifiedAt: String
+    public let deletedAt: String?
+
+    public init(
+        syncUid: String, title: String, category: String, priority: String,
+        completed: Bool, isFocus: Bool, createdAt: String, updatedAt: String,
+        dueDate: String?, itemType: String, source: String, confidence: Double,
+        placeContext: String, triggerOnArrival: Bool, syncVersion: Int64,
+        syncOriginDeviceId: String, syncModifiedAt: String, deletedAt: String?
+    ) {
+        self.syncUid = syncUid; self.title = title; self.category = category; self.priority = priority
+        self.completed = completed; self.isFocus = isFocus; self.createdAt = createdAt; self.updatedAt = updatedAt
+        self.dueDate = dueDate; self.itemType = itemType; self.source = source; self.confidence = confidence
+        self.placeContext = placeContext; self.triggerOnArrival = triggerOnArrival; self.syncVersion = syncVersion
+        self.syncOriginDeviceId = syncOriginDeviceId; self.syncModifiedAt = syncModifiedAt; self.deletedAt = deletedAt
+    }
+}
+
+public struct BudsLocalSyncChangeRecord: Sendable, Codable {
+    public let localSeq: Int64
+    public let changeId: String
+    public let task: BudsSyncFocusTaskRecord
+
+    public init(localSeq: Int64, changeId: String, task: BudsSyncFocusTaskRecord) {
+        self.localSeq = localSeq
+        self.changeId = changeId
+        self.task = task
+    }
+}
+
+public struct BudsLocalSyncPeerStateRecord: Sendable {
+    public let peerDeviceId: String
+    public let peerName: String
+    public let peerType: String
+    public let baseURL: String
+    public let trusted: Bool
+    public let lastRemoteSeq: Int64
+    public let lastAcknowledgedSeq: Int64
+    public let lastSyncAt: String?
+    public let lastError: String?
+    public let protocolVersion: Int
+    public let appVersion: String?
+    public let capabilities: [String]
+    public let lastSentCount: Int
+    public let lastReceivedCount: Int
+    public let totalSentCount: Int
+    public let totalReceivedCount: Int
+    public let conflictCount: Int
+    public let retryCount: Int
+}
+
+public struct BudsLocalSyncApplyResult: Sendable {
+    public let received: Int
+    public let changed: Int
+    public let conflicts: Int
+}
+
+public struct BudsLocalSyncHistoryRecord: Sendable {
+    public let id: Int64
+    public let peerDeviceId: String
+    public let status: String
+    public let sentCount: Int
+    public let receivedCount: Int
+    public let durationMs: Double
+    public let createdAt: String
 }
 
 public struct BudsKnownPlaceRecord: Sendable {

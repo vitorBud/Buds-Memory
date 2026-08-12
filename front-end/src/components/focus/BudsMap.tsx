@@ -193,7 +193,6 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
   }
 
   const toggleMonitoring = async () => {
-    if (!nativeIOS) return
     setBusy(true)
     try {
       await configureLocationMonitoring(!dashboard?.monitoring?.enabled)
@@ -392,11 +391,9 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
         <button type="button" onClick={() => setFormOpen(value => !value)} className="inline-flex min-h-11 items-center gap-2 rounded-full border border-[var(--liquid-border)] bg-[var(--liquid-panel)] px-3 text-xs font-bold text-[var(--text)]">
           <Plus size={14} /> Salvar lugar atual
         </button>
-        {nativeIOS && (
-          <button type="button" onClick={() => void toggleMonitoring()} disabled={busy} className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 text-xs font-bold ${dashboard?.monitoring?.enabled ? 'border-emerald-400/30 bg-emerald-400/12 text-emerald-300' : 'border-[var(--liquid-border)] bg-[var(--liquid-panel)] text-[var(--muted)]'}`}>
-            <BatteryCharging size={14} /> Econômico {dashboard?.monitoring?.enabled ? 'ativo' : 'desativado'}
-          </button>
-        )}
+        <button type="button" onClick={() => void toggleMonitoring()} disabled={busy} className={`inline-flex min-h-11 items-center gap-2 rounded-full border px-3 text-xs font-bold ${dashboard?.monitoring?.enabled ? 'border-emerald-400/30 bg-emerald-400/12 text-emerald-300' : 'border-[var(--liquid-border)] bg-[var(--liquid-panel)] text-[var(--muted)]'}`} title={nativeIOS ? 'Geofences e mudanças significativas em segundo plano' : 'Localização aproximada e econômica enquanto o Buds estiver aberto'}>
+          <BatteryCharging size={14} /> Econômico {dashboard?.monitoring?.enabled ? 'ativo' : 'desativado'}
+        </button>
       </div>
 
       {formOpen && (

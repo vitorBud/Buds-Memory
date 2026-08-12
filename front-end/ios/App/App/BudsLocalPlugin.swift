@@ -1,6 +1,7 @@
 import BudsNativeRuntime
 import Capacitor
 import Foundation
+import UIKit
 import UserNotifications
 
 @objc(BudsLocalPlugin)
@@ -33,6 +34,10 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "createFocusTask", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateFocusTask", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteFocusTask", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "localSyncStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "discoverLocalSyncPeers", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pairLocalSyncPeer", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "syncFocusWithPeer", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "analyzeFocusInput", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "focusThink", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "saveFocusIdea", returnType: CAPPluginReturnPromise),
@@ -42,6 +47,7 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "updateFocusInbox", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "syncFocusNotifications", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getLocationDashboard", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getSemanticLocationContext", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "requestCurrentLocation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "saveKnownPlace", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteKnownPlace", returnType: CAPPluginReturnPromise),
@@ -64,9 +70,27 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
 
     private let runtime = BudsLocalRuntime.shared
     private let speechRecognizer = BudsSpeechRecognizer()
+    private var contextSignalObserver: NSObjectProtocol?
+    private let generationBackgroundTaskLock = NSLock()
+    private var generationBackgroundTasks: [String: UIBackgroundTaskIdentifier] = [:]
 
     public override func load() {
         super.load()
+        contextSignalObserver = NotificationCenter.default.addObserver(
+            forName: .budsLocationContextSignal,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let payload: [String: Any] = [
+                "kind": notification.userInfo?["kind"] as? String ?? "CONTEXT_UPDATE",
+                "title": notification.userInfo?["title"] as? String ?? "Buds",
+                "message": notification.userInfo?["message"] as? String ?? "O contexto foi atualizado.",
+                "place_context": notification.userInfo?["placeContext"] as? String ?? "other",
+            ]
+            self.notifyListeners("contextSignal", data: payload)
+            self.scheduleContextSignalNotification(payload)
+        }
         runtime.neuralVoice.onStateChange = { [weak self] state, message in
             DispatchQueue.main.async {
                 var payload: [String: Any] = ["state": state]
@@ -81,6 +105,15 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         if (try? runtime.activeLocationRoute()) != nil {
             runtime.locationMonitor.startRouteTracking()
+        }
+        BudsLocalSyncClient.shared.startPresenceLoop { [weak self] payload in
+            self?.notifyListeners("localSyncState", data: payload)
+        }
+    }
+
+    deinit {
+        if let contextSignalObserver {
+            NotificationCenter.default.removeObserver(contextSignalObserver)
         }
     }
 
@@ -121,6 +154,7 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         Task { [weak self] in
             guard let self else { return }
             do {
+                BudsLocalSyncClient.shared.removeAllTrust()
                 call.resolve(statusPayload(try runtime.clearAllData()))
             } catch {
                 call.reject(error.localizedDescription)
@@ -355,6 +389,110 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func localSyncStatus(_ call: CAPPluginCall) {
+        resolve(call) {
+            let device = try runtime.localSyncDevice()
+            let peers = try runtime.localSyncPeers()
+            let history = try runtime.localSyncHistory()
+            return [
+                "protocol": "buds-local-sync",
+                "protocol_version": BudsLocalSyncClient.protocolVersion,
+                "capabilities": BudsLocalSyncClient.capabilities,
+                "device": localSyncDevicePayload(device),
+                "history": history.map { event in
+                    [
+                        "id": event.id, "peer_device_id": event.peerDeviceId,
+                        "status": event.status, "sent_count": event.sentCount,
+                        "received_count": event.receivedCount, "bytes_sent": 0,
+                        "bytes_received": 0, "duration_ms": event.durationMs,
+                        "created_at": event.createdAt,
+                    ]
+                },
+                "peers": try peers.map { peer in
+                    let pending = try runtime.pendingLocalSyncFocusChanges(peerDeviceId: peer.peerDeviceId).count
+                    return localSyncPeerPayload(
+                        peer, pendingOut: pending,
+                        connected: BudsLocalSyncClient.shared.isConnected(peerDeviceId: peer.peerDeviceId)
+                    )
+                },
+            ]
+        }
+    }
+
+    @objc func discoverLocalSyncPeers(_ call: CAPPluginCall) {
+        Task {
+            do {
+                let peers = try await BudsLocalSyncClient.shared.discover()
+                let discoveryMs = BudsLocalSyncClient.shared.lastDiscoveryMs
+                call.resolve([
+                    "peers": peers.map {
+                        ["device_id": $0.deviceId, "device_name": $0.deviceName,
+                         "device_type": $0.deviceType, "base_url": $0.baseURL,
+                         "protocol_version": $0.protocolVersion]
+                    },
+                    "discovery_ms": discoveryMs,
+                ])
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
+    @objc func pairLocalSyncPeer(_ call: CAPPluginCall) {
+        guard let deviceId = call.getString("deviceId"),
+              let deviceName = call.getString("deviceName"),
+              let baseURL = call.getString("baseURL"),
+              let code = call.getString("code") else {
+            call.reject("Mac e código de pareamento são obrigatórios.")
+            return
+        }
+        let peer = BudsDiscoveredSyncPeer(
+            deviceId: deviceId, deviceName: deviceName,
+            deviceType: call.getString("deviceType") ?? "mac", baseURL: baseURL,
+            protocolVersion: 1
+        )
+        Task {
+            do {
+                let trusted = try await BudsLocalSyncClient.shared.pair(peer: peer, code: code)
+                call.resolve(localSyncPeerPayload(trusted, pendingOut: 0, connected: true))
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
+    @objc func syncFocusWithPeer(_ call: CAPPluginCall) {
+        guard let peerId = call.getString("peerDeviceId") else {
+            call.reject("Mac pareado não informado.")
+            return
+        }
+        Task {
+            do {
+                guard let peer = try runtime.localSyncPeerState(peerDeviceId: peerId) else {
+                    throw BudsLocalSyncClientError.peerNotTrusted
+                }
+                let result = try await BudsLocalSyncClient.shared.sync(peer: peer)
+                call.resolve([
+                    "success": true,
+                    "sent": result.sent,
+                    "received": result.received,
+                    "changed": result.changed,
+                    "conflicts": result.conflicts,
+                    "metrics": [
+                        "discovery_ms": result.discoveryMs,
+                        "connect_ms": result.connectMs,
+                        "manifest_ms": result.manifestMs,
+                        "transfer_ms": result.transferMs,
+                        "apply_ms": result.applyMs,
+                        "total_ms": result.totalMs,
+                    ],
+                ])
+            } catch {
+                call.reject(error.localizedDescription)
+            }
+        }
+    }
+
     @objc func analyzeFocusInput(_ call: CAPPluginCall) {
         guard let text = call.getString("text")?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else {
@@ -482,6 +620,12 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
+    @objc func getSemanticLocationContext(_ call: CAPPluginCall) {
+        resolve(call) {
+            semanticLocationContextPayload(try runtime.semanticLocationContext())
+        }
+    }
+
     @objc func requestCurrentLocation(_ call: CAPPluginCall) {
         Task {
             do {
@@ -539,7 +683,11 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func configureLocationMonitoring(_ call: CAPPluginCall) {
         do {
-            let result = try runtime.configureLocationMonitoring(enabled: call.getBool("enabled") ?? false)
+            let enabled = call.getBool("enabled") ?? false
+            let result = try runtime.configureLocationMonitoring(enabled: enabled)
+            if enabled {
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+            }
             call.resolve(["enabled": result.enabled, "authorization": result.authorization])
         } catch {
             call.reject(error.localizedDescription)
@@ -669,6 +817,7 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let generationId = call.getString("generationId") ?? UUID().uuidString
+        beginGenerationBackgroundTask(generationId)
 
         Task { [weak self] in
             guard let self else { return }
@@ -697,8 +846,18 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                 let metrics = generationMetricsPayload(result.metrics)
                 payload["metrics"] = metrics
                 notifyListeners("performanceMetric", data: metrics)
+                finishGenerationBackgroundTask(
+                    generationId,
+                    responseReady: true,
+                    sessionId: sessionId
+                )
                 call.resolve(payload)
             } catch {
+                finishGenerationBackgroundTask(
+                    generationId,
+                    responseReady: false,
+                    sessionId: sessionId
+                )
                 call.reject(error.localizedDescription)
             }
         }
@@ -823,7 +982,40 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         payload["trigger_on_arrival"] = task.triggerOnArrival
         payload["location_relevant"] = task.locationRelevant
         payload["current_location_context"] = task.currentLocationContext
+        payload["contextual_score"] = task.contextualScore
+        payload["contextual_reasons"] = task.contextualReasons
         return payload
+    }
+
+    private func localSyncDevicePayload(_ device: BudsLocalSyncDeviceRecord) -> [String: Any] {
+        ["device_id": device.deviceId, "device_name": device.deviceName, "device_type": device.deviceType]
+    }
+
+    private func localSyncPeerPayload(_ peer: BudsLocalSyncPeerStateRecord, pendingOut: Int, connected: Bool = false) -> [String: Any] {
+        [
+            "peer_device_id": peer.peerDeviceId,
+            "device_name": peer.peerName,
+            "device_type": peer.peerType,
+            "base_url": peer.baseURL,
+            "trusted": peer.trusted,
+            "connected": connected,
+            "status": connected ? "connected" : "disconnected",
+            "last_sync_at": peer.lastSyncAt ?? NSNull(),
+            "pending_out": pendingOut,
+            "pending_details": ["focus_tasks": pendingOut],
+            "pending_in": 0,
+            "awaiting_ack": 0,
+            "conflicts": peer.conflictCount,
+            "protocol_version": peer.protocolVersion,
+            "app_version": peer.appVersion ?? NSNull(),
+            "capabilities": peer.capabilities,
+            "last_sent_count": peer.lastSentCount,
+            "last_received_count": peer.lastReceivedCount,
+            "total_sent_count": peer.totalSentCount,
+            "total_received_count": peer.totalReceivedCount,
+            "retry_count": peer.retryCount,
+            "last_error": peer.lastError ?? NSNull(),
+        ]
     }
 
     private func knownPlacePayload(_ place: BudsKnownPlaceRecord) -> [String: Any] {
@@ -915,9 +1107,51 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
             "policy": [
                 "continuous_gps": false,
                 "precise_only_on_demand": true,
-                "coordinates_sent_to_model": false,
+                "coordinates_sent_to_model": true,
+                "coordinates_mode": "explicit_request_only",
             ],
         ]
+    }
+
+    private func semanticPlacePayload(_ place: BudsSemanticPlace) -> [String: Any] {
+        [
+            "id": place.id ?? NSNull(),
+            "name": place.name,
+            "type": place.type,
+        ]
+    }
+
+    private func semanticLocationContextPayload(_ context: BudsSemanticLocationContext) -> [String: Any] {
+        var payload: [String: Any] = [
+            "version": context.version,
+            "current_place": context.currentPlace.map(semanticPlacePayload) ?? NSNull(),
+            "previous_place": context.previousPlace.map(semanticPlacePayload) ?? NSNull(),
+            "state": context.state,
+            "movement": context.movement,
+            "trip_active": context.tripActive,
+            "trip_origin": context.tripOrigin.map(semanticPlacePayload) ?? NSNull(),
+            "trip_destination": context.tripDestination.map(semanticPlacePayload) ?? NSNull(),
+            "destination_confidence": context.destinationConfidence ?? NSNull(),
+            "trip_duration_seconds": context.tripDurationSeconds,
+            "recent_event": context.recentEvent ?? NSNull(),
+            "recent_event_at": context.recentEventAt ?? NSNull(),
+            "recent_event_age_seconds": context.recentEventAgeSeconds ?? NSNull(),
+            "relevance": context.relevance,
+        ]
+        if let routine = context.routine {
+            payload["routine"] = [
+                "kind": routine.kind,
+                "origin": semanticPlacePayload(routine.origin),
+                "destination": semanticPlacePayload(routine.destination),
+                "sample_count": routine.sampleCount,
+                "total_transitions": routine.totalTransitions,
+                "confidence": routine.confidence,
+                "typical_arrival_time": routine.typicalArrivalTime ?? NSNull(),
+            ]
+        } else {
+            payload["routine"] = NSNull()
+        }
+        return payload
     }
 
     private func focusTimelinePayload(_ event: BudsFocusTimelineRecord) -> [String: Any] {
@@ -984,6 +1218,105 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                 }
             }
             group.notify(queue: .main) { completion(scheduled) }
+        }
+    }
+
+    private func scheduleContextSignalNotification(_ payload: [String: Any]) {
+        let center = UNUserNotificationCenter.current()
+        let schedule: (Bool) -> Void = { allowed in
+            guard allowed else { return }
+            let content = UNMutableNotificationContent()
+            content.title = payload["title"] as? String ?? "Buds"
+            content.body = payload["message"] as? String ?? "O contexto foi atualizado."
+            content.sound = .default
+            content.userInfo = payload
+            let request = UNNotificationRequest(
+                identifier: "buds-context-\(UUID().uuidString)",
+                content: content,
+                trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+            )
+            center.add(request)
+        }
+        center.getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                schedule(true)
+            case .notDetermined:
+                center.requestAuthorization(options: [.alert, .sound, .badge]) { allowed, _ in schedule(allowed) }
+            default:
+                break
+            }
+        }
+    }
+
+    /// Mantém uma resposta local em andamento durante a curta janela que o
+    /// iOS concede ao aplicativo depois que ele vai para segundo plano. Não
+    /// registra um modo de execução permanente e cancela o llama.cpp quando o
+    /// sistema informa que o tempo acabou, evitando aquecimento sem controle.
+    private func beginGenerationBackgroundTask(_ generationId: String) {
+        let begin = { [weak self] in
+            guard let self else { return }
+            var identifier = UIBackgroundTaskIdentifier.invalid
+            identifier = UIApplication.shared.beginBackgroundTask(
+                withName: "BudsChat-\(generationId)"
+            ) { [weak self] in
+                self?.runtime.cancelGeneration(generationId: generationId)
+                self?.endGenerationBackgroundTask(generationId)
+            }
+            guard identifier != .invalid else { return }
+
+            generationBackgroundTaskLock.lock()
+            let previous = generationBackgroundTasks.updateValue(identifier, forKey: generationId)
+            generationBackgroundTaskLock.unlock()
+            if let previous, previous != .invalid {
+                UIApplication.shared.endBackgroundTask(previous)
+            }
+        }
+
+        if Thread.isMainThread { begin() }
+        else { DispatchQueue.main.async(execute: begin) }
+    }
+
+    private func endGenerationBackgroundTask(_ generationId: String) {
+        generationBackgroundTaskLock.lock()
+        let identifier = generationBackgroundTasks.removeValue(forKey: generationId)
+        generationBackgroundTaskLock.unlock()
+        guard let identifier, identifier != .invalid else { return }
+
+        let end = { UIApplication.shared.endBackgroundTask(identifier) }
+        if Thread.isMainThread { end() }
+        else { DispatchQueue.main.async(execute: end) }
+    }
+
+    private func finishGenerationBackgroundTask(
+        _ generationId: String,
+        responseReady: Bool,
+        sessionId: String
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let appIsInBackground = UIApplication.shared.applicationState != .active
+            self.endGenerationBackgroundTask(generationId)
+            if responseReady && appIsInBackground {
+                self.scheduleChatReadyNotification(sessionId: sessionId)
+            }
+        }
+    }
+
+    private func scheduleChatReadyNotification(sessionId: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            guard [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus) else { return }
+            let content = UNMutableNotificationContent()
+            content.title = "Buds Memory"
+            content.body = "Sua resposta está pronta."
+            content.sound = .default
+            content.userInfo = ["sessionId": sessionId, "kind": "CHAT_RESPONSE_READY"]
+            center.add(UNNotificationRequest(
+                identifier: "buds-chat-ready-\(sessionId)",
+                content: content,
+                trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+            ))
         }
     }
 

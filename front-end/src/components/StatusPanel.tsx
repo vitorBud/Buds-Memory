@@ -1,9 +1,20 @@
 import { Activity, AlertTriangle, BrainCircuit, Circle, CloudDownload, Code2, Cpu, Database, FolderOpen, Gauge, HardDrive, MessageSquare, RefreshCw, SlidersHorizontal, Trash2, Upload, UserRound, Volume2, X } from 'lucide-react'
-import { useRef, useState, type ReactNode } from 'react'
-import { indexCodebase, isNativeIOSRuntime } from '../services/api'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  advertiseLocalSyncMac,
+  discoverLocalSyncPeers,
+  getLocalSyncStatus,
+  getSemanticLocationContext,
+  indexCodebase,
+  isNativeIOSRuntime,
+  pairLocalSyncPeer,
+  requestLocalSyncFromMac,
+  startLocalSyncPairing,
+  syncFocusWithLocalPeer,
+} from '../services/api'
 import { settingsControlStyles, themeDotStyles } from '../styles/controlesConfiguracoes'
 import { settingsLayoutStyles, settingsSectionStyles } from '../styles/estruturaConfiguracoes'
-import type { AiState, ConversationStorageItem, ConversationStorageStatus, InterfaceSettings, LocalBackupStatus, ThemeMode } from '../types'
+import type { AiState, ConversationStorageItem, ConversationStorageStatus, InterfaceSettings, LocalBackupStatus, LocalSyncDiscoveredPeer, LocalSyncRunResult, LocalSyncStatus, SemanticLocationContext, ThemeMode } from '../types'
 
 interface StatusPanelProps {
   aiState: AiState
@@ -90,7 +101,7 @@ const VOICE_PROVIDER_OPTIONS: Array<{
   { value: 'piper', label: 'Cadu neural local', hint: 'voz brasileira offline executada pelo backend' },
 ]
 
-type SettingsSection = 'account' | 'appearance' | 'ai' | 'voice' | 'backup' | 'storage' | 'codebase' | 'memory' | 'system'
+type SettingsSection = 'account' | 'appearance' | 'ai' | 'voice' | 'backup' | 'sync' | 'storage' | 'codebase' | 'memory' | 'system'
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: string; icon: typeof UserRound }> = [
   { id: 'account', label: 'Sessão', hint: 'Banco local', icon: UserRound },
@@ -98,6 +109,7 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: strin
   { id: 'ai', label: 'IA', hint: 'Modelo e Google', icon: BrainCircuit },
   { id: 'voice', label: 'Voz', hint: 'Ativar e escolher', icon: Volume2 },
   { id: 'backup', label: 'Backup', hint: 'Memória local', icon: HardDrive },
+  { id: 'sync', label: 'Local Sync', hint: 'Focus entre aparelhos', icon: RefreshCw },
   { id: 'storage', label: 'Armazenamento', hint: 'Uso e limpeza', icon: Database },
   { id: 'codebase', label: 'Codebase', hint: 'Projetos locais', icon: Code2 },
   { id: 'memory', label: 'Memória', hint: 'Contexto do chat', icon: Activity },
@@ -123,6 +135,25 @@ function formatStorageDate(value?: string | null): string {
   return Number.isNaN(date.getTime())
     ? 'Data original indisponível'
     : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).format(date)
+}
+
+function formatSyncDate(value?: string | null): string {
+  if (!value) return 'Nunca'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? 'Nunca'
+    : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+
+function contextDevModeEnabled(): boolean {
+  return import.meta.env.DEV || import.meta.env.VITE_BUDS_CONTEXT_DEV === '1'
+}
+
+function formatEventAge(seconds: number | null): string {
+  if (seconds == null) return '--'
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}min`
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}min`
 }
 
 // Gaveta de configurações da interface, voz, tema e status técnico da sessão.
@@ -156,9 +187,21 @@ export function StatusPanel({
   const [activeSection, setActiveSection] = useState<SettingsSection>('account')
   const [storageConfirmation, setStorageConfirmation] = useState('')
   const [storageDangerOpen, setStorageDangerOpen] = useState(false)
+  const [semanticContext, setSemanticContext] = useState<SemanticLocationContext | null>(null)
+  const [semanticContextError, setSemanticContextError] = useState('')
+  const [semanticContextBusy, setSemanticContextBusy] = useState(false)
+  const [localSyncStatus, setLocalSyncStatus] = useState<LocalSyncStatus | null>(null)
+  const [localSyncDiscovered, setLocalSyncDiscovered] = useState<LocalSyncDiscoveredPeer[]>([])
+  const [localSyncCode, setLocalSyncCode] = useState('')
+  const [localSyncPairingCode, setLocalSyncPairingCode] = useState('')
+  const [localSyncBusy, setLocalSyncBusy] = useState(false)
+  const [localSyncPhase, setLocalSyncPhase] = useState<'idle' | 'discovering' | 'pairing' | 'syncing'>('idle')
+  const [localSyncError, setLocalSyncError] = useState('')
+  const [localSyncResult, setLocalSyncResult] = useState<LocalSyncRunResult | null>(null)
   const backupInputRef = useRef<HTMLInputElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const nativeIOS = isNativeIOSRuntime()
+  const contextDevMode = contextDevModeEnabled()
   const storageItems: ConversationStorageItem[] = [
     ...conversationStorage.orphaned,
     ...conversationStorage.conversations.filter(item => item.state === 'removed'),
@@ -171,6 +214,149 @@ export function StatusPanel({
       window.requestAnimationFrame(() => {
         contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       })
+    }
+  }
+
+  const loadSemanticContext = async () => {
+    setSemanticContextBusy(true)
+    setSemanticContextError('')
+    try {
+      setSemanticContext(await getSemanticLocationContext())
+    } catch (error) {
+      setSemanticContextError(error instanceof Error ? error.message : 'Context Engine indisponível.')
+    } finally {
+      setSemanticContextBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeSection === 'system' && contextDevMode && !semanticContext && !semanticContextBusy) {
+      void loadSemanticContext()
+    }
+    // O diagnóstico é carregado somente ao abrir Sistema; não há polling de localização.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection, contextDevMode])
+
+  const loadLocalSync = async () => {
+    setLocalSyncError('')
+    try {
+      setLocalSyncStatus(await getLocalSyncStatus())
+    } catch (error) {
+      setLocalSyncError(error instanceof Error ? error.message : 'Local Sync indisponível.')
+    }
+  }
+
+  useEffect(() => {
+    if (activeSection !== 'sync' || localSyncStatus || localSyncBusy) return
+    const timeout = window.setTimeout(() => void loadLocalSync(), 0)
+    return () => window.clearTimeout(timeout)
+    // Carrega somente quando a seção é aberta; não existe discovery permanente.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection])
+
+  useEffect(() => {
+    if (activeSection !== 'sync') return
+    const interval = window.setInterval(() => void loadLocalSync(), 5_000)
+    return () => window.clearInterval(interval)
+    // Presença é atualizada somente enquanto a Central de Sync está visível.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSection])
+
+  const beginLocalSyncPairing = async () => {
+    setLocalSyncBusy(true)
+    setLocalSyncPhase('pairing')
+    setLocalSyncError('')
+    try {
+      const result = await startLocalSyncPairing()
+      setLocalSyncPairingCode(result.code)
+      await loadLocalSync()
+    } catch (error) {
+      setLocalSyncError(error instanceof Error ? error.message : 'Não foi possível iniciar o pareamento.')
+    } finally {
+      setLocalSyncBusy(false)
+      setLocalSyncPhase('idle')
+    }
+  }
+
+  const discoverSyncPeers = async () => {
+    setLocalSyncBusy(true)
+    setLocalSyncPhase('discovering')
+    setLocalSyncError('')
+    try {
+      const result = await discoverLocalSyncPeers()
+      setLocalSyncDiscovered(result.peers)
+      if (!result.peers.length) setLocalSyncError('Nenhum Mac visível. No Mac, abra Local Sync e gere o código primeiro.')
+    } catch (error) {
+      setLocalSyncError(error instanceof Error ? error.message : 'Não foi possível procurar o Mac.')
+    } finally {
+      setLocalSyncBusy(false)
+      setLocalSyncPhase('idle')
+    }
+  }
+
+  const pairSyncPeer = async (peer: LocalSyncDiscoveredPeer) => {
+    if (!/^\d{6}$/.test(localSyncCode)) {
+      setLocalSyncError('Digite o código de 6 números mostrado no Mac.')
+      return
+    }
+    setLocalSyncBusy(true)
+    setLocalSyncPhase('pairing')
+    setLocalSyncError('')
+    try {
+      await pairLocalSyncPeer(peer, localSyncCode)
+      setLocalSyncCode('')
+      await loadLocalSync()
+    } catch (error) {
+      setLocalSyncError(error instanceof Error ? error.message : 'Pareamento recusado.')
+    } finally {
+      setLocalSyncBusy(false)
+      setLocalSyncPhase('idle')
+    }
+  }
+
+  const runLocalSync = async (peerDeviceId: string) => {
+    setLocalSyncBusy(true)
+    setLocalSyncPhase('syncing')
+    setLocalSyncError('')
+    setLocalSyncResult(null)
+    try {
+      if (nativeIOS) {
+        const result = await syncFocusWithLocalPeer(peerDeviceId)
+        setLocalSyncResult(result)
+        window.dispatchEvent(new CustomEvent('buds-focus-refresh'))
+        await loadLocalSync()
+      } else {
+        const before = localSyncStatus?.peers.find(peer => peer.peer_device_id === peerDeviceId)?.last_sync_at
+        await requestLocalSyncFromMac(peerDeviceId)
+        const deadline = Date.now() + 16_000
+        while (Date.now() < deadline) {
+          await new Promise(resolve => window.setTimeout(resolve, 1_000))
+          const status = await getLocalSyncStatus()
+          setLocalSyncStatus(status)
+          const peer = status.peers.find(item => item.peer_device_id === peerDeviceId)
+          if (peer?.last_sync_at && peer.last_sync_at !== before) {
+            setLocalSyncResult({
+              success: true,
+              sent: peer.last_sent_count ?? 0,
+              received: peer.last_received_count ?? 0,
+              changed: peer.last_received_count ?? 0,
+              conflicts: peer.conflicts ?? 0,
+              metrics: {
+                discovery_ms: 0, connect_ms: 0, manifest_ms: 0, transfer_ms: 0,
+                apply_ms: 0, total_ms: peer.last_duration_ms ?? 0,
+              },
+            })
+            window.dispatchEvent(new CustomEvent('buds-focus-refresh'))
+            return
+          }
+        }
+        throw new Error('O iPhone não confirmou a sincronização. Mantenha o Buds aberto e tente novamente.')
+      }
+    } catch (error) {
+      setLocalSyncError(error instanceof Error ? error.message : 'A sincronização foi interrompida.')
+    } finally {
+      setLocalSyncBusy(false)
+      setLocalSyncPhase('idle')
     }
   }
 
@@ -512,6 +698,199 @@ export function StatusPanel({
         />
       </div>
 
+      <div className="settings-section settings-sync-block">
+        <div className={settingsControlStyles.panelHeading}>
+          <span>Buds Local Sync</span>
+          <RefreshCw size={15} />
+        </div>
+        <p className={settingsControlStyles.sectionCopy}>
+          Seus dispositivos Buds trocam mudanças diretamente pela rede local. Nesta etapa, o motor ativo continua sincronizando Focus com confirmação e histórico.
+        </p>
+
+        {localSyncStatus && (
+          <div className={settingsControlStyles.statusCard}>
+            <div className={`${settingsControlStyles.statusOrb} ${settingsControlStyles.statusOrbOnline}`}>
+              <Database size={16} />
+            </div>
+            <div className={settingsControlStyles.statusCardCopy}>
+              <strong className={settingsControlStyles.statusCardLabel}>{localSyncStatus.device.device_name}</strong>
+              <span className={settingsControlStyles.statusCardHint}>
+                {nativeIOS ? 'Este iPhone · Buds Local Sync v1' : 'Este Mac · Buds Local Sync v1'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {!nativeIOS ? (
+          <>
+            <div className={settingsControlStyles.storageInfoNotice}>
+              <strong>{localSyncPairingCode ? `Código: ${localSyncPairingCode}` : 'Primeiro pareamento'}</strong>
+              <span>
+                {localSyncPairingCode
+                  ? 'No iPhone, abra Configurações › Local Sync, procure este Mac e informe o código. Ele expira em 5 minutos e só pode ser usado uma vez.'
+                  : 'Gere um código temporário. Nenhum iPhone consegue ler tarefas antes de ser confirmado por você.'}
+              </span>
+            </div>
+            <button
+              type="button"
+              className={settingsControlStyles.primaryButton}
+              onClick={() => void beginLocalSyncPairing()}
+              disabled={localSyncBusy}
+            >
+              <RefreshCw size={14} className={localSyncBusy ? 'animate-spin' : ''} />
+              {localSyncPairingCode ? 'Gerar outro código' : 'Parear iPhone'}
+            </button>
+            {Boolean(localSyncStatus?.peers.some(peer => peer.trusted)) && (
+              <button
+                type="button"
+                className={`${settingsControlStyles.primaryButton} ${settingsControlStyles.secondaryButton}`}
+                onClick={() => void advertiseLocalSyncMac().catch(error => setLocalSyncError(error instanceof Error ? error.message : 'Falha ao anunciar o Mac.'))}
+              >
+                Tornar Mac visível por 2 minutos
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={settingsControlStyles.primaryButton}
+              onClick={() => void discoverSyncPeers()}
+              disabled={localSyncBusy}
+            >
+              <RefreshCw size={14} className={localSyncBusy ? 'animate-spin' : ''} />
+              Procurar Mac na rede local
+            </button>
+            {localSyncDiscovered.map(peer => {
+              const trusted = localSyncStatus?.peers.find(item => item.peer_device_id === peer.device_id)?.trusted
+              return (
+                <article key={peer.device_id} className={settingsControlStyles.conversationStorageCard}>
+                  <div className={settingsControlStyles.conversationStorageCopy}>
+                    <strong>{peer.device_name}</strong>
+                    <small>{trusted ? 'Pareado e confiável' : 'Encontrado via Bonjour · aguardando código'}</small>
+                  </div>
+                  {!trusted && (
+                    <div className={settingsControlStyles.codebaseInputRow}>
+                      <input
+                        className={settingsControlStyles.codebaseInput}
+                        value={localSyncCode}
+                        onChange={event => setLocalSyncCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        placeholder="Código de 6 números"
+                      />
+                      <button
+                        type="button"
+                        className={settingsControlStyles.codebaseButton}
+                        onClick={() => void pairSyncPeer(peer)}
+                        disabled={localSyncBusy || localSyncCode.length !== 6}
+                      >
+                        Confirmar
+                      </button>
+                    </div>
+                  )}
+                </article>
+              )
+            })}
+          </>
+        )}
+
+        <div className={settingsControlStyles.conversationStorageList}>
+          {localSyncStatus?.peers.map(peer => (
+            <article key={peer.peer_device_id} className={settingsControlStyles.conversationStorageCard}>
+              <div className={settingsControlStyles.conversationStorageHeader}>
+                <span className={settingsControlStyles.conversationStorageIcon}><RefreshCw size={15} /></span>
+                <div className={settingsControlStyles.conversationStorageCopy}>
+                  <strong>{peer.device_name}</strong>
+                  <small>Último sync: {formatSyncDate(peer.last_sync_at)}</small>
+                </div>
+                <span className={settingsControlStyles.conversationStorageBadge} data-state={peer.connected ? 'active' : 'removed'}>
+                  {localSyncPhase === 'syncing'
+                    ? 'Sincronizando…'
+                    : localSyncPhase === 'pairing'
+                      ? 'Pareando…'
+                      : localSyncPhase === 'discovering'
+                        ? 'Procurando…'
+                        : peer.connected ? 'Conectado' : peer.trusted ? 'Desconectado' : 'Revogado'}
+                </span>
+              </div>
+              <div className={settingsControlStyles.conversationStorageStats}>
+                <span>{peer.pending_out} pendente(s) para envio</span>
+                <span>Última troca: {peer.last_sent_count ?? 0} enviados · {peer.last_received_count ?? 0} recebidos</span>
+              </div>
+              {Boolean(peer.pending_details && Object.keys(peer.pending_details).length) && (
+                <details className={settingsControlStyles.storageInfoNotice}>
+                  <summary>Mostrar detalhes</summary>
+                  <span>Focus · {peer.pending_details?.focus_tasks ?? 0} pendente(s)</span>
+                </details>
+              )}
+              {peer.trusted && (
+                <button
+                  type="button"
+                  className={settingsControlStyles.primaryButton}
+                  onClick={() => void runLocalSync(peer.peer_device_id)}
+                  disabled={localSyncBusy || (!nativeIOS && !peer.connected)}
+                >
+                  <RefreshCw size={14} className={localSyncBusy ? 'animate-spin' : ''} />
+                  Sincronizar agora
+                </button>
+              )}
+              {peer.last_error && <p className={settingsControlStyles.error}>{peer.last_error}</p>}
+            </article>
+          ))}
+        </div>
+
+        {localSyncResult && (
+          <div className={settingsControlStyles.storageInfoNotice}>
+            <strong>Sincronizado</strong>
+            <span>{localSyncResult.sent} tarefa(s) enviada(s) · {localSyncResult.received} recebida(s) · {localSyncResult.conflicts} conflito(s)</span>
+          </div>
+        )}
+        {Boolean(localSyncStatus?.history?.length) && (
+          <div className={settingsControlStyles.conversationStorageList}>
+            <strong>Histórico recente</strong>
+            {localSyncStatus?.history?.slice(0, 5).map(event => (
+              <div key={event.id} className={settingsControlStyles.conversationStorageStats}>
+                <span>{formatSyncDate(event.created_at)} · {event.status === 'synced' ? 'Sync concluído' : 'Falha no sync'}</span>
+                <span>{event.sent_count} enviados · {event.received_count} recebidos</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {contextDevMode && localSyncResult && (
+          <div className={settingsControlStyles.technicalGrid}>
+            <StatusLine label="DISCOVERY" value={`${localSyncResult.metrics.discovery_ms.toFixed(0)} ms`} />
+            <StatusLine label="CONNECT" value={`${localSyncResult.metrics.connect_ms.toFixed(0)} ms`} />
+            <StatusLine label="MANIFEST" value={`${localSyncResult.metrics.manifest_ms.toFixed(0)} ms`} />
+            <StatusLine label="TRANSFER" value={`${localSyncResult.metrics.transfer_ms.toFixed(0)} ms`} />
+            <StatusLine label="APPLY" value={`${localSyncResult.metrics.apply_ms.toFixed(0)} ms`} />
+            <StatusLine label="TOTAL" value={`${localSyncResult.metrics.total_ms.toFixed(0)} ms`} />
+          </div>
+        )}
+        {contextDevMode && localSyncStatus && (
+          <div className={settingsControlStyles.technicalGrid}>
+            <StatusLine label="LOCAL DEVICE" value={`${localSyncStatus.device.device_name} · ${localSyncStatus.device.device_id}`} />
+            <StatusLine label="PROTOCOL" value={`v${localSyncStatus.protocol_version}`} />
+            <StatusLine label="CAPABILITIES" value={localSyncStatus.capabilities.join(', ')} />
+            {localSyncStatus.peers.length === 0 ? (
+              <StatusLine label="PEER" value="nenhum" />
+            ) : localSyncStatus.peers.flatMap(peer => [
+              <StatusLine key={`${peer.peer_device_id}-peer`} label="PEER" value={`${peer.device_name} · ${peer.peer_device_id}`} />,
+              <StatusLine key={`${peer.peer_device_id}-trusted`} label="TRUSTED" value={peer.trusted ? 'true' : 'false'} />,
+              <StatusLine key={`${peer.peer_device_id}-connected`} label="CONNECTED" value={peer.connected ? 'true' : 'false'} />,
+              <StatusLine key={`${peer.peer_device_id}-last`} label="LAST SYNC" value={formatSyncDate(peer.last_sync_at)} />,
+              <StatusLine key={`${peer.peer_device_id}-out`} label="PENDING OUT" value={String(peer.pending_out)} />,
+              <StatusLine key={`${peer.peer_device_id}-in`} label="PENDING IN" value={peer.pending_in == null ? 'verificado durante o sync' : String(peer.pending_in)} />,
+              <StatusLine key={`${peer.peer_device_id}-ack`} label="AWAITING ACK" value={String(peer.awaiting_ack ?? 0)} />,
+              <StatusLine key={`${peer.peer_device_id}-conflicts`} label="CONFLICTS" value={String(peer.conflicts ?? 0)} />,
+              <StatusLine key={`${peer.peer_device_id}-retries`} label="RETRIES" value={String(peer.retry_count ?? 0)} />,
+              <StatusLine key={`${peer.peer_device_id}-error`} label="LAST ERROR" value={peer.last_error || 'nenhum'} />,
+            ])}
+          </div>
+        )}
+        {localSyncError && <p className={settingsControlStyles.error}>{localSyncError}</p>}
+      </div>
+
       <div className="settings-section settings-storage-block">
         <div className={settingsControlStyles.panelHeading}>
           <span>Armazenamento</span>
@@ -698,6 +1077,39 @@ export function StatusPanel({
           </div>
         </div>
       </div>
+
+      {contextDevMode && (
+        <div className="settings-section settings-context-dev-block">
+          <div className={settingsControlStyles.panelHeading}>
+            <span>DEV · Context Engine</span>
+            <button
+              type="button"
+              onClick={() => void loadSemanticContext()}
+              disabled={semanticContextBusy}
+              className={settingsControlStyles.codebaseButton}
+            >
+              <RefreshCw size={13} className={semanticContextBusy ? 'animate-spin' : ''} /> Atualizar
+            </button>
+          </div>
+          <p className={settingsControlStyles.sectionCopy}>
+            Snapshot sem coordenadas, calculado sob demanda a partir dos eventos locais existentes.
+          </p>
+          <div className={settingsControlStyles.technicalGrid}>
+            <StatusLine label="Current Place" value={semanticContext?.current_place?.name ?? '--'} />
+            <StatusLine label="Context State" value={semanticContext?.state ?? '--'} />
+            <StatusLine label="Current Movement" value={semanticContext?.movement ?? '--'} />
+            <StatusLine label="Trip Active" value={semanticContext ? (semanticContext.trip_active ? 'true' : 'false') : '--'} />
+            <StatusLine label="Recent Event" value={semanticContext?.recent_event ?? '--'} />
+            <StatusLine label="Event Age" value={formatEventAge(semanticContext?.recent_event_age_seconds ?? null)} />
+            <StatusLine label="Relevance" value={semanticContext?.relevance ?? '--'} />
+            <StatusLine label="Destination" value={semanticContext?.trip_destination?.name ?? (semanticContext?.trip_active ? 'Unknown' : '--')} />
+            <StatusLine label="Destination Confidence" value={semanticContext?.destination_confidence != null ? `${Math.round(semanticContext.destination_confidence * 100)}%` : '--'} />
+            <StatusLine label="Routine Samples" value={semanticContext?.routine ? String(semanticContext.routine.sample_count) : '--'} />
+            <StatusLine label="Typical Arrival" value={semanticContext?.routine?.typical_arrival_time ?? '--'} />
+          </div>
+          {semanticContextError && <p className={settingsControlStyles.error}>{semanticContextError}</p>}
+        </div>
+      )}
 
       {children}
       </div>

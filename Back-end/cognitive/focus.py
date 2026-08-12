@@ -1,13 +1,14 @@
 import json
 import sqlite3
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from database_v2 import get_db_connection
 import agenty
 from cognitive import memory as cognitive_memory
 from cognitive import location as cognitive_location
 from cognitive.focus_capture import candidate_key, detect_focus_candidates
 from cognitive.response_safety import sanitize_response
+import local_sync
 
 import re
 import string
@@ -17,6 +18,55 @@ FOCUS_PRIORITIES = {'low', 'medium', 'high'}
 FOCUS_ITEM_TYPES = {'TASK', 'REMINDER', 'UPDATE', 'IDEA', 'DECISION', 'MEMORY', 'NOTE', 'IGNORE'}
 FOCUS_ACTIONS = {'complete_task', 'create_task', 'save_idea', 'save_decision', 'save_memory', 'none'}
 FOCUS_PLACE_CONTEXTS = {'anywhere', 'home', 'work', 'gym', 'study', 'other'}
+
+
+def _parse_due_date(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00')).replace(tzinfo=None)
+    except (TypeError, ValueError):
+        return None
+
+
+def _contextual_task_score(task: Dict[str, Any], current_context: str, now: datetime) -> tuple[int, List[str]]:
+    """Pontuação local e explicável; nunca depende do modelo."""
+    score = {'high': 30, 'medium': 16, 'low': 6}.get(task.get('priority'), 10)
+    reasons: List[str] = []
+    if task.get('is_focus'):
+        score += 100
+        reasons.append('foco principal')
+
+    due = _parse_due_date(task.get('due_date'))
+    if due:
+        if due < now:
+            score += 55
+            reasons.append('prazo vencido')
+        elif due.date() == now.date():
+            score += 42
+            reasons.append('vence hoje')
+        elif due <= now + timedelta(days=1):
+            score += 24
+            reasons.append('vence em breve')
+
+    place_context = task.get('place_context') or 'anywhere'
+    if place_context == current_context and place_context != 'anywhere':
+        score += 46
+        reasons.append('relevante neste lugar')
+        if task.get('trigger_on_arrival'):
+            score += 18
+            reasons.append('lembrete de chegada')
+    elif place_context == 'anywhere':
+        score += 4
+    else:
+        score -= 12
+
+    if (current_context == 'work' and task.get('category') in {'work', 'project'}) or (
+        current_context == 'home' and task.get('category') == 'personal'
+    ):
+        score += 12
+        reasons.append('combina com o contexto atual')
+    return score, reasons
 
 # -----------------------------------------------------------------------------
 # DEDUPLICAÇÃO
@@ -72,7 +122,7 @@ def _is_duplicate(new_text: str, existing_texts: List[str]) -> bool:
 def get_focus_tasks() -> List[Dict[str, Any]]:
     with get_db_connection() as conn:
         rows = conn.execute("""
-            SELECT * FROM focus_tasks
+            SELECT * FROM focus_tasks WHERE deleted_at IS NULL
             ORDER BY completed ASC,
                      CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
                      created_at DESC
@@ -84,11 +134,20 @@ def get_focus_tasks() -> List[Dict[str, Any]]:
         # Compatibilidade com bancos/testes que ainda não executaram a migração
         # de localização. O Focus continua funcional até o próximo migrate().
         current_context = 'unknown'
+    now = datetime.now()
     for task in tasks:
         place_context = task.get('place_context') or 'anywhere'
         task['location_relevant'] = place_context == 'anywhere' or place_context == current_context
         task['current_location_context'] = current_context
-    tasks.sort(key=lambda task: 0 if task['location_relevant'] else 1)
+        score, reasons = _contextual_task_score(task, current_context, now)
+        task['contextual_score'] = score
+        task['contextual_reasons'] = reasons
+    tasks.sort(key=lambda task: (
+        1 if task.get('completed') else 0,
+        -int(task.get('contextual_score') or 0),
+        str(task.get('due_date') or '9999'),
+        str(task.get('created_at') or ''),
+    ))
     return tasks
 
 def create_focus_task(
@@ -136,13 +195,16 @@ def create_focus_task(
     now = datetime.utcnow().isoformat()
     with get_db_connection() as conn:
         existing = conn.execute(
-            "SELECT * FROM focus_tasks WHERE dedup_key = ? AND completed = 0 LIMIT 1",
+            "SELECT * FROM focus_tasks WHERE dedup_key = ? AND completed = 0 AND deleted_at IS NULL LIMIT 1",
             (dedup_key,),
         ).fetchone()
         if existing:
             return dict(existing)
         if is_focus:
-            conn.execute("UPDATE focus_tasks SET is_focus = 0")
+            previous_focus_ids = [int(row["id"]) for row in conn.execute(
+                "SELECT id FROM focus_tasks WHERE is_focus=1 AND deleted_at IS NULL"
+            ).fetchall()]
+            conn.execute("UPDATE focus_tasks SET is_focus = 0 WHERE deleted_at IS NULL")
         try:
             cursor = conn.execute(
                 """INSERT INTO focus_tasks
@@ -159,13 +221,16 @@ def create_focus_task(
             )
         except sqlite3.IntegrityError:
             existing = conn.execute(
-                "SELECT * FROM focus_tasks WHERE dedup_key = ? AND completed = 0 LIMIT 1",
+                "SELECT * FROM focus_tasks WHERE dedup_key = ? AND completed = 0 AND deleted_at IS NULL LIMIT 1",
                 (dedup_key,),
             ).fetchone()
             if existing:
                 return dict(existing)
             raise
         task_id = cursor.lastrowid
+        for previous_id in previous_focus_ids if is_focus else []:
+            local_sync.mark_local_focus_change(conn, previous_id)
+        local_sync.mark_local_focus_change(conn, task_id)
         conn.commit()
 
     log_timeline_event(
@@ -178,7 +243,9 @@ def create_focus_task(
 
 def get_focus_task(task_id: int) -> Dict[str, Any]:
     with get_db_connection() as conn:
-        row = conn.execute("SELECT * FROM focus_tasks WHERE id = ?", (task_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM focus_tasks WHERE id = ? AND deleted_at IS NULL", (task_id,)
+        ).fetchone()
         if not row:
             raise ValueError(f"Task {task_id} not found")
         return dict(row)
@@ -212,12 +279,23 @@ def update_focus_task(task_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
 
     with get_db_connection() as conn:
         if update_data.get('is_focus') is True or update_data.get('is_focus') == 1:
-            conn.execute("UPDATE focus_tasks SET is_focus = 0")
+            previous_focus_ids = [int(row["id"]) for row in conn.execute(
+                "SELECT id FROM focus_tasks WHERE is_focus=1 AND id<>? AND deleted_at IS NULL",
+                (task_id,),
+            ).fetchall()]
+            conn.execute("UPDATE focus_tasks SET is_focus = 0 WHERE id<>? AND deleted_at IS NULL", (task_id,))
+        else:
+            previous_focus_ids = []
             
         values.append(task_id)
-        cursor = conn.execute(f"UPDATE focus_tasks SET {set_clause} WHERE id = ?", values)
+        cursor = conn.execute(
+            f"UPDATE focus_tasks SET {set_clause} WHERE id = ? AND deleted_at IS NULL", values
+        )
         if cursor.rowcount == 0:
             raise ValueError(f"Task {task_id} not found")
+        for previous_id in previous_focus_ids:
+            local_sync.mark_local_focus_change(conn, previous_id)
+        local_sync.mark_local_focus_change(conn, task_id)
         conn.commit()
         
     updated_task = get_focus_task(task_id)
@@ -233,7 +311,12 @@ def update_focus_task(task_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
 
 def delete_focus_task(task_id: int) -> bool:
     with get_db_connection() as conn:
-        cursor = conn.execute("DELETE FROM focus_tasks WHERE id = ?", (task_id,))
+        cursor = conn.execute(
+            "UPDATE focus_tasks SET deleted_at=? WHERE id=? AND deleted_at IS NULL",
+            (local_sync.utc_now(), task_id),
+        )
+        if cursor.rowcount:
+            local_sync.mark_local_focus_change(conn, task_id)
         conn.commit()
         return cursor.rowcount > 0
 
@@ -466,6 +549,63 @@ def capture_chat_message(
             if item:
                 suggested.append(item)
     return {'created': created, 'suggested': suggested}
+
+
+def chat_action_context(result: Optional[Dict[str, Any]]) -> str:
+    """Recibo interno para o modelo saber o que o código já executou."""
+    result = result or {}
+    created = result.get('created') or []
+    suggested = result.get('suggested') or []
+    lines: List[str] = []
+    if created:
+        lines.append('AÇÕES LOCAIS JÁ EXECUTADAS PELO CÓDIGO:')
+        for task in created[:6]:
+            kind = 'lembrete' if task.get('item_type') == 'REMINDER' else 'tarefa'
+            detail = f"- {kind} adicionado ao Focus: {task.get('title', '')}"
+            if task.get('place_context') not in {None, '', 'anywhere'}:
+                detail += f" (lugar: {task['place_context']})"
+            lines.append(detail)
+        lines.append('Confirme de forma breve e natural que a ação já foi concluída; não diga que apenas tentará fazer.')
+    if suggested:
+        lines.append(
+            f"O código enviou {len(suggested)} item(ns) duvidoso(s) para a Buds Inbox; "
+            'explique que aguardam confirmação, sem afirmar que viraram tarefa.'
+        )
+    return '\n'.join(lines)
+
+
+def trigger_arrival_reminders(place_context: str) -> List[Dict[str, Any]]:
+    """Consome uma vez lembretes explícitos vinculados à chegada em um lugar."""
+    if place_context not in FOCUS_PLACE_CONTEXTS - {'anywhere'}:
+        return []
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """SELECT id FROM focus_tasks
+               WHERE completed=0 AND trigger_on_arrival=1 AND place_context=? AND deleted_at IS NULL
+               ORDER BY CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
+                        created_at ASC""",
+            (place_context,),
+        ).fetchall()
+        task_ids = [int(row['id']) for row in rows]
+        if task_ids:
+            placeholders = ','.join('?' for _ in task_ids)
+            conn.execute(
+                f"UPDATE focus_tasks SET trigger_on_arrival=0, updated_at=? WHERE id IN ({placeholders})",
+                [datetime.utcnow().isoformat(), *task_ids],
+            )
+            for task_id in task_ids:
+                local_sync.mark_local_focus_change(conn, task_id)
+            conn.commit()
+    triggered: List[Dict[str, Any]] = []
+    for task_id in task_ids:
+        task = get_focus_task(task_id)
+        triggered.append(task)
+        log_timeline_event(
+            'location_reminder_triggered',
+            task['title'],
+            {'place_context': place_context, 'task_id': task_id},
+        )
+    return triggered
 
 def _sanitize_analyzed_items(items: Any) -> List[Dict[str, Any]]:
     clean_items: List[Dict[str, Any]] = []

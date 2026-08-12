@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { addProtocol, LngLatBounds, Map as MapLibre, NavigationControl } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -135,15 +135,30 @@ function darkVectorStyle(
 export function MapaInterativoEscuro({
   latitude, longitude, places, routePoints = [],
 }: MapaInterativoEscuroProps) {
-  if (USE_DIRECT_IOS_SOURCE) {
+  const [useRasterFallback, setUseRasterFallback] = useState(false)
+  const enableRasterFallback = useCallback(() => setUseRasterFallback(true), [])
+
+  if (USE_DIRECT_IOS_SOURCE || useRasterFallback) {
     return <MapaRasterIOS latitude={latitude} longitude={longitude} places={places} routePoints={routePoints} />
   }
-  return <MapaVetorial latitude={latitude} longitude={longitude} places={places} routePoints={routePoints} />
+  return (
+    <MapaVetorial
+      latitude={latitude}
+      longitude={longitude}
+      places={places}
+      routePoints={routePoints}
+      onUnavailable={enableRasterFallback}
+    />
+  )
+}
+
+interface MapaVetorialProps extends Required<MapaInterativoEscuroProps> {
+  onUnavailable: () => void
 }
 
 function MapaVetorial({
-  latitude, longitude, places, routePoints,
-}: Required<MapaInterativoEscuroProps>) {
+  latitude, longitude, places, routePoints, onUnavailable,
+}: MapaVetorialProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const [mapError, setMapError] = useState('')
@@ -153,6 +168,9 @@ function MapaVetorial({
     if (!USE_DIRECT_IOS_SOURCE) ensureOfflineProtocol()
     setMapError('')
     let map: MapLibreMap | null = null
+    let failures = 0
+    let loaded = false
+    let loadTimeout: number | undefined
     try {
       const createdMap = new MapLibre({
         container: containerRef.current,
@@ -166,21 +184,33 @@ function MapaVetorial({
       })
       map = createdMap
       createdMap.addControl(new NavigationControl({ showCompass: false }), 'top-right')
+      loadTimeout = window.setTimeout(() => {
+        if (!loaded) onUnavailable()
+      }, 12_000)
+      createdMap.once('load', () => {
+        loaded = true
+        if (loadTimeout) window.clearTimeout(loadTimeout)
+      })
       createdMap.on('error', event => {
         const message = event.error?.message ?? ''
-        if (message && !message.includes('AbortError')) setMapError('Algumas partes do mapa não estão disponíveis offline.')
+        if (!message || message.includes('AbortError')) return
+        failures += 1
+        setMapError('Carregando uma fonte de mapa compatível…')
+        if (failures >= 3) onUnavailable()
       })
       mapRef.current = createdMap
     } catch (reason) {
-      setMapError(reason instanceof Error ? reason.message : 'Não foi possível montar o mapa vetorial.')
+      console.warn('[BudsMap] Renderizador vetorial indisponível; usando mapa raster.', reason)
+      onUnavailable()
     }
     return () => {
+      if (loadTimeout) window.clearTimeout(loadTimeout)
       mapRef.current = null
       map?.remove()
     }
     // O mapa é criado uma vez; fontes são atualizadas no efeito abaixo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [onUnavailable])
 
   useEffect(() => {
     const map = mapRef.current

@@ -30,7 +30,11 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>O Buds Memory usa a rede local para conectar este iPhone ao modelo e às memórias armazenadas no seu Mac.</string>
+	<string>O Buds Memory usa a rede local para parear com seu Mac e sincronizar tarefas do Focus quando você solicitar.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_budssync._tcp</string>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>O Buds Memory usa o microfone somente quando você inicia uma conversa por voz.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

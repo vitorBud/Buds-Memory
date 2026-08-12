@@ -7,6 +7,9 @@ Adiciona as tabelas do Second Brain sem tocar nas tabelas existentes
 
 import sqlite3
 import json
+import platform
+import socket
+import uuid
 from pathlib import Path
 import datetime
 from storage import get_database_path
@@ -47,6 +50,8 @@ def migrate():
         _create_focus_tasks(conn)
         _create_focus_v2_tables(conn)
         _migrate_focus_capture_columns(conn)
+        _create_local_sync_v0(conn)
+        _upgrade_local_sync_v1(conn)
         _create_location_context(conn)
         _create_chat_folders(conn)
         _migrate_session_retention(conn)
@@ -144,6 +149,182 @@ def _migrate_focus_capture_columns(conn):
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_inbox_dedup "
         "ON focus_inbox(dedup_key) WHERE dedup_key IS NOT NULL AND status='pending'"
+    )
+
+
+def _create_local_sync_v0(conn):
+    """Prepara somente ``focus_tasks`` para a prova de conceito Local Sync.
+
+    O ``id`` inteiro continua sendo a chave local consumida pela UI. ``sync_uid``
+    passa a identificar a mesma tarefa entre instalações independentes.
+    """
+    _add_column_if_missing(conn, "focus_tasks", "sync_uid", "TEXT")
+    _add_column_if_missing(conn, "focus_tasks", "sync_version", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "focus_tasks", "sync_origin_device_id", "TEXT")
+    _add_column_if_missing(conn, "focus_tasks", "sync_modified_at", "TEXT")
+    _add_column_if_missing(conn, "focus_tasks", "deleted_at", "TEXT")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_device (
+            singleton       INTEGER PRIMARY KEY CHECK(singleton = 1),
+            device_id       TEXT NOT NULL UNIQUE,
+            device_name     TEXT NOT NULL,
+            device_type     TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_trusted_peers (
+            peer_device_id  TEXT PRIMARY KEY,
+            device_name     TEXT NOT NULL,
+            device_type     TEXT NOT NULL,
+            token_hash      TEXT NOT NULL,
+            paired_at       TEXT NOT NULL,
+            last_seen_at    TEXT,
+            revoked_at      TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_peer_state (
+            peer_device_id       TEXT PRIMARY KEY,
+            last_remote_seq      INTEGER NOT NULL DEFAULT 0,
+            last_acknowledged_seq INTEGER NOT NULL DEFAULT 0,
+            last_sync_at         TEXT,
+            last_error           TEXT,
+            FOREIGN KEY(peer_device_id)
+                REFERENCES local_sync_trusted_peers(peer_device_id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_changes (
+            seq              INTEGER PRIMARY KEY AUTOINCREMENT,
+            change_id        TEXT NOT NULL UNIQUE,
+            entity_type      TEXT NOT NULL CHECK(entity_type = 'focus_task'),
+            entity_uid       TEXT NOT NULL,
+            entity_version   INTEGER NOT NULL,
+            origin_device_id TEXT NOT NULL,
+            changed_at       TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_tasks_sync_uid "
+        "ON focus_tasks(sync_uid) WHERE sync_uid IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_local_sync_changes_seq "
+        "ON local_sync_changes(seq, entity_type)"
+    )
+
+    now = datetime.datetime.utcnow().isoformat()
+    existing_device = conn.execute(
+        "SELECT device_id FROM local_sync_device WHERE singleton=1"
+    ).fetchone()
+    if existing_device:
+        device_id = str(existing_device["device_id"])
+    else:
+        system = platform.system().lower()
+        device_type = "mac" if system == "darwin" else ("windows" if system == "windows" else "desktop")
+        device_id = str(uuid.uuid4())
+        device_name = socket.gethostname().split(".", 1)[0] or "Buds Desktop"
+        conn.execute(
+            """INSERT INTO local_sync_device
+               (singleton,device_id,device_name,device_type,created_at,updated_at)
+               VALUES (1,?,?,?,?,?)""",
+            (device_id, device_name[:100], device_type, now, now),
+        )
+
+    # Tarefas anteriores à V0 tornam-se mudanças locais iniciais. A migração é
+    # idempotente: somente linhas ainda sem UUID entram no change log.
+    legacy_rows = conn.execute(
+        "SELECT id,updated_at FROM focus_tasks WHERE sync_uid IS NULL OR sync_uid=''"
+    ).fetchall()
+    for row in legacy_rows:
+        task_uid = str(uuid.uuid4())
+        modified_at = str(row["updated_at"] or now)
+        conn.execute(
+            """UPDATE focus_tasks
+               SET sync_uid=?,sync_version=1,sync_origin_device_id=?,sync_modified_at=?
+               WHERE id=?""",
+            (task_uid, device_id, modified_at, int(row["id"])),
+        )
+        conn.execute(
+            """INSERT INTO local_sync_changes
+               (change_id,entity_type,entity_uid,entity_version,origin_device_id,changed_at)
+               VALUES (?,'focus_task',?,?,?,?)""",
+            (str(uuid.uuid4()), task_uid, 1, device_id, modified_at),
+        )
+
+
+def _upgrade_local_sync_v1(conn):
+    """Adiciona presença, histórico e métricas sem substituir o motor da V0."""
+    _add_column_if_missing(conn, "local_sync_trusted_peers", "protocol_version", "INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(conn, "local_sync_trusted_peers", "app_version", "TEXT")
+    _add_column_if_missing(conn, "local_sync_trusted_peers", "capabilities", "TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(conn, "local_sync_trusted_peers", "last_presence_at", "TEXT")
+    _add_column_if_missing(conn, "local_sync_peer_state", "last_sent_count", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "local_sync_peer_state", "last_received_count", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "local_sync_peer_state", "total_sent_count", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "local_sync_peer_state", "total_received_count", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "local_sync_peer_state", "last_duration_ms", "REAL")
+    _add_column_if_missing(conn, "local_sync_peer_state", "last_bytes_sent", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "local_sync_peer_state", "last_bytes_received", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "local_sync_peer_state", "conflict_count", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "local_sync_peer_state", "retry_count", "INTEGER NOT NULL DEFAULT 0")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_requests (
+            request_id      TEXT PRIMARY KEY,
+            peer_device_id  TEXT NOT NULL,
+            requested_at    TEXT NOT NULL,
+            consumed_at     TEXT,
+            FOREIGN KEY(peer_device_id)
+                REFERENCES local_sync_trusted_peers(peer_device_id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_history (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            peer_device_id  TEXT NOT NULL,
+            status          TEXT NOT NULL,
+            sent_count      INTEGER NOT NULL DEFAULT 0,
+            received_count  INTEGER NOT NULL DEFAULT 0,
+            conflict_count  INTEGER NOT NULL DEFAULT 0,
+            bytes_sent      INTEGER NOT NULL DEFAULT 0,
+            bytes_received  INTEGER NOT NULL DEFAULT 0,
+            duration_ms     REAL,
+            error_message   TEXT,
+            created_at      TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_exchanges (
+            exchange_id TEXT PRIMARY KEY,
+            peer_device_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'awaiting_ack',
+            server_cursor INTEGER NOT NULL DEFAULT 0,
+            ack_client_seq INTEGER NOT NULL DEFAULT 0,
+            sent_count INTEGER NOT NULL DEFAULT 0,
+            received_count INTEGER NOT NULL DEFAULT 0,
+            bytes_sent INTEGER NOT NULL DEFAULT 0,
+            bytes_received INTEGER NOT NULL DEFAULT 0,
+            duration_ms REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            acknowledged_at TEXT,
+            FOREIGN KEY(peer_device_id)
+                REFERENCES local_sync_trusted_peers(peer_device_id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_local_sync_history_peer "
+        "ON local_sync_history(peer_device_id, id DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_local_sync_requests_peer "
+        "ON local_sync_requests(peer_device_id, requested_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_local_sync_exchanges_peer "
+        "ON local_sync_exchanges(peer_device_id, created_at DESC)"
     )
 
 

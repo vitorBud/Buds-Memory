@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   BarChart3,
+  CircleHelp,
   Database,
   FileText,
+  GitBranch,
   LockKeyhole,
+  MousePointer2,
   Minus,
   Network,
   Pin,
@@ -58,6 +61,13 @@ interface MemoryLink {
   targetId: string
   relationType: string
   strength: number
+  evidence: 'saved' | 'classification' | 'semantic'
+}
+
+interface SemanticCandidate {
+  id: string
+  tokens: Set<string>
+  label: string
 }
 
 const PERIODS: Array<{ id: MemoryPeriod; label: string }> = [
@@ -115,6 +125,7 @@ const GRAPH_WIDTH = 1000
 const GRAPH_HEIGHT = 860
 const GRAPH_CENTER_X = GRAPH_WIDTH / 2
 const GRAPH_CENTER_Y = GRAPH_HEIGHT / 2
+const OBSIDIAN_GUIDE_STORAGE_KEY = 'buds-obsidian-guide-seen-v1'
 
 const SEMANTIC_STOP_WORDS = new Set([
   'ainda', 'algo', 'apenas', 'aquela', 'aquele', 'aqui', 'cada', 'como',
@@ -123,7 +134,7 @@ const SEMANTIC_STOP_WORDS = new Set([
   'memoria', 'mesmo', 'minha', 'muito', 'nao', 'nas', 'nos', 'para',
   'pela', 'pelo', 'por', 'porque', 'qual', 'quando', 'que', 'seu', 'sua',
   'sobre', 'tambem', 'tem', 'uma', 'voce',
-  'short', 'medium', 'long', 'archive', 'core',
+  'short', 'medium', 'long', 'archive', 'core', 'iphone', 'local',
 ])
 
 function normalize(text: string) {
@@ -179,6 +190,51 @@ function sharedSemanticScore(left: Set<string>, right: Set<string>) {
   return {
     shared,
     score: shared / Math.max(2, Math.min(left.size, right.size)),
+  }
+}
+
+function containsSemanticLabel(text: string, label: string) {
+  const normalizedLabel = normalize(label)
+  if (normalizedLabel.length < 4) return false
+  return ` ${normalize(text)} `.includes(` ${normalizedLabel} `)
+}
+
+function formatRelationType(relationType: string) {
+  const normalizedType = normalize(relationType).replace(/[\s-]+/g, '_')
+  const labels: Record<string, string> = {
+    uses: 'usa',
+    usa: 'usa',
+    part_of: 'faz parte de',
+    faz_parte_de: 'faz parte de',
+    learned_in: 'aprendido em',
+    aprendido_em: 'aprendido em',
+    related_to: 'relacionado a',
+    created: 'criou',
+    criado_em: 'criado em',
+    depends_on: 'depende de',
+    depende_de: 'depende de',
+    extends: 'estende',
+    implements: 'implementa',
+    implementa: 'implementa',
+    applies_to: 'aplica-se a',
+    mentions: 'menciona',
+    mencionado_em: 'mencionado em',
+    documentado_em: 'documentado em',
+  }
+  return labels[normalizedType] ?? relationType.replace(/[_-]+/g, ' ')
+}
+
+function evidenceLabel(evidence: MemoryLink['evidence']) {
+  if (evidence === 'semantic') return 'contexto provável'
+  if (evidence === 'classification') return 'organização do Buds'
+  return 'relação confirmada'
+}
+
+function shouldShowObsidianGuide() {
+  try {
+    return window.localStorage.getItem(OBSIDIAN_GUIDE_STORAGE_KEY) !== '1'
+  } catch {
+    return true
   }
 }
 
@@ -376,6 +432,7 @@ function buildMemoryGraph(
         targetId: topicId,
         relationType: 'contém tópico',
         strength: 0.72,
+        evidence: 'saved',
       })
     })
   })
@@ -409,6 +466,7 @@ function buildMemoryGraph(
         targetId: `fonte-${memory.source_id}`,
         relationType: 'originada de',
         strength: 0.9,
+        evidence: 'saved',
       })
     }
 
@@ -435,6 +493,7 @@ function buildMemoryGraph(
         targetId: topicId,
         relationType: 'marcada com',
         strength: 0.84,
+        evidence: 'saved',
       })
     })
 
@@ -457,6 +516,7 @@ function buildMemoryGraph(
         targetId: categoryId,
         relationType: 'tipo de memória',
         strength: 0.72,
+        evidence: 'classification',
       })
     }
   })
@@ -499,6 +559,7 @@ function buildMemoryGraph(
       targetId: categoryId,
       relationType: 'classificada como',
       strength: 0.76,
+      evidence: 'classification',
     })
   })
 
@@ -506,29 +567,34 @@ function buildMemoryGraph(
     const sourceId = entityIdByName.get(normalize(edge.source))
     const targetId = entityIdByName.get(normalize(edge.target))
     if (!sourceId || !targetId) return
+    if (normalize(edge.relation_type).replace(/\s+/g, '_') === 'related_to' && edge.strength < 0.45) return
     addLink({
       id: `kg-${sourceId}-${targetId}-${edge.relation_type}-${index}`,
       sourceId,
       targetId,
       relationType: edge.relation_type,
       strength: Number.isFinite(edge.strength) ? edge.strength : 0.5,
+      evidence: 'saved',
     })
   })
 
   const connectByMeaning = (
     sourceId: string,
+    sourceText: string,
     sourceTokens: Set<string>,
-    candidates: Array<[string, Set<string>]>,
+    candidates: SemanticCandidate[],
     relationType: string,
     limit: number,
+    minShared = 2,
   ) => {
     candidates
-      .map(([targetId, targetTokens]) => ({
-        targetId,
-        ...sharedSemanticScore(sourceTokens, targetTokens),
+      .map(candidate => ({
+        targetId: candidate.id,
+        exactLabel: containsSemanticLabel(sourceText, candidate.label),
+        ...sharedSemanticScore(sourceTokens, candidate.tokens),
       }))
-      .filter(match => match.shared >= 2 || (match.shared === 1 && match.score >= 0.34))
-      .sort((a, b) => b.score - a.score || b.shared - a.shared)
+      .filter(match => match.exactLabel || (match.shared >= minShared && match.score >= 0.22))
+      .sort((a, b) => Number(b.exactLabel) - Number(a.exactLabel) || b.score - a.score || b.shared - a.shared)
       .slice(0, limit)
       .forEach(match => {
         addLink({
@@ -536,25 +602,45 @@ function buildMemoryGraph(
           sourceId,
           targetId: match.targetId,
           relationType,
-          strength: Math.min(0.82, 0.48 + match.score * 0.38),
+          strength: match.exactLabel ? 0.76 : Math.min(0.78, 0.5 + match.score * 0.32),
+          evidence: 'semantic',
         })
       })
   }
 
   const topicSemanticTokens = rawNodes
-    .filter(node => node.kind === 'topico')
-    .map(node => [node.id, semanticTokens(node.label, ...node.tags)] as [string, Set<string>])
-  const entityCandidates = [...entitySemanticTokens.entries()]
-  const sourceCandidates = [...sourceSemanticTokens.entries()]
+    .filter(node => node.kind === 'topico' && !node.id.startsWith('categoria-'))
+    .map(node => ({ id: node.id, tokens: semanticTokens(node.label, ...node.tags), label: node.label }))
+  const entityCandidates = rawNodes
+    .filter(node => node.kind === 'entidade')
+    .map(node => ({ id: node.id, tokens: entitySemanticTokens.get(node.id) ?? new Set<string>(), label: node.label }))
+  const sourceCandidates = rawNodes
+    .filter(node => node.kind === 'fonte')
+    .map(node => ({ id: node.id, tokens: sourceSemanticTokens.get(node.id) ?? new Set<string>(), label: node.label }))
+  const memoryCandidates = rawNodes
+    .filter(node => node.kind === 'memoria')
+    .map(node => ({ id: node.id, tokens: memorySemanticTokens.get(node.id) ?? new Set<string>(), label: node.label }))
 
   memorySemanticTokens.forEach((tokens, memoryId) => {
-    connectByMeaning(memoryId, tokens, entityCandidates, 'menciona conceito', 3)
-    connectByMeaning(memoryId, tokens, topicSemanticTokens, 'relacionada ao tópico', 3)
-    connectByMeaning(memoryId, tokens, sourceCandidates, 'contexto compartilhado', 2)
+    const memory = rawNodes.find(node => node.id === memoryId)
+    const sourceText = [memory?.label, memory?.summary, ...(memory?.tags ?? [])].filter(Boolean).join(' ')
+    connectByMeaning(memoryId, sourceText, tokens, entityCandidates, 'menciona conceito', 2)
+    connectByMeaning(memoryId, sourceText, tokens, topicSemanticTokens, 'relacionada ao tópico', 2)
+    connectByMeaning(memoryId, sourceText, tokens, sourceCandidates, 'contexto compartilhado', 1, 3)
+    connectByMeaning(
+      memoryId,
+      sourceText,
+      tokens,
+      memoryCandidates.filter(candidate => candidate.id > memoryId),
+      'assunto em comum',
+      2,
+    )
   })
 
   sourceSemanticTokens.forEach((tokens, sourceId) => {
-    connectByMeaning(sourceId, tokens, entityCandidates, 'menciona conceito', 4)
+    const source = rawNodes.find(node => node.id === sourceId)
+    const sourceText = [source?.label, source?.summary, ...(source?.tags ?? [])].filter(Boolean).join(' ')
+    connectByMeaning(sourceId, sourceText, tokens, entityCandidates, 'menciona conceito', 3)
   })
 
   const selectedNodes = selectGraphNodes(rawNodes)
@@ -743,6 +829,7 @@ function ObsidianMemoryGraph({
                 key={link.id}
                 className={[
                   link.strength >= 0.7 ? 'is-strong' : '',
+                  `evidence-${link.evidence}`,
                   link.sourceId === selectedId || link.targetId === selectedId ? 'is-active' : '',
                 ].filter(Boolean).join(' ')}
                 x1={link.source.x}
@@ -750,7 +837,7 @@ function ObsidianMemoryGraph({
                 x2={link.target.x}
                 y2={link.target.y}
               >
-                <title>{link.relationType}</title>
+                <title>{`${formatRelationType(link.relationType)} · ${evidenceLabel(link.evidence)}`}</title>
               </line>
             ))}
           </g>
@@ -824,6 +911,7 @@ export function BrainMap({
   )
   const [selectedId, setSelectedId] = useState('')
   const [isStatsOpen, setIsStatsOpen] = useState(false)
+  const [isGuideOpen, setIsGuideOpen] = useState(shouldShowObsidianGuide)
   const [period, setPeriod] = useState<MemoryPeriod>('all')
   const [memoryAction, setMemoryAction] = useState<string | null>(null)
   const [memoryError, setMemoryError] = useState('')
@@ -864,6 +952,18 @@ export function BrainMap({
   const activeMessages = messages.filter(message => message.text !== '__thinking__')
   const graphEntityCount = knowledgeGraph?.entities.length ?? 0
   const graphEdgeCount = knowledgeGraph?.edges.length ?? 0
+  const savedLinkCount = visibleLinks.filter(link => link.evidence === 'saved').length
+  const classificationLinkCount = visibleLinks.filter(link => link.evidence === 'classification').length
+  const semanticLinkCount = visibleLinks.filter(link => link.evidence === 'semantic').length
+
+  const dismissGuide = useCallback(() => {
+    setIsGuideOpen(false)
+    try {
+      window.localStorage.setItem(OBSIDIAN_GUIDE_STORAGE_KEY, '1')
+    } catch {
+      // O guia continua dispensável mesmo quando o armazenamento local está indisponível.
+    }
+  }, [])
 
   const recentLearning = useMemo(() => {
     const memoryEvents = cognitiveMemories.slice(0, 5).map(memory => ({
@@ -994,6 +1094,15 @@ export function BrainMap({
           ))}
           <button
             type="button"
+            onClick={() => setIsGuideOpen(current => !current)}
+            aria-expanded={isGuideOpen}
+            aria-label="Explicar como funciona o mapa de memórias"
+            title="Como funciona"
+          >
+            <CircleHelp size={14} />
+          </button>
+          <button
+            type="button"
             onClick={() => setIsStatsOpen(true)}
             aria-label="Abrir estatísticas da memória"
             title="Estatísticas da memória"
@@ -1002,6 +1111,36 @@ export function BrainMap({
           </button>
         </div>
       </header>
+
+      <AnimatePresence initial={false}>
+        {isGuideOpen && (
+          <motion.section
+            className="obsidian-guide"
+            aria-label="Como funciona o mapa de memórias"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+          >
+            <div className="obsidian-guide-intro">
+              <span><Network size={18} /></span>
+              <div>
+                <strong>Este é o mapa do que o Buds aprendeu com você</strong>
+                <p>
+                  Ele reúne memórias, documentos, conceitos e tópicos. Ideias só são aproximadas
+                  quando existe evidência suficiente — o mapa não inventa ligações para preencher espaço.
+                </p>
+              </div>
+            </div>
+            <div className="obsidian-guide-steps">
+              <span><MousePointer2 size={14} /><small>Toque em um ponto para entender o conteúdo.</small></span>
+              <span><GitBranch size={14} /><small>Linha contínua: vínculo salvo. Pontilhada: organização ou contexto provável.</small></span>
+              <span><Sparkles size={14} /><small>{savedLinkCount} vínculos salvos, {classificationLinkCount} agrupamentos{semanticLinkCount ? ` e ${semanticLinkCount} aproximações` : ''}.</small></span>
+            </div>
+            <button type="button" onClick={dismissGuide}>Explorar meu mapa</button>
+          </motion.section>
+        )}
+      </AnimatePresence>
 
       <main className={`obsidian-graph-main ${selectedNode ? 'has-selection' : ''}`}>
         <ObsidianMemoryGraph
@@ -1048,7 +1187,7 @@ export function BrainMap({
                   <i style={{ background: KIND_COLOR[relation.peer.kind] }} />
                   <span>
                     <strong>{relation.peer.label}</strong>
-                    <small>{relation.relationType}</small>
+                    <small>{formatRelationType(relation.relationType)} · {evidenceLabel(relation.evidence)}</small>
                   </span>
                 </button>
               )) : (
@@ -1069,10 +1208,10 @@ export function BrainMap({
         </div>
 
         <div className="obsidian-graph-stats">
-          <div><span>Nós</span><strong>{visibleNodes.length}</strong></div>
+          <div><span>Pontos</span><strong>{visibleNodes.length}</strong></div>
           <div><span>Memórias</span><strong>{cognitiveMemories.length}</strong></div>
           <div><span>Docs</span><strong>{knowledgeSources.length}</strong></div>
-          <div><span>Relações</span><strong>{visibleLinks.length}</strong></div>
+          <div><span>Conexões</span><strong>{visibleLinks.length}</strong></div>
         </div>
       </main>
 
@@ -1147,6 +1286,11 @@ export function BrainMap({
                 <span>Relações KG</span>
                 <strong>{graphEdgeCount}</strong>
                 <small>salvas no banco</small>
+              </div>
+              <div className="brain-stat-card">
+                <span>Aproximações</span>
+                <strong>{semanticLinkCount}</strong>
+                <small>por contexto forte</small>
               </div>
               <div className="brain-stat-card">
                 <span>Mensagens</span>

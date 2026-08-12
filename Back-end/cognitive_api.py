@@ -28,6 +28,7 @@ from cognitive import (
     conversation,
     focus,
     location,
+    location_context,
 )
 import database_v2 as dbv2
 from database_v2 import get_db_connection
@@ -903,9 +904,16 @@ def get_location_context():
         "policy": {
             "continuous_gps": False,
             "precise_only_on_demand": True,
-            "coordinates_sent_to_model": False,
+            "coordinates_sent_to_model": True,
+            "coordinates_mode": "explicit_request_only",
         },
     })
+
+
+@cognitive_bp.get("/location/semantic-context")
+def get_semantic_location_context():
+    """Diagnóstico sem coordenadas do Context Engine."""
+    return _ok(location_context.current_context())
 
 
 @cognitive_bp.post("/location/places")

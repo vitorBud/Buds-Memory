@@ -303,6 +303,8 @@ public final class BudsLocalStore: @unchecked Sendable {
     public func clearAllData() throws {
         try queue.sync {
             try transaction {
+                try execute("DELETE FROM local_sync_changes")
+                try execute("DELETE FROM local_sync_peer_state")
                 try execute("DELETE FROM location_route_points")
                 try execute("DELETE FROM location_routes")
                 try execute("DELETE FROM location_events")
@@ -317,8 +319,12 @@ public final class BudsLocalStore: @unchecked Sendable {
                 try execute("DELETE FROM memories")
                 try execute("DELETE FROM sessions")
                 try execute("DELETE FROM chat_folders")
+                try execute("DELETE FROM local_sync_device")
                 try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox', 'location_places', 'location_events', 'location_routes', 'location_route_points')")
             }
+            // Limpeza total também revoga a identidade local anterior. Uma
+            // nova instalação lógica precisa parear novamente antes de trocar dados.
+            try migrateLocalSyncV0()
             try? execute("PRAGMA wal_checkpoint(TRUNCATE)")
             try? execute("VACUUM")
         }
@@ -525,7 +531,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 SELECT id, title, category, priority, completed, is_focus, created_at, updated_at, due_date,
                        item_type, source, source_session_id, source_message_id, confidence,
                        place_context, trigger_on_arrival
-                FROM focus_tasks
+                FROM focus_tasks WHERE deleted_at IS NULL
                 ORDER BY completed ASC,
                          CASE WHEN place_context = 'anywhere' OR place_context = ? THEN 0 ELSE 1 END ASC,
                          CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
@@ -537,6 +543,45 @@ public final class BudsLocalStore: @unchecked Sendable {
             var records: [BudsFocusTaskRecord] = []
             while sqlite3_step(statement) == SQLITE_ROW {
                 records.append(focusTaskRecord(statement, currentContext: currentContext))
+            }
+            return records.sorted {
+                if $0.completed != $1.completed { return !$0.completed }
+                if $0.contextualScore != $1.contextualScore { return $0.contextualScore > $1.contextualScore }
+                return $0.createdAt > $1.createdAt
+            }
+        }
+    }
+
+    public func consumeArrivalReminders(context: String) throws -> [BudsFocusTaskRecord] {
+        try queue.sync {
+            try ensureWritable()
+            guard Self.locationTaskContexts.contains(context), context != "anywhere" else { return [] }
+            let lookup = try prepare(
+                """
+                SELECT id FROM focus_tasks
+                WHERE completed=0 AND trigger_on_arrival=1 AND place_context=? AND deleted_at IS NULL
+                ORDER BY CASE priority WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC,
+                         created_at ASC
+                """
+            )
+            bind(context, lookup, 1)
+            var ids: [Int64] = []
+            while sqlite3_step(lookup) == SQLITE_ROW { ids.append(sqlite3_column_int64(lookup, 0)) }
+            sqlite3_finalize(lookup)
+            guard !ids.isEmpty else { return [] }
+
+            var records: [BudsFocusTaskRecord] = []
+            for id in ids {
+                let update = try prepare("UPDATE focus_tasks SET trigger_on_arrival=0,updated_at=? WHERE id=?")
+                bind(Self.now(), update, 1)
+                sqlite3_bind_int64(update, 2, id)
+                try stepDone(update)
+                sqlite3_finalize(update)
+                try markFocusTaskChanged(id: id)
+                if let task = try focusTask(id: id) {
+                    records.append(task)
+                    try logFocusEvent(eventType: "location_reminder_triggered", title: task.title)
+                }
             }
             return records
         }
@@ -563,7 +608,7 @@ public final class BudsLocalStore: @unchecked Sendable {
             let cleanPlace = Self.locationTaskContexts.contains(placeContext) ? placeContext : "anywhere"
 
             let duplicate = try prepare(
-                "SELECT id FROM focus_tasks WHERE completed = 0 AND lower(trim(title)) = lower(trim(?)) AND place_context = ? LIMIT 1"
+                "SELECT id FROM focus_tasks WHERE completed = 0 AND deleted_at IS NULL AND lower(trim(title)) = lower(trim(?)) AND place_context = ? LIMIT 1"
             )
             bind(cleanTitle, duplicate, 1)
             bind(cleanPlace, duplicate, 2)
@@ -577,7 +622,11 @@ public final class BudsLocalStore: @unchecked Sendable {
             }
             sqlite3_finalize(duplicate)
 
-            if isFocus { try execute("UPDATE focus_tasks SET is_focus = 0") }
+            var previousFocusIds: [Int64] = []
+            if isFocus {
+                previousFocusIds = try activeFocusTaskIds(excluding: nil)
+                try execute("UPDATE focus_tasks SET is_focus = 0 WHERE deleted_at IS NULL")
+            }
             let now = Self.now()
             let statement = try prepare(
                 """
@@ -600,6 +649,8 @@ public final class BudsLocalStore: @unchecked Sendable {
             sqlite3_bind_int(statement, 10, triggerOnArrival && cleanPlace != "anywhere" ? 1 : 0)
             try stepDone(statement)
             let id = sqlite3_last_insert_rowid(database)
+            for previousId in previousFocusIds { try markFocusTaskChanged(id: previousId) }
+            try markFocusTaskChanged(id: id)
             try logFocusEvent(eventType: itemType == "REMINDER" ? "reminder_created" : "task_created", title: cleanTitle)
             guard let created = try focusTask(id: id) else {
                 throw BudsNativeError.databaseUnavailable("Não foi possível recuperar a tarefa criada.")
@@ -630,7 +681,14 @@ public final class BudsLocalStore: @unchecked Sendable {
             let nextIsFocus = isFocus ?? current.isFocus
             let nextPlace = placeContext.flatMap { Self.locationTaskContexts.contains($0) ? $0 : nil } ?? current.placeContext
             let nextArrival = (triggerOnArrival ?? current.triggerOnArrival) && nextPlace != "anywhere"
-            if nextIsFocus { try execute("UPDATE focus_tasks SET is_focus = 0") }
+            var previousFocusIds: [Int64] = []
+            if nextIsFocus {
+                previousFocusIds = try activeFocusTaskIds(excluding: id)
+                let clear = try prepare("UPDATE focus_tasks SET is_focus=0 WHERE id<>? AND deleted_at IS NULL")
+                sqlite3_bind_int64(clear, 1, id)
+                try stepDone(clear)
+                sqlite3_finalize(clear)
+            }
 
             let statement = try prepare(
                 """
@@ -651,6 +709,8 @@ public final class BudsLocalStore: @unchecked Sendable {
             sqlite3_bind_int(statement, 8, nextArrival ? 1 : 0)
             sqlite3_bind_int64(statement, 9, id)
             try stepDone(statement)
+            for previousId in previousFocusIds { try markFocusTaskChanged(id: previousId) }
+            try markFocusTaskChanged(id: id)
 
             if let completed, completed != current.completed {
                 try logFocusEvent(
@@ -670,10 +730,244 @@ public final class BudsLocalStore: @unchecked Sendable {
     public func deleteFocusTask(id: Int64) throws {
         try queue.sync {
             try ensureWritable()
-            let statement = try prepare("DELETE FROM focus_tasks WHERE id = ?")
+            let statement = try prepare("UPDATE focus_tasks SET deleted_at=? WHERE id=? AND deleted_at IS NULL")
             defer { sqlite3_finalize(statement) }
-            sqlite3_bind_int64(statement, 1, id)
+            bind(Self.now(), statement, 1)
+            sqlite3_bind_int64(statement, 2, id)
             try stepDone(statement)
+            if sqlite3_changes(database) > 0 { try markFocusTaskChanged(id: id) }
+        }
+    }
+
+    // MARK: - Buds Local Sync V0 (somente Focus Tasks)
+
+    public func localSyncDevice() throws -> BudsLocalSyncDeviceRecord {
+        try queue.sync { try localSyncDeviceInsideQueue() }
+    }
+
+    public func localSyncPeerState(peerDeviceId: String) throws -> BudsLocalSyncPeerStateRecord? {
+        try queue.sync { try localSyncPeerStateInsideQueue(peerDeviceId: peerDeviceId) }
+    }
+
+    public func localSyncPeers() throws -> [BudsLocalSyncPeerStateRecord] {
+        try queue.sync {
+            let statement = try prepare("SELECT peer_device_id FROM local_sync_peer_state ORDER BY last_sync_at DESC,peer_name")
+            defer { sqlite3_finalize(statement) }
+            var ids: [String] = []
+            while sqlite3_step(statement) == SQLITE_ROW { ids.append(text(statement, 0)) }
+            return try ids.compactMap { try localSyncPeerStateInsideQueue(peerDeviceId: $0) }
+        }
+    }
+
+    public func trustLocalSyncPeer(
+        peerDeviceId: String,
+        peerName: String,
+        peerType: String,
+        baseURL: String,
+        protocolVersion: Int = 1,
+        appVersion: String? = nil,
+        capabilities: [String] = []
+    ) throws -> BudsLocalSyncPeerStateRecord {
+        try queue.sync {
+            try ensureWritable()
+            let statement = try prepare("""
+                INSERT INTO local_sync_peer_state
+                    (peer_device_id,peer_name,peer_type,base_url,trusted,last_remote_seq,last_acknowledged_seq,
+                     protocol_version,app_version,capabilities)
+                VALUES (?,?,?,?,1,0,0,?,?,?)
+                ON CONFLICT(peer_device_id) DO UPDATE SET
+                    peer_name=excluded.peer_name,
+                    peer_type=excluded.peer_type,
+                    base_url=excluded.base_url,
+                    protocol_version=excluded.protocol_version,
+                    app_version=excluded.app_version,
+                    capabilities=excluded.capabilities,
+                    trusted=1,
+                    last_error=NULL
+                """)
+            defer { sqlite3_finalize(statement) }
+            bind(peerDeviceId, statement, 1)
+            bind(String(peerName.prefix(100)), statement, 2)
+            bind(String(peerType.prefix(30)), statement, 3)
+            bind(baseURL, statement, 4)
+            sqlite3_bind_int(statement, 5, Int32(protocolVersion))
+            bind(appVersion ?? "", statement, 6)
+            bind((try? String(data: JSONEncoder().encode(capabilities), encoding: .utf8)) ?? "[]", statement, 7)
+            try stepDone(statement)
+            guard let peer = try localSyncPeerStateInsideQueue(peerDeviceId: peerDeviceId) else {
+                throw BudsNativeError.databaseUnavailable("Não foi possível salvar o Mac pareado.")
+            }
+            return peer
+        }
+    }
+
+    public func pendingLocalSyncFocusChanges(peerDeviceId: String, limit: Int = 500) throws -> [BudsLocalSyncChangeRecord] {
+        try queue.sync {
+            let cursor = try localSyncPeerStateInsideQueue(peerDeviceId: peerDeviceId)?.lastAcknowledgedSeq ?? 0
+            let statement = try prepare("""
+                SELECT c.seq,c.change_id,c.entity_uid
+                FROM local_sync_changes c
+                JOIN (
+                    SELECT entity_uid,MAX(seq) AS max_seq
+                    FROM local_sync_changes
+                    WHERE seq>? AND entity_type='focus_task'
+                    GROUP BY entity_uid
+                ) latest ON latest.max_seq=c.seq
+                ORDER BY c.seq ASC LIMIT ?
+                """)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, cursor)
+            sqlite3_bind_int(statement, 2, Int32(max(1, min(limit, 500))))
+            var changes: [BudsLocalSyncChangeRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let seq = sqlite3_column_int64(statement, 0)
+                let changeId = text(statement, 1)
+                let uid = text(statement, 2)
+                if let task = try syncFocusTask(uid: uid) {
+                    changes.append(BudsLocalSyncChangeRecord(localSeq: seq, changeId: changeId, task: task))
+                }
+            }
+            return changes
+        }
+    }
+
+    public func applyLocalSyncFocusExchange(
+        peerDeviceId: String,
+        baseURL: String,
+        remoteChanges: [BudsLocalSyncChangeRecord],
+        serverCursor: Int64,
+        acknowledgedClientSeq: Int64,
+        sentCount: Int
+    ) throws -> BudsLocalSyncApplyResult {
+        try queue.sync {
+            try ensureWritable()
+            var received = 0
+            var changed = 0
+            var conflicts = 0
+            try transaction {
+                for change in remoteChanges {
+                    let duplicate = try prepare("SELECT 1 FROM local_sync_changes WHERE change_id=? LIMIT 1")
+                    bind(change.changeId, duplicate, 1)
+                    let alreadyApplied = sqlite3_step(duplicate) == SQLITE_ROW
+                    sqlite3_finalize(duplicate)
+                    if alreadyApplied { continue }
+                    received += 1
+                    let incoming = change.task
+                    try validateRemoteSyncTask(incoming)
+                    let current = try syncFocusTask(uid: incoming.syncUid)
+                    let incomingClock = (incoming.syncVersion, incoming.syncOriginDeviceId)
+                    let currentClock = current.map { ($0.syncVersion, $0.syncOriginDeviceId) }
+                    let wins = currentClock == nil
+                        || incomingClock.0 > currentClock!.0
+                        || (incomingClock.0 == currentClock!.0 && incomingClock.1 > currentClock!.1)
+                    if let currentClock, incomingClock.0 == currentClock.0,
+                       incomingClock.1 != currentClock.1 {
+                        conflicts += 1
+                    }
+                    if wins {
+                        try upsertRemoteFocusTask(incoming)
+                        changed += 1
+                    }
+                    try insertSyncChange(
+                        changeId: change.changeId,
+                        entityUid: incoming.syncUid,
+                        version: incoming.syncVersion,
+                        originDeviceId: incoming.syncOriginDeviceId,
+                        changedAt: incoming.syncModifiedAt
+                    )
+                }
+                let state = try prepare("""
+                    UPDATE local_sync_peer_state
+                    SET base_url=?,last_remote_seq=?,last_acknowledged_seq=?,last_error=NULL,
+                        conflict_count=conflict_count+?
+                    WHERE peer_device_id=? AND trusted=1
+                    """)
+                bind(baseURL, state, 1)
+                sqlite3_bind_int64(state, 2, serverCursor)
+                sqlite3_bind_int64(state, 3, acknowledgedClientSeq)
+                sqlite3_bind_int(state, 4, Int32(conflicts))
+                bind(peerDeviceId, state, 5)
+                try stepDone(state)
+                sqlite3_finalize(state)
+            }
+            return BudsLocalSyncApplyResult(received: received, changed: changed, conflicts: conflicts)
+        }
+    }
+
+    public func recordLocalSyncError(peerDeviceId: String, message: String) throws {
+        try queue.sync {
+            let statement = try prepare("UPDATE local_sync_peer_state SET last_error=?,retry_count=retry_count+1 WHERE peer_device_id=?")
+            defer { sqlite3_finalize(statement) }
+            bind(String(message.prefix(500)), statement, 1)
+            bind(peerDeviceId, statement, 2)
+            try stepDone(statement)
+        }
+    }
+
+    public func recordLocalSyncSuccess(
+        peerDeviceId: String, sentCount: Int, receivedCount: Int, durationMs: Double
+    ) throws {
+        try queue.sync {
+            try transaction {
+                let state = try prepare("""
+                    UPDATE local_sync_peer_state
+                    SET last_sync_at=?,last_error=NULL,last_sent_count=?,last_received_count=?,
+                        total_sent_count=total_sent_count+?,total_received_count=total_received_count+?
+                    WHERE peer_device_id=? AND trusted=1
+                    """)
+                bind(Self.now(), state, 1)
+                sqlite3_bind_int(state, 2, Int32(sentCount))
+                sqlite3_bind_int(state, 3, Int32(receivedCount))
+                sqlite3_bind_int(state, 4, Int32(sentCount))
+                sqlite3_bind_int(state, 5, Int32(receivedCount))
+                bind(peerDeviceId, state, 6)
+                try stepDone(state)
+                sqlite3_finalize(state)
+
+                let statement = try prepare("""
+                    INSERT INTO local_sync_history
+                        (peer_device_id,status,sent_count,received_count,duration_ms,created_at)
+                    VALUES (?,'synced',?,?,?,?)
+                    """)
+                bind(peerDeviceId, statement, 1)
+                sqlite3_bind_int(statement, 2, Int32(sentCount))
+                sqlite3_bind_int(statement, 3, Int32(receivedCount))
+                sqlite3_bind_double(statement, 4, durationMs)
+                bind(Self.now(), statement, 5)
+                try stepDone(statement)
+                sqlite3_finalize(statement)
+
+                let prune = try prepare("""
+                    DELETE FROM local_sync_history WHERE id IN (
+                        SELECT id FROM local_sync_history WHERE peer_device_id=?
+                        ORDER BY id DESC LIMIT -1 OFFSET 20
+                    )
+                    """)
+                bind(peerDeviceId, prune, 1)
+                try stepDone(prune)
+                sqlite3_finalize(prune)
+            }
+        }
+    }
+
+    public func localSyncHistory(limit: Int = 20) throws -> [BudsLocalSyncHistoryRecord] {
+        try queue.sync {
+            let statement = try prepare("""
+                SELECT id,peer_device_id,status,sent_count,received_count,duration_ms,created_at
+                FROM local_sync_history ORDER BY id DESC LIMIT ?
+                """)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int(statement, 1, Int32(max(1, min(limit, 20))))
+            var records: [BudsLocalSyncHistoryRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(BudsLocalSyncHistoryRecord(
+                    id: sqlite3_column_int64(statement, 0), peerDeviceId: text(statement, 1),
+                    status: text(statement, 2), sentCount: Int(sqlite3_column_int(statement, 3)),
+                    receivedCount: Int(sqlite3_column_int(statement, 4)),
+                    durationMs: sqlite3_column_double(statement, 5), createdAt: text(statement, 6)
+                ))
+            }
+            return records
         }
     }
 
@@ -1057,13 +1351,15 @@ public final class BudsLocalStore: @unchecked Sendable {
         try queue.sync {
             guard let place = try knownPlaceInsideQueue(id: placeId) else { return try locationStateInsideQueue() }
             let previous = try locationStateInsideQueue()
-            if entering {
+            var changed = false
+            if entering && previous.placeId != place.id {
                 try writeLocationState(
                     placeId: place.id, context: place.context, status: "inside",
                     latitude: previous.latitude, longitude: previous.longitude,
                     accuracyMeters: previous.accuracyMeters, source: "geofence"
                 )
                 try logLocationEvent(placeId: place.id, eventType: "enter", context: place.context, source: "geofence")
+                changed = true
             } else if previous.placeId == place.id {
                 try writeLocationState(
                     placeId: nil, context: "away", status: "away",
@@ -1071,8 +1367,15 @@ public final class BudsLocalStore: @unchecked Sendable {
                     accuracyMeters: previous.accuracyMeters, source: "geofence"
                 )
                 try logLocationEvent(placeId: place.id, eventType: "exit", context: place.context, source: "geofence")
+                changed = true
             }
-            return try locationStateInsideQueue()
+            let updated = try locationStateInsideQueue()
+            return BudsLocationStateRecord(
+                placeId: updated.placeId, placeName: updated.placeName, context: updated.context,
+                status: updated.status, latitude: updated.latitude, longitude: updated.longitude,
+                accuracyMeters: updated.accuracyMeters, source: updated.source,
+                updatedAt: updated.updatedAt, changed: changed
+            )
         }
     }
 
@@ -1140,7 +1443,8 @@ public final class BudsLocalStore: @unchecked Sendable {
             try execute("ALTER TABLE memories ADD COLUMN origin_type TEXT NOT NULL DEFAULT 'legacy'")
         }
         try migrateFocus()
-        try execute("PRAGMA user_version=7")
+        try migrateLocalSyncV0()
+        try execute("PRAGMA user_version=8")
     }
 
     private func migrateFocus() throws {
@@ -1217,6 +1521,125 @@ public final class BudsLocalStore: @unchecked Sendable {
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_tasks_dedup ON focus_tasks(dedup_key) WHERE dedup_key IS NOT NULL AND completed = 0")
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_inbox_dedup ON focus_inbox(dedup_key) WHERE dedup_key IS NOT NULL AND status = 'pending'")
         try migrateLocation()
+    }
+
+    private func migrateLocalSyncV0() throws {
+        let columns = try tableColumns("focus_tasks")
+        if !columns.contains("sync_uid") { try execute("ALTER TABLE focus_tasks ADD COLUMN sync_uid TEXT") }
+        if !columns.contains("sync_version") { try execute("ALTER TABLE focus_tasks ADD COLUMN sync_version INTEGER NOT NULL DEFAULT 0") }
+        if !columns.contains("sync_origin_device_id") { try execute("ALTER TABLE focus_tasks ADD COLUMN sync_origin_device_id TEXT") }
+        if !columns.contains("sync_modified_at") { try execute("ALTER TABLE focus_tasks ADD COLUMN sync_modified_at TEXT") }
+        if !columns.contains("deleted_at") { try execute("ALTER TABLE focus_tasks ADD COLUMN deleted_at TEXT") }
+        try execute("""
+            CREATE TABLE IF NOT EXISTS local_sync_device (
+                singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                device_id TEXT NOT NULL UNIQUE,
+                device_name TEXT NOT NULL,
+                device_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS local_sync_peer_state (
+                peer_device_id TEXT PRIMARY KEY,
+                peer_name TEXT NOT NULL,
+                peer_type TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                trusted INTEGER NOT NULL DEFAULT 1,
+                last_remote_seq INTEGER NOT NULL DEFAULT 0,
+                last_acknowledged_seq INTEGER NOT NULL DEFAULT 0,
+                last_sync_at TEXT,
+                last_error TEXT,
+                protocol_version INTEGER NOT NULL DEFAULT 1,
+                app_version TEXT,
+                capabilities TEXT NOT NULL DEFAULT '[]',
+                last_sent_count INTEGER NOT NULL DEFAULT 0,
+                last_received_count INTEGER NOT NULL DEFAULT 0,
+                total_sent_count INTEGER NOT NULL DEFAULT 0,
+                total_received_count INTEGER NOT NULL DEFAULT 0,
+                conflict_count INTEGER NOT NULL DEFAULT 0
+            )
+            """)
+        let peerColumns = try tableColumns("local_sync_peer_state")
+        if !peerColumns.contains("protocol_version") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN protocol_version INTEGER NOT NULL DEFAULT 1") }
+        if !peerColumns.contains("app_version") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN app_version TEXT") }
+        if !peerColumns.contains("capabilities") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN capabilities TEXT NOT NULL DEFAULT '[]'") }
+        if !peerColumns.contains("last_sent_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN last_sent_count INTEGER NOT NULL DEFAULT 0") }
+        if !peerColumns.contains("last_received_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN last_received_count INTEGER NOT NULL DEFAULT 0") }
+        if !peerColumns.contains("total_sent_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN total_sent_count INTEGER NOT NULL DEFAULT 0") }
+        if !peerColumns.contains("total_received_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN total_received_count INTEGER NOT NULL DEFAULT 0") }
+        if !peerColumns.contains("conflict_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN conflict_count INTEGER NOT NULL DEFAULT 0") }
+        if !peerColumns.contains("retry_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0") }
+        try execute("""
+            CREATE TABLE IF NOT EXISTS local_sync_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                peer_device_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                sent_count INTEGER NOT NULL DEFAULT 0,
+                received_count INTEGER NOT NULL DEFAULT 0,
+                duration_ms REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_local_sync_history_peer ON local_sync_history(peer_device_id,id DESC)")
+        try execute("""
+            CREATE TABLE IF NOT EXISTS local_sync_changes (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                change_id TEXT NOT NULL UNIQUE,
+                entity_type TEXT NOT NULL CHECK(entity_type = 'focus_task'),
+                entity_uid TEXT NOT NULL,
+                entity_version INTEGER NOT NULL,
+                origin_device_id TEXT NOT NULL,
+                changed_at TEXT NOT NULL
+            )
+            """)
+        try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_tasks_sync_uid ON focus_tasks(sync_uid) WHERE sync_uid IS NOT NULL")
+        try execute("CREATE INDEX IF NOT EXISTS idx_local_sync_changes_seq ON local_sync_changes(seq, entity_type)")
+
+        let deviceStatement = try prepare("SELECT device_id FROM local_sync_device WHERE singleton=1")
+        let existingDeviceId: String?
+        if sqlite3_step(deviceStatement) == SQLITE_ROW {
+            existingDeviceId = text(deviceStatement, 0)
+        } else {
+            existingDeviceId = nil
+        }
+        sqlite3_finalize(deviceStatement)
+        let deviceId = existingDeviceId ?? UUID().uuidString.lowercased()
+        if existingDeviceId == nil {
+            let now = Self.now()
+            let insert = try prepare("INSERT INTO local_sync_device(singleton,device_id,device_name,device_type,created_at,updated_at) VALUES (1,?,?,?,?,?)")
+            bind(deviceId, insert, 1)
+            let hostName = ProcessInfo.processInfo.hostName.trimmingCharacters(in: .whitespacesAndNewlines)
+            bind(hostName.isEmpty || hostName == "localhost" ? "iPhone" : hostName, insert, 2)
+            bind("iphone", insert, 3)
+            bind(now, insert, 4)
+            bind(now, insert, 5)
+            try stepDone(insert)
+            sqlite3_finalize(insert)
+        }
+
+        let legacy = try prepare("SELECT id,updated_at FROM focus_tasks WHERE sync_uid IS NULL OR sync_uid=''")
+        var legacyRows: [(Int64, String)] = []
+        while sqlite3_step(legacy) == SQLITE_ROW {
+            legacyRows.append((sqlite3_column_int64(legacy, 0), text(legacy, 1)))
+        }
+        sqlite3_finalize(legacy)
+        for (id, updatedAt) in legacyRows {
+            let uid = UUID().uuidString.lowercased()
+            let modifiedAt = updatedAt.isEmpty ? Self.now() : updatedAt
+            let update = try prepare("UPDATE focus_tasks SET sync_uid=?,sync_version=1,sync_origin_device_id=?,sync_modified_at=? WHERE id=?")
+            bind(uid, update, 1)
+            bind(deviceId, update, 2)
+            bind(modifiedAt, update, 3)
+            sqlite3_bind_int64(update, 4, id)
+            try stepDone(update)
+            sqlite3_finalize(update)
+            try insertSyncChange(
+                changeId: UUID().uuidString.lowercased(), entityUid: uid,
+                version: 1, originDeviceId: deviceId, changedAt: modifiedAt
+            )
+        }
     }
 
     private func migrateLocation() throws {
@@ -1596,7 +2019,7 @@ public final class BudsLocalStore: @unchecked Sendable {
             SELECT id, title, category, priority, completed, is_focus, created_at, updated_at, due_date,
                    item_type, source, source_session_id, source_message_id, confidence,
                    place_context, trigger_on_arrival
-            FROM focus_tasks WHERE id = ? LIMIT 1
+            FROM focus_tasks WHERE id = ? AND deleted_at IS NULL LIMIT 1
             """
         )
         defer { sqlite3_finalize(statement) }
@@ -1605,28 +2028,274 @@ public final class BudsLocalStore: @unchecked Sendable {
         return focusTaskRecord(statement, currentContext: try locationStateInsideQueue().context)
     }
 
+    private func activeFocusTaskIds(excluding id: Int64?) throws -> [Int64] {
+        let statement: OpaquePointer
+        if let id {
+            statement = try prepare("SELECT id FROM focus_tasks WHERE is_focus=1 AND id<>? AND deleted_at IS NULL")
+            sqlite3_bind_int64(statement, 1, id)
+        } else {
+            statement = try prepare("SELECT id FROM focus_tasks WHERE is_focus=1 AND deleted_at IS NULL")
+        }
+        defer { sqlite3_finalize(statement) }
+        var ids: [Int64] = []
+        while sqlite3_step(statement) == SQLITE_ROW { ids.append(sqlite3_column_int64(statement, 0)) }
+        return ids
+    }
+
+    private func localSyncDeviceInsideQueue() throws -> BudsLocalSyncDeviceRecord {
+        let statement = try prepare("SELECT device_id,device_name,device_type FROM local_sync_device WHERE singleton=1")
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw BudsNativeError.databaseUnavailable("Identidade Local Sync não encontrada.")
+        }
+        return BudsLocalSyncDeviceRecord(
+            deviceId: text(statement, 0),
+            deviceName: text(statement, 1),
+            deviceType: text(statement, 2)
+        )
+    }
+
+    private func localSyncPeerStateInsideQueue(peerDeviceId: String) throws -> BudsLocalSyncPeerStateRecord? {
+        let statement = try prepare("""
+            SELECT peer_device_id,peer_name,peer_type,base_url,trusted,last_remote_seq,
+                   last_acknowledged_seq,last_sync_at,last_error,protocol_version,app_version,capabilities,
+                   last_sent_count,last_received_count,total_sent_count,total_received_count,conflict_count,retry_count
+            FROM local_sync_peer_state WHERE peer_device_id=? LIMIT 1
+            """)
+        defer { sqlite3_finalize(statement) }
+        bind(peerDeviceId, statement, 1)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        let capabilitiesData = text(statement, 11).data(using: .utf8) ?? Data()
+        return BudsLocalSyncPeerStateRecord(
+            peerDeviceId: text(statement, 0),
+            peerName: text(statement, 1),
+            peerType: text(statement, 2),
+            baseURL: text(statement, 3),
+            trusted: sqlite3_column_int(statement, 4) == 1,
+            lastRemoteSeq: sqlite3_column_int64(statement, 5),
+            lastAcknowledgedSeq: sqlite3_column_int64(statement, 6),
+            lastSyncAt: optionalText(statement, 7),
+            lastError: optionalText(statement, 8),
+            protocolVersion: Int(sqlite3_column_int(statement, 9)),
+            appVersion: optionalText(statement, 10),
+            capabilities: (try? JSONDecoder().decode([String].self, from: capabilitiesData)) ?? [],
+            lastSentCount: Int(sqlite3_column_int(statement, 12)),
+            lastReceivedCount: Int(sqlite3_column_int(statement, 13)),
+            totalSentCount: Int(sqlite3_column_int(statement, 14)),
+            totalReceivedCount: Int(sqlite3_column_int(statement, 15)),
+            conflictCount: Int(sqlite3_column_int(statement, 16)),
+            retryCount: Int(sqlite3_column_int(statement, 17))
+        )
+    }
+
+    private func insertSyncChange(
+        changeId: String,
+        entityUid: String,
+        version: Int64,
+        originDeviceId: String,
+        changedAt: String
+    ) throws {
+        let statement = try prepare("""
+            INSERT OR IGNORE INTO local_sync_changes
+                (change_id,entity_type,entity_uid,entity_version,origin_device_id,changed_at)
+            VALUES (?,'focus_task',?,?,?,?)
+            """)
+        defer { sqlite3_finalize(statement) }
+        bind(changeId, statement, 1)
+        bind(entityUid, statement, 2)
+        sqlite3_bind_int64(statement, 3, version)
+        bind(originDeviceId, statement, 4)
+        bind(changedAt, statement, 5)
+        try stepDone(statement)
+    }
+
+    private func markFocusTaskChanged(id: Int64) throws {
+        let lookup = try prepare("SELECT sync_uid,sync_version FROM focus_tasks WHERE id=?")
+        sqlite3_bind_int64(lookup, 1, id)
+        guard sqlite3_step(lookup) == SQLITE_ROW else {
+            sqlite3_finalize(lookup)
+            return
+        }
+        let existingUid = optionalText(lookup, 0)
+        let version = sqlite3_column_int64(lookup, 1) + 1
+        sqlite3_finalize(lookup)
+        let uid = existingUid?.isEmpty == false ? existingUid! : UUID().uuidString.lowercased()
+        let device = try localSyncDeviceInsideQueue()
+        let now = Self.now()
+        let update = try prepare("""
+            UPDATE focus_tasks
+            SET sync_uid=?,sync_version=?,sync_origin_device_id=?,sync_modified_at=?,updated_at=?
+            WHERE id=?
+            """)
+        bind(uid, update, 1)
+        sqlite3_bind_int64(update, 2, version)
+        bind(device.deviceId, update, 3)
+        bind(now, update, 4)
+        bind(now, update, 5)
+        sqlite3_bind_int64(update, 6, id)
+        try stepDone(update)
+        sqlite3_finalize(update)
+        try insertSyncChange(
+            changeId: UUID().uuidString.lowercased(), entityUid: uid,
+            version: version, originDeviceId: device.deviceId, changedAt: now
+        )
+    }
+
+    private func syncFocusTask(uid: String) throws -> BudsSyncFocusTaskRecord? {
+        let statement = try prepare("""
+            SELECT sync_uid,title,category,priority,completed,is_focus,created_at,updated_at,due_date,
+                   item_type,source,confidence,place_context,trigger_on_arrival,sync_version,
+                   sync_origin_device_id,sync_modified_at,deleted_at
+            FROM focus_tasks WHERE sync_uid=? LIMIT 1
+            """)
+        defer { sqlite3_finalize(statement) }
+        bind(uid, statement, 1)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return BudsSyncFocusTaskRecord(
+            syncUid: text(statement, 0), title: text(statement, 1), category: text(statement, 2),
+            priority: text(statement, 3), completed: sqlite3_column_int(statement, 4) == 1,
+            isFocus: sqlite3_column_int(statement, 5) == 1, createdAt: text(statement, 6),
+            updatedAt: text(statement, 7), dueDate: optionalText(statement, 8),
+            itemType: text(statement, 9), source: text(statement, 10),
+            confidence: sqlite3_column_double(statement, 11), placeContext: text(statement, 12),
+            triggerOnArrival: sqlite3_column_int(statement, 13) == 1,
+            syncVersion: sqlite3_column_int64(statement, 14),
+            syncOriginDeviceId: text(statement, 15), syncModifiedAt: text(statement, 16),
+            deletedAt: optionalText(statement, 17)
+        )
+    }
+
+    private func upsertRemoteFocusTask(_ task: BudsSyncFocusTaskRecord) throws {
+        let current = try syncFocusTask(uid: task.syncUid)
+        if current == nil {
+            let statement = try prepare("""
+                INSERT INTO focus_tasks
+                    (title,category,priority,completed,is_focus,created_at,updated_at,due_date,
+                     item_type,source,confidence,place_context,trigger_on_arrival,sync_uid,
+                     sync_version,sync_origin_device_id,sync_modified_at,deleted_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """)
+            bind(task.title, statement, 1); bind(task.category, statement, 2); bind(task.priority, statement, 3)
+            sqlite3_bind_int(statement, 4, task.completed ? 1 : 0); sqlite3_bind_int(statement, 5, task.isFocus ? 1 : 0)
+            bind(task.createdAt, statement, 6); bind(task.updatedAt, statement, 7); bindOptional(task.dueDate, statement, 8)
+            bind(task.itemType, statement, 9); bind(task.source, statement, 10); sqlite3_bind_double(statement, 11, task.confidence)
+            bind(task.placeContext, statement, 12); sqlite3_bind_int(statement, 13, task.triggerOnArrival ? 1 : 0)
+            bind(task.syncUid, statement, 14); sqlite3_bind_int64(statement, 15, task.syncVersion)
+            bind(task.syncOriginDeviceId, statement, 16); bind(task.syncModifiedAt, statement, 17); bindOptional(task.deletedAt, statement, 18)
+            try stepDone(statement)
+            sqlite3_finalize(statement)
+        } else {
+            let statement = try prepare("""
+                UPDATE focus_tasks SET title=?,category=?,priority=?,completed=?,is_focus=?,created_at=?,
+                    updated_at=?,due_date=?,item_type=?,source=?,confidence=?,place_context=?,
+                    trigger_on_arrival=?,sync_version=?,sync_origin_device_id=?,sync_modified_at=?,deleted_at=?
+                WHERE sync_uid=?
+                """)
+            bind(task.title, statement, 1); bind(task.category, statement, 2); bind(task.priority, statement, 3)
+            sqlite3_bind_int(statement, 4, task.completed ? 1 : 0); sqlite3_bind_int(statement, 5, task.isFocus ? 1 : 0)
+            bind(task.createdAt, statement, 6); bind(task.updatedAt, statement, 7); bindOptional(task.dueDate, statement, 8)
+            bind(task.itemType, statement, 9); bind(task.source, statement, 10); sqlite3_bind_double(statement, 11, task.confidence)
+            bind(task.placeContext, statement, 12); sqlite3_bind_int(statement, 13, task.triggerOnArrival ? 1 : 0)
+            sqlite3_bind_int64(statement, 14, task.syncVersion); bind(task.syncOriginDeviceId, statement, 15)
+            bind(task.syncModifiedAt, statement, 16); bindOptional(task.deletedAt, statement, 17); bind(task.syncUid, statement, 18)
+            try stepDone(statement)
+            sqlite3_finalize(statement)
+        }
+        if task.isFocus && task.deletedAt == nil {
+            let clear = try prepare("UPDATE focus_tasks SET is_focus=0 WHERE sync_uid<>? AND deleted_at IS NULL")
+            bind(task.syncUid, clear, 1)
+            try stepDone(clear)
+            sqlite3_finalize(clear)
+        }
+    }
+
+    private func validateRemoteSyncTask(_ task: BudsSyncFocusTaskRecord) throws {
+        guard UUID(uuidString: task.syncUid) != nil,
+              UUID(uuidString: task.syncOriginDeviceId) != nil,
+              !task.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              task.title.count <= 500,
+              task.syncVersion >= 1,
+              Self.focusCategories.contains(task.category),
+              Self.focusPriorities.contains(task.priority),
+              ["TASK", "REMINDER"].contains(task.itemType),
+              Self.locationTaskContexts.contains(task.placeContext) else {
+            throw BudsNativeError.databaseUnavailable("Pacote Local Sync contém uma tarefa inválida.")
+        }
+    }
+
     private func focusTaskRecord(_ statement: OpaquePointer, currentContext: String) -> BudsFocusTaskRecord {
         let placeContext = text(statement, 14)
+        let priority = text(statement, 3)
+        let isFocus = sqlite3_column_int(statement, 5) == 1
+        let dueDate = optionalText(statement, 8)
+        let triggerOnArrival = sqlite3_column_int(statement, 15) == 1
+        let category = text(statement, 2)
+        let context = Self.contextualTaskScore(
+            priority: priority, isFocus: isFocus, dueDate: dueDate,
+            category: category, placeContext: placeContext,
+            triggerOnArrival: triggerOnArrival, currentContext: currentContext
+        )
         return BudsFocusTaskRecord(
             id: sqlite3_column_int64(statement, 0),
             title: text(statement, 1),
-            category: text(statement, 2),
-            priority: text(statement, 3),
+            category: category,
+            priority: priority,
             completed: sqlite3_column_int(statement, 4) == 1,
-            isFocus: sqlite3_column_int(statement, 5) == 1,
+            isFocus: isFocus,
             createdAt: text(statement, 6),
             updatedAt: text(statement, 7),
-            dueDate: optionalText(statement, 8),
+            dueDate: dueDate,
             itemType: text(statement, 9),
             source: text(statement, 10),
             sourceSessionId: optionalText(statement, 11),
             sourceMessageId: sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : sqlite3_column_int64(statement, 12),
             confidence: sqlite3_column_double(statement, 13),
             placeContext: placeContext,
-            triggerOnArrival: sqlite3_column_int(statement, 15) == 1,
+            triggerOnArrival: triggerOnArrival,
             locationRelevant: placeContext == "anywhere" || placeContext == currentContext,
-            currentLocationContext: currentContext
+            currentLocationContext: currentContext,
+            contextualScore: context.score,
+            contextualReasons: context.reasons
         )
+    }
+
+    private static func contextualTaskScore(
+        priority: String, isFocus: Bool, dueDate: String?, category: String,
+        placeContext: String, triggerOnArrival: Bool, currentContext: String
+    ) -> (score: Int, reasons: [String]) {
+        var score = ["high": 30, "medium": 16, "low": 6][priority] ?? 10
+        var reasons: [String] = []
+        if isFocus { score += 100; reasons.append("foco principal") }
+        if let due = dueDate.flatMap(focusDueDate) {
+            if due < Date() { score += 55; reasons.append("prazo vencido") }
+            else if Calendar.current.isDateInToday(due) { score += 42; reasons.append("vence hoje") }
+            else if due <= Date().addingTimeInterval(86_400) { score += 24; reasons.append("vence em breve") }
+        }
+        if placeContext == currentContext && placeContext != "anywhere" {
+            score += 46; reasons.append("relevante neste lugar")
+            if triggerOnArrival { score += 18; reasons.append("lembrete de chegada") }
+        } else if placeContext == "anywhere" {
+            score += 4
+        } else {
+            score -= 12
+        }
+        if (currentContext == "work" && ["work", "project"].contains(category))
+            || (currentContext == "home" && category == "personal") {
+            score += 12; reasons.append("combina com o contexto atual")
+        }
+        return (score, reasons)
+    }
+
+    private static func focusDueDate(_ value: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSS", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: value) { return date }
+        }
+        return ISO8601DateFormatter().date(from: value)
     }
 
     private func createFocusTaskInsideQueue(
@@ -1648,7 +2317,7 @@ public final class BudsLocalStore: @unchecked Sendable {
             throw BudsNativeError.databaseUnavailable("O título da tarefa não pode ficar vazio.")
         }
         if let dedupKey {
-            let duplicate = try prepare("SELECT id FROM focus_tasks WHERE dedup_key = ? AND completed = 0 LIMIT 1")
+            let duplicate = try prepare("SELECT id FROM focus_tasks WHERE dedup_key = ? AND completed = 0 AND deleted_at IS NULL LIMIT 1")
             bind(dedupKey, duplicate, 1)
             if sqlite3_step(duplicate) == SQLITE_ROW {
                 let existingId = sqlite3_column_int64(duplicate, 0)
@@ -1688,6 +2357,7 @@ public final class BudsLocalStore: @unchecked Sendable {
         sqlite3_bind_int(statement, 14, triggerOnArrival && cleanPlace != "anywhere" ? 1 : 0)
         try stepDone(statement)
         let id = sqlite3_last_insert_rowid(database)
+        try markFocusTaskChanged(id: id)
         try logFocusEvent(eventType: itemType == "REMINDER" ? "reminder_created" : "task_created", title: clean)
         guard let task = try focusTask(id: id) else {
             throw BudsNativeError.databaseUnavailable("Não foi possível recuperar a tarefa criada.")

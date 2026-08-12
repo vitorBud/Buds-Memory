@@ -31,7 +31,11 @@ enum BudsFocusCapture {
 
             let itemType: String
             let confidence: Double
-            if containsAny(normalized, ["me lembra", "me lembre", "lembrete", "nao posso esquecer"]) {
+            let explicitFocusCommand = isExplicitFocusCommand(normalized)
+            if explicitFocusCommand {
+                itemType = normalized.contains("lembrete") ? "REMINDER" : "TASK"
+                confidence = 0.995
+            } else if containsAny(normalized, ["me lembra", "me lembre", "lembrete", "nao posso esquecer"]) {
                 itemType = "REMINDER"; confidence = 0.99
             } else if containsAny(normalized, ["tenho que", "preciso", "devo", "vou precisar"]) {
                 itemType = "TASK"; confidence = 0.96
@@ -48,12 +52,13 @@ enum BudsFocusCapture {
             }
 
             let location = placeContext(normalized)
-            let content = cleanContent(phrase, itemType: itemType, stripArrival: location.trigger)
+            let commandContent = explicitFocusCommand ? stripFocusCommand(phrase) : phrase
+            let content = cleanContent(commandContent, itemType: itemType, stripArrival: location.trigger)
             guard content.count >= 3 else { continue }
             let dueDate = ["TASK", "REMINDER"].contains(itemType) ? parseDueDate(phrase, now: now) : nil
-            let adjustedConfidence = (phrase.contains("?") || looksLikeExample) ? min(confidence, 0.74) : confidence
+            let adjustedConfidence = ((phrase.contains("?") && !explicitFocusCommand) || looksLikeExample) ? min(confidence, 0.74) : confidence
             let autoApply = ["TASK", "REMINDER"].contains(itemType)
-                && adjustedConfidence >= 0.9 && !phrase.contains("?") && !looksLikeExample
+                && adjustedConfidence >= 0.9 && (explicitFocusCommand || !phrase.contains("?")) && !looksLikeExample
             let key = makeKey(itemType: itemType, content: content, dueDate: dueDate, placeContext: location.context)
             guard seen.insert(key).inserted else { continue }
             candidates.append(BudsFocusCandidate(
@@ -98,6 +103,29 @@ enum BudsFocusCapture {
 
     private static func containsAny(_ text: String, _ terms: [String]) -> Bool {
         terms.contains(where: text.contains)
+    }
+
+    private static func isExplicitFocusCommand(_ text: String) -> Bool {
+        let actions = ["adicionar", "adiciona", "adicione", "colocar", "coloca", "coloque", "criar", "cria", "crie", "incluir", "inclui", "inclua", "salvar", "salva", "salve", "jogar", "joga", "jogue", "anotar", "anota", "anote"]
+        let destinations = ["no focus", "ao focus", "pro focus", "para o focus", "no buds focus", "para o buds focus"]
+        return containsAny(text, actions) && containsAny(text, destinations)
+    }
+
+    private static func stripFocusCommand(_ text: String) -> String {
+        var value = text.trimmingCharacters(in: CharacterSet(charactersIn: " \t\n\"“”"))
+        let patterns = [
+            #"^(?:por favor[,]?\s*)?(?:você\s+)?(?:pode|consegue|poderia)?\s*"#,
+            #"^(?:adicionar|adiciona|adicione|colocar|coloca|coloque|criar|cria|crie|incluir|inclui|inclua|salvar|salva|salve|jogar|joga|jogue|anotar|anota|anote)\s+"#,
+            #"^(?:no|ao|pro|para o)\s+(?:buds\s+)?focus\s*[:,\-]?\s*"#,
+            #"\s+(?:no|ao|pro|para o)\s+(?:buds\s+)?focus\b"#,
+            #"\s+como\s+(?:tarefa|lembrete)\b"#,
+            #"[?]+$"#,
+        ]
+        for pattern in patterns {
+            value = value.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        return value.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.;:-"))
     }
 
     private static func startsLikeScheduledTask(_ text: String) -> Bool {

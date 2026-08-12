@@ -43,6 +43,14 @@ export function TaskItem({ task, onToggle, onDelete, onSetFocus }: TaskItemProps
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
             <div className={focusStyles.taskMeta}>
               {task.item_type === 'REMINDER' && <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/20 px-2 py-0.5 text-[11px] font-bold text-violet-300"><Bell size={11} /> Lembrete</span>}
+              {!task.completed && !task.is_focus && (task.contextual_score ?? 0) >= 45 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-sky-300/25 bg-sky-300/10 px-2 py-0.5 text-[11px] font-bold text-sky-200"
+                  title={(task.contextual_reasons ?? []).join(' · ')}
+                >
+                  <Zap size={11} /> Relevante agora
+                </span>
+              )}
               <span className={focusStyles.badgeCategory}>
                 {categories[task.category] ?? task.category}
               </span>

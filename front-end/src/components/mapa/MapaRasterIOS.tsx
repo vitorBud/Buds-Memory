@@ -14,9 +14,9 @@ const CARTO_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.
 const OSM_FALLBACK = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 /**
- * Renderer raster deliberadamente simples para o WKWebView. O iPhone não
- * precisa criar WebGL workers nem interpretar PBF; recebe imagens HTTPS que o
- * próprio WebKit já sabe compor com estabilidade.
+ * Renderer raster deliberadamente simples para o WKWebView e fallback web.
+ * Não precisa criar WebGL workers nem interpretar PBF; recebe imagens HTTPS
+ * que o navegador já sabe compor com estabilidade.
  */
 export function MapaRasterIOS({ latitude, longitude, places, routePoints }: MapaRasterIOSProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -58,7 +58,7 @@ export function MapaRasterIOS({ latitude, longitude, places, routePoints }: Mapa
         maxZoom: 19,
       }).addTo(map)
       tileLayer.once('load', () => setMapError(''))
-      tileLayer.on('tileerror', () => setMapError('Não foi possível carregar o mapa. Verifique a internet do iPhone.'))
+      tileLayer.on('tileerror', () => setMapError('Não foi possível carregar o mapa. Verifique a conexão com a internet.'))
     }
 
     tileLayer.on('tileerror', useFallback)

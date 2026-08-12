@@ -13,11 +13,17 @@ import type {
   FocusTimelineEvent,
   KnownPlace,
   LocationDashboard,
+  LocationContextSignal,
   LocationRoute,
   LocationRouteDashboard,
   LocationPlaceContext,
   LocationSemanticContext,
   LocationState,
+  LocalSyncDiscoveredPeer,
+  LocalSyncPeer,
+  LocalSyncRunResult,
+  LocalSyncStatus,
+  SemanticLocationContext,
   Message,
   Session,
 } from '../../types'
@@ -88,6 +94,16 @@ interface IOSLocalPlugin {
     triggerOnArrival?: boolean
   }): Promise<FocusTask>
   deleteFocusTask(options: { id: number }): Promise<void>
+  localSyncStatus(): Promise<LocalSyncStatus>
+  discoverLocalSyncPeers(): Promise<{ peers: LocalSyncDiscoveredPeer[]; discovery_ms: number }>
+  pairLocalSyncPeer(options: {
+    deviceId: string
+    deviceName: string
+    deviceType: string
+    baseURL: string
+    code: string
+  }): Promise<LocalSyncPeer>
+  syncFocusWithPeer(options: { peerDeviceId: string }): Promise<LocalSyncRunResult>
   analyzeFocusInput(options: { text: string }): Promise<FocusAnalyzePreview>
   focusThink(options: { query: string }): Promise<{ suggestion: string }>
   saveFocusIdea(options: { content: string }): Promise<void>
@@ -97,6 +113,7 @@ interface IOSLocalPlugin {
   updateFocusInbox(options: { id: number; status: 'approved' | 'ignored' }): Promise<void>
   syncFocusNotifications(): Promise<{ scheduled: number; authorized: boolean }>
   getLocationDashboard(): Promise<LocationDashboard>
+  getSemanticLocationContext(): Promise<SemanticLocationContext>
   requestCurrentLocation(): Promise<LocationState>
   saveKnownPlace(options: {
     id?: number
@@ -144,6 +161,14 @@ interface IOSLocalPlugin {
   addListener(
     eventName: 'neuralSpeechState',
     listener: (event: { state: 'speaking' | 'idle' | 'error'; message?: string }) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(
+    eventName: 'contextSignal',
+    listener: (event: LocationContextSignal) => void,
+  ): Promise<PluginListenerHandle>
+  addListener(
+    eventName: 'localSyncState',
+    listener: (event: { peer_device_id: string; connected: boolean; synced?: boolean; sent?: number; received?: number; error?: string }) => void,
   ): Promise<PluginListenerHandle>
 }
 
@@ -290,6 +315,28 @@ export function deleteIOSFocusTask(id: number): Promise<void> {
   return native.deleteFocusTask({ id })
 }
 
+export function getIOSLocalSyncStatus(): Promise<LocalSyncStatus> {
+  return native.localSyncStatus()
+}
+
+export function discoverIOSLocalSyncPeers(): Promise<{ peers: LocalSyncDiscoveredPeer[]; discovery_ms: number }> {
+  return native.discoverLocalSyncPeers()
+}
+
+export function pairIOSLocalSyncPeer(peer: LocalSyncDiscoveredPeer, code: string): Promise<LocalSyncPeer> {
+  return native.pairLocalSyncPeer({
+    deviceId: peer.device_id,
+    deviceName: peer.device_name,
+    deviceType: peer.device_type,
+    baseURL: peer.base_url,
+    code,
+  })
+}
+
+export function syncIOSFocusWithPeer(peerDeviceId: string): Promise<LocalSyncRunResult> {
+  return native.syncFocusWithPeer({ peerDeviceId })
+}
+
 export function analyzeIOSFocusInput(text: string): Promise<FocusAnalyzePreview> {
   return native.analyzeFocusInput({ text })
 }
@@ -322,6 +369,10 @@ export function syncIOSFocusNotifications(): Promise<{ scheduled: number; author
   return native.syncFocusNotifications()
 }
 
+export function addIOSContextSignalListener(listener: (event: LocationContextSignal) => void): Promise<PluginListenerHandle> {
+  return native.addListener('contextSignal', listener)
+}
+
 function normalizeIOSKnownPlace(place: KnownPlace): KnownPlace {
   // O runtime Swift usou `radius_meters` nas primeiras versões do Buds Map.
   // Aceitar os dois nomes mantém o app compatível durante atualizações em que
@@ -344,6 +395,10 @@ export async function getIOSLocationDashboard(): Promise<LocationDashboard> {
     ...dashboard,
     places: dashboard.places.map(normalizeIOSKnownPlace),
   }
+}
+
+export function getIOSSemanticLocationContext(): Promise<SemanticLocationContext> {
+  return native.getSemanticLocationContext()
 }
 
 export function requestIOSCurrentLocation(): Promise<LocationState> {

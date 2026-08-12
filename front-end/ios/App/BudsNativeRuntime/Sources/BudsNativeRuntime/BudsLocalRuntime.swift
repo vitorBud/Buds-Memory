@@ -192,6 +192,62 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         try ensureStore().deleteFocusTask(id: id)
     }
 
+    public func localSyncDevice() throws -> BudsLocalSyncDeviceRecord {
+        try ensureStore().localSyncDevice()
+    }
+
+    public func localSyncPeerState(peerDeviceId: String) throws -> BudsLocalSyncPeerStateRecord? {
+        try ensureStore().localSyncPeerState(peerDeviceId: peerDeviceId)
+    }
+
+    public func localSyncPeers() throws -> [BudsLocalSyncPeerStateRecord] {
+        try ensureStore().localSyncPeers()
+    }
+
+    public func trustLocalSyncPeer(
+        peerDeviceId: String, peerName: String, peerType: String, baseURL: String,
+        protocolVersion: Int = 1, appVersion: String? = nil, capabilities: [String] = []
+    ) throws -> BudsLocalSyncPeerStateRecord {
+        try ensureStore().trustLocalSyncPeer(
+            peerDeviceId: peerDeviceId, peerName: peerName,
+            peerType: peerType, baseURL: baseURL, protocolVersion: protocolVersion,
+            appVersion: appVersion, capabilities: capabilities
+        )
+    }
+
+    public func pendingLocalSyncFocusChanges(peerDeviceId: String) throws -> [BudsLocalSyncChangeRecord] {
+        try ensureStore().pendingLocalSyncFocusChanges(peerDeviceId: peerDeviceId)
+    }
+
+    public func applyLocalSyncFocusExchange(
+        peerDeviceId: String, baseURL: String,
+        remoteChanges: [BudsLocalSyncChangeRecord], serverCursor: Int64,
+        acknowledgedClientSeq: Int64, sentCount: Int
+    ) throws -> BudsLocalSyncApplyResult {
+        try ensureStore().applyLocalSyncFocusExchange(
+            peerDeviceId: peerDeviceId, baseURL: baseURL,
+            remoteChanges: remoteChanges, serverCursor: serverCursor,
+            acknowledgedClientSeq: acknowledgedClientSeq, sentCount: sentCount
+        )
+    }
+
+    public func recordLocalSyncError(peerDeviceId: String, message: String) throws {
+        try ensureStore().recordLocalSyncError(peerDeviceId: peerDeviceId, message: message)
+    }
+
+    public func recordLocalSyncSuccess(
+        peerDeviceId: String, sentCount: Int, receivedCount: Int, durationMs: Double
+    ) throws {
+        try ensureStore().recordLocalSyncSuccess(
+            peerDeviceId: peerDeviceId, sentCount: sentCount,
+            receivedCount: receivedCount, durationMs: durationMs
+        )
+    }
+
+    public func localSyncHistory() throws -> [BudsLocalSyncHistoryRecord] {
+        try ensureStore().localSyncHistory()
+    }
+
     public func createFocusIdea(content: String) throws {
         try ensureStore().createFocusIdea(content: content)
     }
@@ -243,12 +299,15 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         altitudeMeters: Double? = nil, speedMetersPerSecond: Double? = nil,
         recordedAt: String? = nil, source: String
     ) throws -> BudsLocationStateRecord {
-        try ensureStore().updateLocationSample(
+        let store = try ensureStore()
+        let state = try store.updateLocationSample(
             latitude: latitude, longitude: longitude,
             accuracyMeters: accuracyMeters, altitudeMeters: altitudeMeters,
             speedMetersPerSecond: speedMetersPerSecond, recordedAt: recordedAt,
             source: source
         )
+        if state.changed { publishLocationTransition(state, store: store) }
+        return state
     }
 
     public func locationRoutes(limit: Int = 30) throws -> [BudsLocationRouteRecord] {
@@ -286,7 +345,43 @@ public final class BudsLocalRuntime: @unchecked Sendable {
     }
 
     public func recordGeofence(placeId: Int64, entering: Bool) throws -> BudsLocationStateRecord {
-        try ensureStore().recordGeofence(placeId: placeId, entering: entering)
+        let store = try ensureStore()
+        let state = try store.recordGeofence(placeId: placeId, entering: entering)
+        if state.changed { publishLocationTransition(state, store: store) }
+        return state
+    }
+
+    private func publishLocationTransition(_ state: BudsLocationStateRecord, store: BudsLocalStore) {
+        guard let event = try? store.locationEvents(limit: 1).first else { return }
+        let entering = event.eventType == "enter"
+        let reminders = entering ? ((try? store.consumeArrivalReminders(context: event.context)) ?? []) : []
+        let place = event.placeName ?? Self.locationLabel(event.context)
+        let title = entering ? "Chegada a \(place)" : "Saída de \(place)"
+        let message: String
+        if reminders.count == 1 {
+            message = reminders[0].title
+        } else if reminders.count > 1 {
+            message = "\(reminders.count) lembretes do Focus ficaram relevantes agora."
+        } else if entering {
+            message = "O Focus foi priorizado para este contexto."
+        } else {
+            message = "O Buds atualizou o contexto e as prioridades do Focus."
+        }
+        NotificationCenter.default.post(
+            name: .budsLocationContextSignal,
+            object: nil,
+            userInfo: [
+                "kind": reminders.isEmpty ? (entering ? "ARRIVAL" : "DEPARTURE") : "ARRIVAL_REMINDER",
+                "title": title,
+                "message": message,
+                "placeContext": event.context,
+            ]
+        )
+    }
+
+    private static func locationLabel(_ context: String) -> String {
+        ["home": "Casa", "work": "Trabalho", "gym": "Academia", "study": "Estudo"][context]
+            ?? "lugar conhecido"
     }
 
     public func requestCurrentLocation() async throws -> BudsLocationStateRecord {
@@ -301,6 +396,20 @@ public final class BudsLocalRuntime: @unchecked Sendable {
 
     public func refreshLocationRegions() throws {
         locationMonitor.refreshRegions(try knownPlaces())
+    }
+
+    public func semanticLocationContext() throws -> BudsSemanticLocationContext {
+        let store = try ensureStore()
+        // A listagem não carrega a geometria do trajeto. O Context Engine só
+        // precisa do resumo, evitando ler centenas de pontos a cada mensagem.
+        let recent = try store.locationRoutes(limit: 1).first
+        let active = recent?.status == "active" ? recent : nil
+        return BudsLocationContextEngine.derive(
+            state: try store.locationState(),
+            events: try store.locationEvents(limit: 200),
+            activeTrip: active,
+            recentTrip: recent
+        )
     }
 
     public func analyzeFocusInput(_ text: String) async throws -> [[String: Any]] {
@@ -350,7 +459,8 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         let completedText = completed.isEmpty
             ? "(nenhuma)"
             : completed.map { "- \($0.title)" }.joined(separator: "\n")
-        let locationContext = try semanticLocationPrompt()
+        let locationContext = (try? semanticLocationContext())
+            .map(BudsLocationContextEngine.promptForFocus) ?? ""
         let prompt = """
         Você é o Buds Memory no modo Focus. Ajude o usuário a escolher prioridades sem criar tarefas automaticamente.
         Tarefas abertas:
@@ -380,7 +490,6 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         text: String,
         onToken: @escaping @Sendable (String) -> Void
     ) async throws -> (text: String, session: BudsSessionRecord?, metrics: BudsGenerationMetrics) {
-        guard modelManager.isInstalled else { throw BudsNativeError.modelMissing }
         generationLock.lock()
         let hadActiveGeneration = activeGeneration != nil
         activeGeneration = (generationId, sessionId)
@@ -391,42 +500,96 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         var memories: [BudsMemoryRecord]
         do {
             store = try ensureStore()
+            let focusCandidates = BudsFocusCapture.detect(text)
             _ = try store.addMessage(sessionId: sessionId, sender: "user", text: text)
             history = try store.messages(sessionId: sessionId, limit: 24)
             memories = try store.memoriesForPrompt(sessionId: sessionId, limit: 16)
-            if Self.shouldUseLocationContext(for: text) {
-                let context = try store.locationState()
-                if !["unknown", "away"].contains(context.context) {
-                    let label = context.placeName ?? context.context
-                    memories.append(BudsMemoryRecord(
-                        id: -1,
-                        content: "Contexto de lugar atual: \(label) (\(context.context)). Use somente se for relevante; não mencione coordenadas.",
-                        importance: 1,
-                        isCore: false,
-                        createdAt: context.updatedAt ?? "",
-                        scope: "session",
-                        sessionId: sessionId
-                    ))
-                }
-                let route = try store.activeLocationRoute() ?? store.locationRoutes(limit: 1).first
-                if let route {
-                    let distance = String(format: "%.2f", route.distanceMeters / 1_000)
-                    let minutes = route.durationSeconds / 60
-                    let state = route.status == "active" ? "em gravação" : "concluído"
-                    memories.append(BudsMemoryRecord(
-                        id: -2,
-                        content: "Resumo local do trajeto mais recente, sem coordenadas: \(route.name); \(distance) km; \(minutes) min; \(state).",
-                        importance: 1,
-                        isCore: false,
-                        createdAt: route.startedAt,
-                        scope: "session",
-                        sessionId: sessionId
-                    ))
-                }
+            let appliedFocusCandidates = focusCandidates.filter {
+                $0.autoApply && ["TASK", "REMINDER"].contains($0.itemType)
+            }
+            if !appliedFocusCandidates.isEmpty {
+                let actions = appliedFocusCandidates.prefix(6).map { candidate in
+                    let kind = candidate.itemType == "REMINDER" ? "lembrete" : "tarefa"
+                    return "- \(kind) disponível no Focus: \(candidate.content)"
+                }.joined(separator: "\n")
+                memories.insert(BudsMemoryRecord(
+                    id: -2,
+                    content: """
+                    AÇÕES LOCAIS JÁ EXECUTADAS PELO CÓDIGO:
+                    \(actions)
+                    Confirme de forma breve e natural que a ação já foi concluída; não diga que apenas tentará fazer.
+                    """,
+                    importance: 1,
+                    isCore: false,
+                    createdAt: "",
+                    scope: "session",
+                    sessionId: sessionId
+                ), at: 0)
+            }
+            if BudsLocationContextEngine.requiresExactLocationRefresh(text) {
+                // Uma única leitura precisa, somente porque o usuário pediu a
+                // posição. Falha de permissão não interrompe o Chat.
+                _ = try? await requestCurrentLocation()
+            }
+            if let semanticContext = try? semanticLocationContext(),
+               let contextPrompt = BudsLocationContextEngine.promptForChat(semanticContext, userText: text) {
+                memories.insert(BudsMemoryRecord(
+                    id: -1,
+                    content: contextPrompt,
+                    importance: 1,
+                    isCore: false,
+                    createdAt: semanticContext.recentEventAt ?? "",
+                    scope: "session",
+                    sessionId: sessionId
+                ), at: 0)
             }
         } catch {
             finishGeneration(generationId)
             throw error
+        }
+
+        if let directReply = BudsPromptBuilder.directProductReply(for: text) {
+            do {
+                guard isActiveGeneration(generationId, sessionId: sessionId) else {
+                    throw BudsNativeError.cancelled
+                }
+                onToken(directReply)
+                _ = try store.addMessage(sessionId: sessionId, sender: "ia", text: directReply)
+                let session = try store.getSession(id: sessionId)
+                let thermalState = Self.thermalStateName
+                let metrics = BudsGenerationMetrics(
+                    generationId: generationId,
+                    modelName: BudsModelManager.modelName,
+                    promptCharacters: 0,
+                    historyMessages: history.count,
+                    memoryItems: 0,
+                    promptTokens: 0,
+                    outputTokens: 0,
+                    loadMilliseconds: 0,
+                    timeToFirstTokenMilliseconds: 0,
+                    generationMilliseconds: 0,
+                    totalMilliseconds: 0,
+                    tokensPerSecond: 0,
+                    inferenceThreads: 0,
+                    batchThreads: 0,
+                    residentBytesBefore: 0,
+                    residentBytesAfter: 0,
+                    observedPeakBytes: 0,
+                    processCPUSeconds: 0,
+                    thermalStateStart: thermalState,
+                    thermalStateEnd: thermalState
+                )
+                finishGeneration(generationId)
+                return (directReply, session, metrics)
+            } catch {
+                finishGeneration(generationId)
+                throw error
+            }
+        }
+
+        guard modelManager.isInstalled else {
+            finishGeneration(generationId)
+            throw BudsNativeError.modelMissing
         }
         let prompt = BudsPromptBuilder.build(history: history, memories: memories)
 
@@ -596,19 +759,6 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             }
             return clean
         }
-    }
-
-    private func semanticLocationPrompt() throws -> String {
-        let state = try locationState()
-        guard !["unknown", "away"].contains(state.context) else { return "" }
-        let label = state.placeName ?? state.context
-        return "Contexto de lugar atual: \(label) (\(state.context)). Use somente quando ajudar a priorizar; nunca mencione coordenadas."
-    }
-
-    private static func shouldUseLocationContext(for text: String) -> Bool {
-        let value = text.folding(options: .diacriticInsensitive, locale: .current).lowercased()
-        return ["casa", "trabalho", "academia", "faculdade", "localizacao", "onde estou", "chegar", "sair", "focus", "tarefa", "lembrete", "trajeto", "caminho", "percurso", "rota"]
-            .contains { value.contains($0) }
     }
 
     private static func focusBrief(open: [BudsFocusTaskRecord], completedToday: [BudsFocusTaskRecord]) -> String {

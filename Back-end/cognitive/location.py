@@ -1,8 +1,9 @@
 """Contexto local de lugar e trajetos explícitos do Buds Memory.
 
-Coordenadas nunca são enviadas ao modelo. Esta camada valida amostras locais,
-converte-as em Casa/Trabalho/Academia/deslocamento e registra mudanças de
-contexto. Trilhas GPS só existem durante um trajeto iniciado pelo usuário.
+Esta camada valida amostras locais, converte-as em Casa/Trabalho/Academia ou
+deslocamento e registra mudanças de contexto. Coordenadas só podem chegar ao
+prompt por pedido explícito do usuário; trilhas GPS continuam restritas a um
+trajeto iniciado pelo usuário.
 """
 
 from __future__ import annotations
@@ -191,6 +192,37 @@ def update_sample(
     state = get_state()
     state["distance_m"] = round(nearest_distance, 1) if nearest else None
     state["changed"] = previous.get("place_id") != next_place_id
+    triggered_reminders: list[dict[str, Any]] = []
+    if state["changed"] and nearest is not None:
+        try:
+            # Import local evita ciclo: Focus usa a localização para ordenar.
+            from cognitive import focus as cognitive_focus
+            triggered_reminders = cognitive_focus.trigger_arrival_reminders(next_context)
+        except Exception as exc:
+            # Automação é complementar e nunca invalida a amostra de GPS.
+            print(f"[Location] Lembretes de chegada indisponíveis: {exc}")
+    state["triggered_reminders"] = triggered_reminders
+    if state["changed"]:
+        if nearest is not None:
+            reminder_count = len(triggered_reminders)
+            state["context_signal"] = {
+                "kind": "ARRIVAL_REMINDER" if reminder_count else "ARRIVAL",
+                "title": f"Chegada a {nearest['name']}",
+                "message": (
+                    triggered_reminders[0]["title"] if reminder_count == 1 else
+                    f"{reminder_count} lembretes do Focus ficaram relevantes agora." if reminder_count > 1 else
+                    f"O Focus foi priorizado para o contexto {nearest['name']}."
+                ),
+                "place_context": next_context,
+            }
+        elif previous.get("place_id") is not None:
+            previous_name = previous.get("place_name") or previous.get("context") or "lugar conhecido"
+            state["context_signal"] = {
+                "kind": "DEPARTURE",
+                "title": f"Saída de {previous_name}",
+                "message": "O Buds atualizou o contexto e as prioridades do Focus.",
+                "place_context": previous.get("context", "other"),
+            }
     append_active_route_point(
         latitude,
         longitude,

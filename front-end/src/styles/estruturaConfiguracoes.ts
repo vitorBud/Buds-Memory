@@ -39,9 +39,10 @@ export const settingsSectionStyles = {
   ai: '[&>.settings-model-block]:!flex',
   voice: '[&>.settings-voice-block]:!flex',
   backup: '[&>.settings-backup-block]:!flex',
+  sync: '[&>.settings-sync-block]:!flex',
   storage: '[&>.settings-storage-block]:!flex',
   codebase: '[&>.settings-codebase-block]:!flex',
   memory: '[&>.settings-insights-block]:!flex [&>.settings-insights-block]:!max-w-none',
   system:
-    '[&>.settings-session-block]:!flex [&>.settings-session-block]:!min-h-[196px] [&>.settings-pipeline-block]:!flex [&>.settings-pipeline-block]:!min-h-[292px] max-[860px]:[&>.settings-session-block]:!min-h-0 max-[860px]:[&>.settings-pipeline-block]:!min-h-0',
+    '[&>.settings-session-block]:!flex [&>.settings-session-block]:!min-h-[196px] [&>.settings-pipeline-block]:!flex [&>.settings-pipeline-block]:!min-h-[292px] [&>.settings-context-dev-block]:!flex [&>.settings-context-dev-block]:!min-h-0 max-[860px]:[&>.settings-session-block]:!min-h-0 max-[860px]:[&>.settings-pipeline-block]:!min-h-0',
 } as const

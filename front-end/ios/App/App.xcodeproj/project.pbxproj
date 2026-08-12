@@ -20,6 +20,7 @@
 		AA1000020000000000000002 /* BudsBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000020000000000000002 /* BudsBridgeViewController.swift */; };
 		AA1000030000000000000003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AA2000030000000000000003 /* PrivacyInfo.xcprivacy */; };
 		AA1000040000000000000004 /* BudsNativeRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = AA3000020000000000000002 /* BudsNativeRuntime */; };
+		AA1000050000000000000005 /* BudsLocalSyncClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA2000050000000000000005 /* BudsLocalSyncClient.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 		AA2000010000000000000001 /* BudsLocalPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BudsLocalPlugin.swift; sourceTree = "<group>"; };
 		AA2000020000000000000002 /* BudsBridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BudsBridgeViewController.swift; sourceTree = "<group>"; };
 		AA2000030000000000000003 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		AA2000050000000000000005 /* BudsLocalSyncClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BudsLocalSyncClient.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +76,7 @@
 			children = (
 				AA2000020000000000000002 /* BudsBridgeViewController.swift */,
 				AA2000010000000000000001 /* BudsLocalPlugin.swift */,
+				AA2000050000000000000005 /* BudsLocalSyncClient.swift */,
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -175,6 +178,7 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				AA1000010000000000000001 /* BudsLocalPlugin.swift in Sources */,
+				AA1000050000000000000005 /* BudsLocalSyncClient.swift in Sources */,
 				AA1000020000000000000002 /* BudsBridgeViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

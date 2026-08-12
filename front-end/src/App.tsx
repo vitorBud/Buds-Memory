@@ -17,6 +17,7 @@ import {
   Target,
   MapPinned,
   MoreHorizontal,
+  LoaderCircle,
 } from 'lucide-react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import type { Transition } from 'framer-motion'
@@ -39,6 +40,8 @@ import {
   getLocalBackupStatus, getConversationStorage, purgeConversationStorage,
   exportLocalMemoryBackup, importLocalMemoryBackup, clearLocalStorage,
   getCognitiveMemories, getKnowledgeGraph, isNativeIOSRuntime,
+  subscribeLocationContextSignals,
+  resumeLocationMonitoring,
 } from './services/api'
 import type {
   AiState, BackendConfig, Session, ChatFolder, InterfaceSettings, LocalBackupStatus,
@@ -457,6 +460,18 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [toast])
 
+  useEffect(() => {
+    let dispose: (() => void) | undefined
+    resumeLocationMonitoring()
+    void subscribeLocationContextSignals(signal => {
+      showToast(`${signal.title}: ${signal.message}`, signal.kind === 'ARRIVAL_REMINDER' ? 'success' : 'info')
+      window.dispatchEvent(new Event('buds-focus-refresh'))
+    }).then(cleanup => { dispose = cleanup }).catch(error => {
+      console.warn('[BudsContext] Sinal proativo indisponível:', error)
+    })
+    return () => { dispose?.() }
+  }, [showToast])
+
   const refreshLocalBackupStatus = useCallback(async () => {
     try {
       const [status, conversations] = await Promise.all([
@@ -556,6 +571,18 @@ export default function App() {
     onLatency: (ms) => setLatency(ms + 'ms'),
     onMsgCountChange: setMsgCount,
     onSessionUpdate: handleSessionUpdate,
+    onResponseComplete: () => {
+      if (activeViewRef.current !== 'chat') {
+        showToast('A resposta do Buds está pronta no Chat.', 'success')
+      }
+      if (!isNativeIOSRuntime() && document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
+        try {
+          new Notification('Buds Memory', { body: 'Sua resposta está pronta no Chat.' })
+        } catch {
+          // Alguns navegadores móveis só permitem notificações via service worker.
+        }
+      }
+    },
     autoPlayAudio: settings.autoPlayAudio && activeView !== 'voice',
   })
 
@@ -1129,9 +1156,18 @@ export default function App() {
         <House size={14} />
         <span>Início</span>
       </button>
-      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'chat' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleSmoothScrollToChat} aria-current={!settingsOpen && activeView === 'chat' ? 'page' : undefined}>
+      <button
+        type="button"
+        className={`${navigationStyles.button} ${isProcessing ? navigationStyles.backgroundProcessing : ''} ${!settingsOpen && activeView === 'chat' ? `is-active ${navigationStyles.active}` : ''}`}
+        onClick={handleSmoothScrollToChat}
+        aria-current={!settingsOpen && activeView === 'chat' ? 'page' : undefined}
+        aria-label={isProcessing ? 'Chat — Buds está respondendo em segundo plano' : 'Chat'}
+        title={isProcessing ? 'Buds está respondendo em segundo plano' : 'Chat'}
+      >
         {renderMobileIndicator(!settingsOpen && activeView === 'chat')}
-        <MessageSquare size={14} />
+        {isProcessing && activeView !== 'chat'
+          ? <LoaderCircle size={14} className={navigationStyles.backgroundProcessingIcon} aria-hidden="true" />
+          : <MessageSquare size={14} />}
         <span>Chat</span>
       </button>
       <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'voice' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenVoice} aria-current={!settingsOpen && activeView === 'voice' ? 'page' : undefined}>

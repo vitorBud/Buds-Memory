@@ -25,12 +25,18 @@ import type {
   FocusTimelineEvent,
   FocusInboxItem,
   LocationDashboard,
+  LocationContextSignal,
   LocationRoute,
   LocationRouteDashboard,
   KnownPlace,
   LocationPlaceContext,
   LocationSemanticContext,
   LocationState,
+  SemanticLocationContext,
+  LocalSyncDiscoveredPeer,
+  LocalSyncPeer,
+  LocalSyncRunResult,
+  LocalSyncStatus,
 } from '../types'
 import {
   clearIOSLocalData,
@@ -68,6 +74,7 @@ import {
   configureIOSLocationMonitoring,
   deleteIOSKnownPlace,
   getIOSLocationDashboard,
+  getIOSSemanticLocationContext,
   requestIOSCurrentLocation,
   saveIOSKnownPlace,
   setIOSLocationContext,
@@ -76,6 +83,11 @@ import {
   startIOSLocationRoute,
   stopIOSLocationRoute,
   deleteIOSLocationRoute,
+  addIOSContextSignalListener,
+  discoverIOSLocalSyncPeers,
+  getIOSLocalSyncStatus,
+  pairIOSLocalSyncPeer,
+  syncIOSFocusWithPeer,
 } from '../plataformas'
 
 type BudsBridge = {
@@ -172,6 +184,11 @@ function humanizeError(err: unknown): Error {
     )
   }
   return err instanceof Error ? err : new Error(String(err))
+}
+
+async function apiError(response: Response): Promise<Error> {
+  const payload = await response.json().catch(() => ({})) as { error?: string }
+  return new Error(payload.error || `Falha na API local (${response.status}).`)
 }
 
 async function fetchJsonWithStartupRetry<T>(url: string, attempts = isDesktopRuntime() ? 16 : 1): Promise<T> {
@@ -290,6 +307,58 @@ export async function getLocalBackupStatus(): Promise<LocalBackupStatus> {
     }
   }
   return fetchJsonWithStartupRetry<LocalBackupStatus>(`${getBase()}/local-backup/status`)
+}
+
+export async function getLocalSyncStatus(): Promise<LocalSyncStatus> {
+  if (isNativeIOSRuntime()) return getIOSLocalSyncStatus()
+  const response = await authFetch(`${getBase()}/local-sync/v1/status`)
+  if (!response.ok) throw await apiError(response)
+  return response.json()
+}
+
+export async function startLocalSyncPairing(): Promise<{
+  code: string
+  expires_in_seconds: number
+  advertised: boolean
+  device: LocalSyncStatus['device']
+}> {
+  if (isNativeIOSRuntime()) throw new Error('O código de pareamento deve ser criado no Mac.')
+  const response = await authFetch(`${getBase()}/local-sync/v1/pairing/start`, { method: 'POST' })
+  if (!response.ok) throw await apiError(response)
+  return response.json()
+}
+
+export async function advertiseLocalSyncMac(): Promise<{ advertised: boolean; expires_in_seconds: number }> {
+  if (isNativeIOSRuntime()) throw new Error('O anúncio Local Sync é iniciado no Mac.')
+  const response = await authFetch(`${getBase()}/local-sync/v1/advertise`, { method: 'POST' })
+  if (!response.ok) throw await apiError(response)
+  return response.json()
+}
+
+export async function discoverLocalSyncPeers(): Promise<{ peers: LocalSyncDiscoveredPeer[]; discovery_ms: number }> {
+  if (!isNativeIOSRuntime()) return { peers: [], discovery_ms: 0 }
+  return discoverIOSLocalSyncPeers()
+}
+
+export async function pairLocalSyncPeer(peer: LocalSyncDiscoveredPeer, code: string): Promise<LocalSyncPeer> {
+  if (!isNativeIOSRuntime()) throw new Error('O pareamento deve ser confirmado no iPhone.')
+  return pairIOSLocalSyncPeer(peer, code)
+}
+
+export async function syncFocusWithLocalPeer(peerDeviceId: string): Promise<LocalSyncRunResult> {
+  if (!isNativeIOSRuntime()) {
+    throw new Error('Nesta V0, o iPhone inicia a troca bidirecional com o Mac.')
+  }
+  return syncIOSFocusWithPeer(peerDeviceId)
+}
+
+export async function requestLocalSyncFromMac(peerDeviceId: string): Promise<{ requested: boolean; request_id: string }> {
+  if (isNativeIOSRuntime()) throw new Error('Esta solicitação é iniciada no Mac.')
+  const response = await authFetch(`${getBase()}/local-sync/v1/peers/${encodeURIComponent(peerDeviceId)}/request-sync`, {
+    method: 'POST',
+  })
+  if (!response.ok) throw await apiError(response)
+  return response.json()
 }
 
 export async function clearLocalStorage(confirmation: string): Promise<LocalBackupStatus> {
@@ -429,25 +498,12 @@ export async function getCognitiveMemories(limit = 200): Promise<CognitiveMemory
 
 export async function getKnowledgeGraph(limit = 240): Promise<KnowledgeGraph> {
   if (isNativeIOSRuntime()) {
-    const memories = await getIOSLocalMemories(limit)
+    // As memórias locais já são entregues separadamente ao BrainMap. Duplicá-las
+    // como entidades e ligar uma à próxima pela ordem de criação produzia um
+    // grafo visualmente cheio, mas semanticamente falso no iPhone.
     return {
-      entities: memories.map(memory => ({
-        id: memory.id,
-        name: memory.content.slice(0, 72),
-        entity_type: memory.is_core ? 'core_memory' : 'memory',
-        description: memory.content,
-        importance: memory.importance,
-        access_count: memory.access_count,
-        first_seen: memory.created_at,
-        last_seen: memory.last_accessed || memory.created_at,
-        metadata: { origin: 'iphone_local' },
-      })),
-      edges: memories.slice(1).map((memory, index) => ({
-        source: memories[index].content.slice(0, 72),
-        target: memory.content.slice(0, 72),
-        relation_type: 'memória relacionada',
-        strength: Math.min(memories[index].importance, memory.importance),
-      })),
+      entities: [],
+      edges: [],
     }
   }
   return fetchJsonWithStartupRetry<KnowledgeGraph>(`${getBase()}/cognitive/graph?limit=${limit}`)
@@ -965,6 +1021,8 @@ export async function organizeMyDay(): Promise<string> {
 // ─── Buds Map / contexto de lugar ──────────────────────────────────────────
 
 let browserRouteWatchId: number | null = null
+let browserContextWatchId: number | null = null
+const BROWSER_CONTEXT_MONITORING_KEY = 'buds-location-monitoring-enabled-v1'
 
 async function postBrowserLocationSample(position: GeolocationPosition): Promise<void> {
   const response = await authFetch(`${getBase()}/cognitive/location/sample`, {
@@ -981,10 +1039,35 @@ async function postBrowserLocationSample(position: GeolocationPosition): Promise
     }),
   })
   if (!response.ok) throw new Error('Não foi possível registrar um ponto do trajeto.')
+  const state = await response.json().catch(() => ({})) as LocationState
+  emitBrowserContextSignal(state.context_signal)
+}
+
+const LOCATION_SIGNAL_EVENT = 'buds-context-signal'
+
+function emitBrowserContextSignal(signal?: LocationContextSignal): void {
+  if (!signal || typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent<LocationContextSignal>(LOCATION_SIGNAL_EVENT, { detail: signal }))
+  if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
+    new Notification(signal.title, { body: signal.message, tag: `buds-context-${signal.place_context}` })
+  }
+}
+
+export async function subscribeLocationContextSignals(
+  listener: (signal: LocationContextSignal) => void,
+): Promise<() => void> {
+  if (isNativeIOSRuntime()) {
+    const handle = await addIOSContextSignalListener(listener)
+    return () => { void handle.remove() }
+  }
+  const handler = (event: Event) => listener((event as CustomEvent<LocationContextSignal>).detail)
+  window.addEventListener(LOCATION_SIGNAL_EVENT, handler)
+  return () => window.removeEventListener(LOCATION_SIGNAL_EVENT, handler)
 }
 
 function startBrowserRouteWatcher() {
   if (browserRouteWatchId !== null || !navigator.geolocation) return
+  stopBrowserContextWatcher()
   browserRouteWatchId = navigator.geolocation.watchPosition(
     position => { void postBrowserLocationSample(position).catch(error => console.warn('[BudsMap]', error)) },
     error => console.warn('[BudsMap] Rastreamento pausado:', error.message),
@@ -996,11 +1079,38 @@ function stopBrowserRouteWatcher() {
   if (browserRouteWatchId === null || !navigator.geolocation) return
   navigator.geolocation.clearWatch(browserRouteWatchId)
   browserRouteWatchId = null
+  if (localStorage.getItem(BROWSER_CONTEXT_MONITORING_KEY) === '1') startBrowserContextWatcher()
+}
+
+function startBrowserContextWatcher() {
+  if (browserContextWatchId !== null || browserRouteWatchId !== null || !navigator.geolocation) return
+  browserContextWatchId = navigator.geolocation.watchPosition(
+    position => { void postBrowserLocationSample(position).catch(error => console.warn('[BudsContext]', error)) },
+    error => console.warn('[BudsContext] Monitoramento econômico pausado:', error.message),
+    { enableHighAccuracy: false, maximumAge: 5 * 60_000, timeout: 30_000 },
+  )
+}
+
+function stopBrowserContextWatcher() {
+  if (browserContextWatchId === null || !navigator.geolocation) return
+  navigator.geolocation.clearWatch(browserContextWatchId)
+  browserContextWatchId = null
 }
 
 export async function getLocationDashboard(): Promise<LocationDashboard> {
   if (isNativeIOSRuntime()) return getIOSLocationDashboard()
-  return fetchJsonWithStartupRetry<LocationDashboard>(`${getBase()}/cognitive/location?limit=30`)
+  const dashboard = await fetchJsonWithStartupRetry<LocationDashboard>(`${getBase()}/cognitive/location?limit=30`)
+  const enabled = localStorage.getItem(BROWSER_CONTEXT_MONITORING_KEY) === '1'
+  if (enabled) startBrowserContextWatcher()
+  return {
+    ...dashboard,
+    monitoring: { enabled, authorization: enabled ? 'browser_while_open' : 'on_demand' },
+  }
+}
+
+export async function getSemanticLocationContext(): Promise<SemanticLocationContext> {
+  if (isNativeIOSRuntime()) return getIOSSemanticLocationContext()
+  return fetchJsonWithStartupRetry<SemanticLocationContext>(`${getBase()}/cognitive/location/semantic-context`)
 }
 
 export async function getLocationRoutes(): Promise<LocationRouteDashboard> {
@@ -1069,6 +1179,7 @@ export async function refreshLocationContext(): Promise<LocationState> {
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || 'Não foi possível atualizar o contexto de lugar.')
+  emitBrowserContextSignal((data as LocationState).context_signal)
   return data
 }
 
@@ -1109,7 +1220,21 @@ export async function setLocationContext(context: LocationSemanticContext): Prom
 
 export async function configureLocationMonitoring(enabled: boolean): Promise<{ enabled: boolean; authorization: string }> {
   if (isNativeIOSRuntime()) return configureIOSLocationMonitoring(enabled)
-  return { enabled: false, authorization: 'on_demand' }
+  if (!navigator.geolocation) return { enabled: false, authorization: 'unavailable' }
+  localStorage.setItem(BROWSER_CONTEXT_MONITORING_KEY, enabled ? '1' : '0')
+  if (enabled) {
+    startBrowserContextWatcher()
+    if ('Notification' in window && Notification.permission === 'default') {
+      void Notification.requestPermission()
+    }
+  }
+  else stopBrowserContextWatcher()
+  return { enabled, authorization: enabled ? 'browser_while_open' : 'on_demand' }
+}
+
+export function resumeLocationMonitoring(): void {
+  if (isNativeIOSRuntime()) return
+  if (localStorage.getItem(BROWSER_CONTEXT_MONITORING_KEY) === '1') startBrowserContextWatcher()
 }
 
 export type { LocationPlaceContext }

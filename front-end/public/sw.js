@@ -1,4 +1,4 @@
-const CACHE_NAME = 'buds-mobile-shell-v2'
+const CACHE_NAME = 'buds-mobile-shell-v4'
 const SHELL_ASSETS = [
   '/',
   '/manifest.webmanifest',

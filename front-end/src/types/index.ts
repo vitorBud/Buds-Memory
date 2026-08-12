@@ -166,6 +166,86 @@ export interface LocalBackupStatus {
   }
 }
 
+export interface LocalSyncDevice {
+  device_id: string
+  device_name: string
+  device_type: 'mac' | 'iphone' | 'windows' | 'desktop' | string
+}
+
+export interface LocalSyncPeer {
+  peer_device_id: string
+  device_name: string
+  device_type: string
+  base_url?: string
+  trusted: boolean
+  connected?: boolean
+  status?: 'disconnected' | 'discovering' | 'found' | 'pairing' | 'connected' | 'syncing' | 'synced' | 'error' | 'revoked' | string
+  protocol_version?: number
+  app_version?: string | null
+  capabilities?: string[]
+  paired_at?: string | null
+  last_seen_at?: string | null
+  last_sync_at?: string | null
+  pending_out: number
+  pending_details?: Record<string, number>
+  pending_in?: number
+  awaiting_ack?: number
+  conflicts?: number
+  last_sent_count?: number
+  last_received_count?: number
+  total_sent_count?: number
+  total_received_count?: number
+  last_duration_ms?: number | null
+  last_bytes_sent?: number
+  last_bytes_received?: number
+  retry_count?: number
+  last_error?: string | null
+}
+
+export interface LocalSyncStatus {
+  protocol: 'buds-local-sync' | string
+  protocol_version: number
+  capabilities: string[]
+  device: LocalSyncDevice
+  peers: LocalSyncPeer[]
+  history?: LocalSyncHistoryEvent[]
+}
+
+export interface LocalSyncHistoryEvent {
+  id: number
+  peer_device_id: string
+  status: 'synced' | 'error' | string
+  sent_count: number
+  received_count: number
+  conflict_count: number
+  bytes_sent: number
+  bytes_received: number
+  duration_ms?: number | null
+  error_message?: string | null
+  created_at: string
+}
+
+export interface LocalSyncDiscoveredPeer extends LocalSyncDevice {
+  base_url: string
+  protocol_version?: number
+}
+
+export interface LocalSyncRunResult {
+  success: boolean
+  sent: number
+  received: number
+  changed: number
+  conflicts: number
+  metrics: {
+    discovery_ms: number
+    connect_ms: number
+    manifest_ms: number
+    transfer_ms: number
+    apply_ms: number
+    total_ms: number
+  }
+}
+
 export type ConversationStorageState = 'active' | 'removed' | 'orphaned'
 
 export interface ConversationStorageItem {
@@ -220,6 +300,8 @@ export interface FocusTask {
   trigger_on_arrival: boolean
   location_relevant?: boolean
   current_location_context?: LocationSemanticContext
+  contextual_score?: number
+  contextual_reasons?: string[]
 }
 
 export type LocationPlaceContext = 'home' | 'work' | 'gym' | 'study' | 'other'
@@ -250,6 +332,15 @@ export interface LocationState {
   updated_at: string | null
   changed?: boolean
   distance_m?: number | null
+  triggered_reminders?: FocusTask[]
+  context_signal?: LocationContextSignal
+}
+
+export interface LocationContextSignal {
+  kind: 'ARRIVAL' | 'DEPARTURE' | 'ARRIVAL_REMINDER' | string
+  title: string
+  message: string
+  place_context: LocationPlaceContext | string
 }
 
 export interface LocationEvent {
@@ -271,6 +362,7 @@ export interface LocationDashboard {
     continuous_gps: boolean
     precise_only_on_demand: boolean
     coordinates_sent_to_model: boolean
+    coordinates_mode?: 'explicit_request_only' | string
   }
 }
 
@@ -301,6 +393,51 @@ export interface LocationRoute {
 export interface LocationRouteDashboard {
   active: LocationRoute | null
   routes: LocationRoute[]
+}
+
+export type SemanticLocationState =
+  | 'AT_HOME'
+  | 'LEAVING_HOME'
+  | 'ARRIVING_HOME'
+  | 'AT_WORK'
+  | 'LEAVING_WORK'
+  | 'ARRIVING_WORK'
+  | 'COMMUTING'
+  | 'AT_KNOWN_PLACE'
+  | 'UNKNOWN'
+
+export type SemanticLocationRelevance = 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE'
+
+export interface SemanticLocationPlace {
+  id: number | null
+  name: string
+  type: LocationPlaceContext | string
+}
+
+export interface SemanticLocationContext {
+  version: number
+  current_place: SemanticLocationPlace | null
+  previous_place: SemanticLocationPlace | null
+  state: SemanticLocationState
+  movement: 'MOVING' | 'STATIONARY' | 'UNKNOWN'
+  trip_active: boolean
+  trip_origin: SemanticLocationPlace | null
+  trip_destination: SemanticLocationPlace | null
+  destination_confidence: number | null
+  routine: {
+    kind: 'PLACE_TRANSITION' | string
+    origin: SemanticLocationPlace
+    destination: SemanticLocationPlace
+    sample_count: number
+    total_transitions: number
+    confidence: number
+    typical_arrival_time: string | null
+  } | null
+  trip_duration_seconds: number
+  recent_event: string | null
+  recent_event_at: string | null
+  recent_event_age_seconds: number | null
+  relevance: SemanticLocationRelevance
 }
 
 export interface FocusIdea {

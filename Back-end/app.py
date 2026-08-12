@@ -43,9 +43,12 @@ from agenty import (
     is_google_search_configured,
     resolve_ollama_model,
     search_google,
+    CURRENT_PRODUCT_UPDATE_REPLY,
+    CURRENT_MAP_REPLY,
 )
 import database
 import local_backup
+from local_sync import local_sync_bp
 import remote_access
 from storage import get_data_dir
 
@@ -56,7 +59,7 @@ from cognitive import detector as cognitive_detector
 from cognitive import conversation as cognitive_conversation
 from cognitive import finance as cognitive_finance
 from cognitive import focus as cognitive_focus
-from cognitive import location as cognitive_location
+from cognitive import location_context as cognitive_location_context
 from cognitive import knowledge_graph
 from cognitive import rag as cognitive_rag
 from cognitive import response_safety
@@ -90,6 +93,10 @@ database_v2.migrate()
 
 # Registra o Blueprint da Camada Cognitiva
 app.register_blueprint(cognitive_bp)
+app.register_blueprint(local_sync_bp)
+# Mantém as URLs da prova de conceito para instalações antigas e oferece o
+# namespace estável do protocolo v1 às versões atuais.
+app.register_blueprint(local_sync_bp, url_prefix="/api/local-sync/v1", name="local_sync_v1")
 
 # Pool compartilhado para background cognition — evita acúmulo de threads daemon
 _COGNITION_POOL = concurrent.futures.ThreadPoolExecutor(
@@ -124,6 +131,10 @@ def enforce_api_security():
 
     if request.method == "OPTIONS":
         return app.make_default_options_response()
+    # Local Sync possui pareamento e credencial próprios. As rotas validam o
+    # peer antes de expor qualquer Focus Task e nunca herdam o token remoto.
+    if request.path.startswith(("/api/local-sync/v0/", "/api/local-sync/v1/")):
+        return None
     if not remote_access.REMOTE_MODE:
         return None
     if request.path in {
@@ -255,22 +266,29 @@ def prepare_session_context(
 
     with trace.span("db_save_user_message") if trace else _nullcontext():
         user_message = database.add_message(session_id, "user", user_text)
+    focus_action_context = ""
     try:
         with trace.span("focus_capture") if trace else _nullcontext():
-            cognitive_focus.capture_chat_message(
+            focus_result = cognitive_focus.capture_chat_message(
                 user_text,
                 session_id=session_id,
                 source_message_id=user_message.get("id"),
             )
+            focus_action_context = cognitive_focus.chat_action_context(focus_result)
+            if trace:
+                trace.set("focus_actions_created", len(focus_result.get("created") or []))
+                trace.set("focus_suggestions_created", len(focus_result.get("suggested") or []))
     except Exception as exc:
         # O Focus é complementar: nunca pode impedir a resposta principal.
         print(f"[Focus] Captura do chat ignorada: {exc}")
 
     if pipeline == FAST_PATH:
+        location_context = cognitive_location_context.context_for_chat(user_text)
+        local_context = "\n\n".join(part for part in (location_context, focus_action_context) if part)
         if trace:
-            trace.set("context_skipped_reason", "fast_path")
-            trace.set("knowledge_context_chars", 0)
-        return history, title_update, ""
+            trace.set("context_skipped_reason", "fast_path_except_local_context")
+            trace.set("knowledge_context_chars", len(local_context))
+        return history, title_update, local_context
 
     try:
         with trace.span("conversation_context") if trace else _nullcontext():
@@ -297,13 +315,12 @@ def prepare_session_context(
             )
             knowledge_context = f"{summary_context}\n\n{knowledge_context}" if knowledge_context else summary_context
 
-    if re.search(
-        r"\b(casa|trabalho|academia|faculdade|localiza[cç][aã]o|onde estou|chegar|sa[ií]r|focus|tarefa|lembrete|trajeto|caminho|percurso|rota)\b",
-        user_text.lower(),
-    ):
-        location_context = cognitive_location.semantic_context_for_prompt()
-        if location_context:
-            knowledge_context = f"{knowledge_context}\n\n{location_context}" if knowledge_context else location_context
+    location_context = cognitive_location_context.context_for_chat(user_text)
+    local_context = "\n\n".join(part for part in (focus_action_context, location_context) if part)
+    if local_context:
+        # Ações executadas e contexto atual pertencem à mensagem presente; eles
+        # precisam sobreviver ao corte antes de conhecimento histórico antigo.
+        knowledge_context = f"{local_context}\n\n{knowledge_context}" if knowledge_context else local_context
 
     knowledge_context = clip_context(knowledge_context, budget["context_chars"])
     if trace:
@@ -425,6 +442,20 @@ def get_direct_self_reply(user_text: str, selected_model: str, pipeline: str) ->
     """Responde dúvidas sobre o próprio Buds sem depender do LLM."""
     clean = re.sub(r"\s+", " ", user_text or "").strip()
     lower = clean.lower()
+
+    asks_product_update = bool(re.search(
+        r"\b(o que|oque|quais).{0,36}(novo|novidade|mudou|atualiza[cç][aã]o)\b"
+        r"|\b(novidades|changelog|mudan[cç]as da atualiza[cç][aã]o|[uú]ltima atualiza[cç][aã]o)\b",
+        lower,
+    ))
+    asks_map = "buds map" in lower or (
+        "mapa" in lower
+        and bool(re.search(r"\b(tem|possui|existe|serve|faz|funciona|explique|explica|recurso|abrir|usar)\b", lower))
+    )
+    if asks_product_update:
+        return CURRENT_PRODUCT_UPDATE_REPLY
+    if asks_map:
+        return CURRENT_MAP_REPLY
 
     asks_identity = bool(re.search(
         r"\b(quem (?:é|e) voc[eê]|quem (?:é|e) voce|quem (?:é|e) o buds|quem e o buds|qual (?:é|e) (?:o )?seu nome|como voc[eê] se chama|como voce se chama|que ia (?:é|e) voc[eê]|que ia (?:é|e) voce)\b",

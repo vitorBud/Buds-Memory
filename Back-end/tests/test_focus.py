@@ -38,6 +38,7 @@ class FocusTests(unittest.TestCase):
             database_v2._create_focus_tasks(conn)
             database_v2._create_focus_v2_tables(conn)
             database_v2._migrate_focus_capture_columns(conn)
+            database_v2._create_local_sync_v0(conn)
             database_v2._create_location_context(conn)
             conn.commit()
         self.patch = patch.object(focus, "get_db_connection", side_effect=connection)
@@ -103,6 +104,18 @@ class FocusTests(unittest.TestCase):
         self.assertEqual(task["category"], "project")
         self.assertEqual(task["source"], "chat")
 
+    def test_explicit_add_to_focus_command_is_executed_even_as_question(self):
+        result = focus.capture_chat_message(
+            "Você pode adicionar revisar o contrato no Focus?",
+            session_id="chat-2",
+            source_message_id=13,
+        )
+        self.assertEqual(len(result["created"]), 1)
+        self.assertEqual(result["created"][0]["title"], "Revisar o contrato")
+        receipt = focus.chat_action_context(result)
+        self.assertIn("JÁ EXECUTADAS", receipt)
+        self.assertIn("Revisar o contrato", receipt)
+
     def test_explicit_reminder_understands_tomorrow_and_time(self):
         now = datetime(2026, 8, 10, 14, 0)
         candidates = detect_focus_candidates(
@@ -142,6 +155,24 @@ class FocusTests(unittest.TestCase):
         tasks = focus.get_focus_tasks()
         self.assertEqual(tasks[0]["title"], "Tarefa de casa")
         self.assertTrue(tasks[0]["location_relevant"])
+        self.assertIn("relevante neste lugar", tasks[0]["contextual_reasons"])
+        self.assertGreater(tasks[0]["contextual_score"], tasks[1]["contextual_score"])
+
+    def test_arrival_reminder_triggers_once_and_stays_as_task(self):
+        reminder = focus.create_focus_task(
+            "Tirar o lixo",
+            item_type="REMINDER",
+            place_context="home",
+            trigger_on_arrival=True,
+        )
+        location.save_place(name="Casa", context="home", latitude=-23.55, longitude=-46.63)
+        state = location.update_sample(-23.55, -46.63, accuracy_m=10)
+        self.assertEqual([item["id"] for item in state["triggered_reminders"]], [reminder["id"]])
+        self.assertEqual(state["context_signal"]["kind"], "ARRIVAL_REMINDER")
+        self.assertFalse(focus.get_focus_task(reminder["id"])["trigger_on_arrival"])
+        repeated = location.update_sample(-23.55, -46.63, accuracy_m=10)
+        self.assertEqual(repeated["triggered_reminders"], [])
+        self.assertNotIn("context_signal", repeated)
 
     def test_same_title_can_exist_for_different_places(self):
         focus.create_focus_task("Separar documentos", place_context="home")
