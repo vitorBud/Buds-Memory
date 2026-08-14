@@ -576,6 +576,18 @@
     box-shadow: none !important;
   }
 
+  :root[data-platform="ios"] .settings-content {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    touch-action: auto !important;
+  }
+
+  :root[data-platform="ios"] .settings-storage-block {
+    min-height: max-content !important;
+    touch-action: pan-y !important;
+  }
+
   /*
    * Celular em paisagem precisa de um perfil próprio: a largura de um iPhone
    * deitado ultrapassa o breakpoint mobile tradicional, mas a altura útil
@@ -783,8 +795,8 @@
     width: min(100%, 760px) !important;
     min-height: 100% !important;
     grid-template-columns: minmax(190px, 0.9fr) minmax(260px, 1.1fr) !important;
-    grid-template-rows: auto auto auto !important;
-    grid-template-areas: "core status" "core controls" "core end" !important;
+    grid-template-rows: auto auto !important;
+    grid-template-areas: "core status" "core controls" !important;
     gap: 7px 18px !important;
     align-content: center !important;
   }
@@ -797,8 +809,6 @@
 
   :root[data-mobile-landscape] .voice-status { grid-area: status !important; }
   :root[data-mobile-landscape] .voice-controls { grid-area: controls !important; }
-  :root[data-mobile-landscape] .voice-end-button { grid-area: end !important; }
-
   :root[data-mobile-landscape] .obsidian-scroll-scene,
   :root[data-mobile-landscape] .obsidian-stage {
     width: 100% !important;
@@ -895,19 +905,23 @@
     height: var(--app-viewport-height, 100dvh) !important;
     min-height: 0 !important;
     padding: max(6px, env(safe-area-inset-top)) max(7px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) var(--landscape-content-left) !important;
-    overflow: hidden !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain !important;
+    -webkit-overflow-scrolling: touch;
   }
 
   :root[data-mobile-landscape] .settings-page-panel {
     display: grid !important;
     width: 100% !important;
-    height: 100% !important;
+    height: auto !important;
+    min-height: 100% !important;
     min-height: 0 !important;
     max-height: none !important;
     grid-template-columns: minmax(150px, 190px) minmax(0, 1fr) !important;
-    grid-template-rows: auto minmax(0, 1fr) !important;
+    grid-template-rows: auto auto !important;
     gap: 7px !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   :root[data-mobile-landscape] .settings-page-panel > div:first-child {
@@ -924,8 +938,7 @@
     grid-template-columns: minmax(0, 1fr) !important;
     align-content: start !important;
     padding: 5px !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
+    overflow: visible !important;
   }
 
   :root[data-mobile-landscape] .settings-categories button {
@@ -942,9 +955,10 @@
     grid-row: 2 !important;
     min-width: 0 !important;
     min-height: 0 !important;
+    height: auto !important;
+    max-height: none !important;
     padding: 0 !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
+    overflow: visible !important;
   }
 
   :root[data-mobile-landscape] .settings-section {

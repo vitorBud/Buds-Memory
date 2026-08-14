@@ -19,6 +19,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -47,6 +49,7 @@ _CONFIG_FILE = _BASE / "config.json"
 # ── Estado do modelo STT ──────────────────────────────────────────────────────
 
 _stt_model = None
+_stt_lock = threading.Lock()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -146,7 +149,7 @@ def _resolve_piper_command() -> list[str]:
     )
 
 
-def tts_piper(texto: str, out_wav: Path) -> None:
+def tts_piper(texto: str, out_wav: Path, cancel_event: Optional[threading.Event] = None) -> None:
     """
     Gera áudio WAV via Piper (offline).
 
@@ -164,18 +167,52 @@ def tts_piper(texto: str, out_wav: Path) -> None:
         raise FileNotFoundError(f"Configuração .onnx.json não encontrada em: {CONFIG}")
 
     piper_command = _resolve_piper_command()
-    try:
-        result = subprocess.run(
-            [*piper_command, "-m", str(MODEL), "-c", str(CONFIG), "-f", str(out_wav)],
-            input=texto,
+    command = [*piper_command, "-m", str(MODEL), "-c", str(CONFIG), "-f", str(out_wav)]
+    if cancel_event is None:
+        try:
+            result = subprocess.run(
+                command,
+                input=texto,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                timeout=45,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("Piper excedeu o limite de 45 segundos e foi encerrado.") from exc
+    else:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
-            capture_output=True,
-            timeout=45,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Piper excedeu o limite de 45 segundos e foi encerrado.") from exc
+        try:
+            assert process.stdin is not None
+            process.stdin.write(texto)
+            process.stdin.close()
+            started_at = time.monotonic()
+            while process.poll() is None:
+                if cancel_event.wait(0.05):
+                    process.terminate()
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    raise RuntimeError("Piper interrompido pelo usuário.")
+                if time.monotonic() - started_at > 45:
+                    process.kill()
+                    raise RuntimeError("Piper excedeu o limite de 45 segundos e foi encerrado.")
+            stdout = process.stdout.read() if process.stdout else ""
+            stderr = process.stderr.read() if process.stderr else ""
+            result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        finally:
+            if process.poll() is None:
+                process.kill()
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -237,15 +274,18 @@ def stt_local(wav_path: Path) -> str:
     Retorna string vazia em caso de falha.
     """
     try:
-        model = get_stt_model()
-        segments, _info = model.transcribe(
-            str(wav_path),
-            language="pt",
-            beam_size=1,
-            vad_filter=True,
-            condition_on_previous_text=False,
-        )
-        return " ".join(seg.text.strip() for seg in segments).strip()
+        # faster-whisper reutiliza uma única instância. A trava impede duas
+        # transcrições concorrentes de disputarem o mesmo modelo no Voice.
+        with _stt_lock:
+            model = get_stt_model()
+            segments, _info = model.transcribe(
+                str(wav_path),
+                language="pt",
+                beam_size=1,
+                vad_filter=True,
+                condition_on_previous_text=False,
+            )
+            return " ".join(seg.text.strip() for seg in segments).strip()
     except Exception as exc:
         print(f"[STT] Erro ao transcrever áudio: {exc}")
         return ""

@@ -123,6 +123,7 @@ public struct BudsChatFolderRecord: Sendable {
 public struct BudsConversationStorageRecord: Sendable {
     public let id: String
     public let title: String
+    public let channel: String?
     public let createdAt: String?
     public let deletedAt: String?
     public let state: String
@@ -234,6 +235,7 @@ public struct BudsLocalSyncPeerStateRecord: Sendable {
     public let trusted: Bool
     public let lastRemoteSeq: Int64
     public let lastAcknowledgedSeq: Int64
+    public let lastUploadAcknowledgedSeq: Int64
     public let lastSyncAt: String?
     public let lastError: String?
     public let protocolVersion: Int
@@ -261,6 +263,17 @@ public struct BudsLocalSyncHistoryRecord: Sendable {
     public let receivedCount: Int
     public let durationMs: Double
     public let createdAt: String
+}
+
+public struct BudsLocalSyncUploadChangeRecord: Sendable {
+    public let localSeq: Int64
+    public let changeId: String
+    public let entityType: String
+    public let entityUid: String
+    public let entityVersion: Int64
+    public let operation: String
+    public let changedAt: String
+    public let recordJSON: String?
 }
 
 public struct BudsKnownPlaceRecord: Sendable {

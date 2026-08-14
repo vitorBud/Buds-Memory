@@ -338,23 +338,28 @@ def llm_ollama_stream(
 
     first_token_seen = False
     generated_tokens_est = 0
-    for line in r.iter_lines():
-        if line:
-            try:
-                data = json.loads(line.decode("utf-8"))
-                if data.get("done"):
-                    _record_ollama_metrics(data, trace)
-                    continue
-                token = data.get("response", "")
-                if token:
-                    generated_tokens_est += estimate_tokens(token)
-                    if trace and not first_token_seen:
-                        trace.mark("ollama_first_token")
-                        trace.set("ollama_first_token_ms", trace.elapsed_ms())
-                        first_token_seen = True
-                    yield token
-            except Exception as exc:
-                print(f"[OllamaClient] Falha ao decodificar chunk: {exc}")
+    try:
+        for line in r.iter_lines():
+            if line:
+                try:
+                    data = json.loads(line.decode("utf-8"))
+                    if data.get("done"):
+                        _record_ollama_metrics(data, trace)
+                        continue
+                    token = data.get("response", "")
+                    if token:
+                        generated_tokens_est += estimate_tokens(token)
+                        if trace and not first_token_seen:
+                            trace.mark("ollama_first_token")
+                            trace.set("ollama_first_token_ms", trace.elapsed_ms())
+                            first_token_seen = True
+                        yield token
+                except Exception as exc:
+                    print(f"[OllamaClient] Falha ao decodificar chunk: {exc}")
+    finally:
+        # Fechar o SSE/abortar no front encerra o socket imediatamente em vez
+        # de deixar uma resposta Ollama zumbi continuar ocupando recursos.
+        r.close()
     if trace:
         trace.set("generated_tokens_est", generated_tokens_est)
 

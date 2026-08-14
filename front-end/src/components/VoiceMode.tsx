@@ -1,10 +1,8 @@
 import { useMemo } from 'react'
 import type { CSSProperties } from 'react'
-import { Mic, MicOff, PhoneOff, Square, Volume2 } from 'lucide-react'
+import { Volume2 } from 'lucide-react'
 import type { AiState, ThemeMode } from '../types'
 import { voiceHaloStateStyles, voiceModeStyles, voiceRingStateStyles } from '../styles/modoVoz'
-
-export type VoiceSilenceMode = 'fast' | 'balanced' | 'patient'
 
 interface VoiceModeProps {
   aiState: AiState
@@ -12,16 +10,14 @@ interface VoiceModeProps {
   isRecording: boolean
   recSeconds: number
   micVolume: number
+  partialTranscript?: string
   isProcessing: boolean
   availableVoices: SpeechSynthesisVoice[]
   selectedVoiceURI: string
-  silenceMode: VoiceSilenceMode
   usesNeuralVoice?: boolean
   onMicToggle: () => void
   onStopOutput: () => void
   onVoiceChange: (voiceURI: string) => void
-  onSilenceModeChange: (mode: VoiceSilenceMode) => void
-  onExit: () => void
 }
 
 const STATUS_LABEL: Record<AiState, string> = {
@@ -54,16 +50,14 @@ export function VoiceMode({
   isRecording,
   recSeconds,
   micVolume,
+  partialTranscript = '',
   isProcessing,
   availableVoices,
   selectedVoiceURI,
-  silenceMode,
   usesNeuralVoice = false,
   onMicToggle,
   onStopOutput,
   onVoiceChange,
-  onSilenceModeChange,
-  onExit,
 }: VoiceModeProps) {
   const tone = useMemo(() => getVoiceTone(theme), [theme])
   const effectiveTone = aiState === 'error'
@@ -76,23 +70,24 @@ export function VoiceMode({
     const ptVoices = availableVoices.filter(voice => voice.lang.toLowerCase().startsWith('pt'))
     return ptVoices.length ? ptVoices : availableVoices
   }, [availableVoices])
-  const statusHint = isRecording
-    ? `${recSeconds}s · toque para enviar`
+  const isListeningTurn = isRecording && aiState === 'listening'
+  const statusHint = isListeningTurn
+    ? partialTranscript || `${recSeconds}s · pode falar naturalmente`
     : aiState === 'error'
       ? 'Toque no núcleo e permita o microfone nos Ajustes'
+      : aiState === 'speaking'
+        ? 'Toque no núcleo para interromper e falar'
       : canInterrupt
-        ? 'Toque no nucleo para interromper e falar'
-        : 'Toque no nucleo para falar'
+        ? 'Toque no núcleo para interromper e falar'
+        : 'Toque no núcleo para falar'
 
   const handleCoreClick = () => {
-    if (isRecording) {
-      onMicToggle()
-      return
-    }
-
     if (canInterrupt) {
+      // O toque corta a reprodução imediatamente. No iPhone, damos um pequeno
+      // intervalo para a AVAudioSession sair de playback antes de abrir o STT;
+      // isso evita a disputa entre os dois motores sem reativar escuta passiva.
       onStopOutput()
-      window.setTimeout(onMicToggle, 80)
+      window.setTimeout(onMicToggle, aiState === 'speaking' ? 220 : 0)
       return
     }
 
@@ -120,8 +115,8 @@ export function VoiceMode({
           type="button"
           className={`voice-core ${voiceModeStyles.core}`}
           onClick={handleCoreClick}
-          aria-label={isRecording ? 'Enviar fala' : canInterrupt ? 'Interromper e falar' : 'Ativar microfone'}
-          title={isRecording ? 'Enviar fala' : canInterrupt ? 'Interromper e falar' : 'Ativar microfone'}
+          aria-label={canInterrupt ? 'Interromper resposta e começar a ouvir' : isListeningTurn ? 'Enviar fala' : 'Começar a ouvir'}
+          title={canInterrupt ? 'Interromper resposta e começar a ouvir' : isListeningTurn ? 'Enviar fala' : 'Começar a ouvir'}
         >
           <span className={`voice-core-halo ${voiceModeStyles.coreLayer} ${voiceHaloStateStyles[aiState] ?? ''}`} />
           <span className={`voice-core-orb ${voiceModeStyles.coreLayer} ${voiceModeStyles.orb}`}>
@@ -142,7 +137,7 @@ export function VoiceMode({
           {usesNeuralVoice ? (
             <div className={`voice-select-wrap ${voiceModeStyles.selectWrap}`} aria-label="Voz neural selecionada">
               <Volume2 size={15} />
-              <span className={voiceModeStyles.neuralVoiceLabel}>Dora neural · pt-BR · no aparelho</span>
+              <span className={voiceModeStyles.neuralVoiceLabel}>Dora natural · pt-BR · no aparelho</span>
             </div>
           ) : (
             <label className={`voice-select-wrap ${voiceModeStyles.selectWrap}`}>
@@ -163,39 +158,7 @@ export function VoiceMode({
             </label>
           )}
 
-          <div className={`voice-sensitivity ${voiceModeStyles.sensitivity}`} aria-label="Tempo de resposta">
-            {[
-              ['fast', 'Rápida'],
-              ['balanced', 'Normal'],
-              ['patient', 'Paciente'],
-            ].map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                className={`${voiceModeStyles.sensitivityButton} ${silenceMode === mode ? `is-active ${voiceModeStyles.sensitivityActive}` : ''}`}
-                onClick={() => onSilenceModeChange(mode as VoiceSilenceMode)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {canInterrupt && (
-            <button type="button" className={`voice-interrupt-button ${voiceModeStyles.interrupt}`} onClick={onStopOutput}>
-              <Square size={13} />
-              <span>Interromper</span>
-            </button>
-          )}
         </div>
-
-        <button type="button" className={`voice-end-button ${voiceModeStyles.end}`} onClick={onExit}>
-          <PhoneOff size={17} />
-          <span>Encerrar conversa</span>
-        </button>
-      </div>
-
-      <div className={`voice-mic-indicator ${voiceModeStyles.micIndicator}`} aria-hidden="true">
-        {isRecording ? <Mic size={16} /> : <MicOff size={16} />}
       </div>
     </section>
   )

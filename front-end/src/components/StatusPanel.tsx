@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, BrainCircuit, Circle, CloudDownload, Code2, Cpu, Database, FolderOpen, Gauge, HardDrive, MessageSquare, RefreshCw, SlidersHorizontal, Trash2, Upload, UserRound, Volume2, X } from 'lucide-react'
+import { Activity, AlertTriangle, BrainCircuit, Circle, CloudDownload, Code2, Cpu, Database, FolderOpen, Gauge, HardDrive, MessageSquare, Mic, RefreshCw, SlidersHorizontal, Trash2, Upload, UserRound, Volume2, Wifi, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   advertiseLocalSyncMac,
@@ -207,14 +207,15 @@ export function StatusPanel({
     ...conversationStorage.conversations.filter(item => item.state === 'removed'),
     ...conversationStorage.conversations.filter(item => item.state === 'active'),
   ]
+  const hasTrustedSyncPeer = Boolean(localSyncStatus?.peers.some(peer => peer.trusted))
 
   const selectSection = (section: SettingsSection) => {
     setActiveSection(section)
-    if (window.matchMedia('(max-width: 860px)').matches) {
-      window.requestAnimationFrame(() => {
-        contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      })
-    }
+    window.requestAnimationFrame(() => {
+      contentRef.current
+        ?.closest<HTMLElement>('[aria-label="Configurações do Buds Memory"]')
+        ?.scrollTo({ top: 0, behavior: 'auto' })
+    })
   }
 
   const loadSemanticContext = async () => {
@@ -704,7 +705,7 @@ export function StatusPanel({
           <RefreshCw size={15} />
         </div>
         <p className={settingsControlStyles.sectionCopy}>
-          Seus dispositivos Buds trocam mudanças diretamente pela rede local. Nesta etapa, o motor ativo continua sincronizando Focus com confirmação e histórico.
+          Focus continua nos dois sentidos. Chats, pastas e memórias do iPhone são enviados somente ao Mac, onde o Buds mais potente pode aproveitar esse contexto sem devolver dados pesados ao celular.
         </p>
 
         {localSyncStatus && (
@@ -722,34 +723,36 @@ export function StatusPanel({
         )}
 
         {!nativeIOS ? (
-          <>
-            <div className={settingsControlStyles.storageInfoNotice}>
-              <strong>{localSyncPairingCode ? `Código: ${localSyncPairingCode}` : 'Primeiro pareamento'}</strong>
-              <span>
-                {localSyncPairingCode
-                  ? 'No iPhone, abra Configurações › Local Sync, procure este Mac e informe o código. Ele expira em 5 minutos e só pode ser usado uma vez.'
-                  : 'Gere um código temporário. Nenhum iPhone consegue ler tarefas antes de ser confirmado por você.'}
-              </span>
-            </div>
-            <button
-              type="button"
-              className={settingsControlStyles.primaryButton}
-              onClick={() => void beginLocalSyncPairing()}
-              disabled={localSyncBusy}
-            >
-              <RefreshCw size={14} className={localSyncBusy ? 'animate-spin' : ''} />
-              {localSyncPairingCode ? 'Gerar outro código' : 'Parear iPhone'}
-            </button>
-            {Boolean(localSyncStatus?.peers.some(peer => peer.trusted)) && (
+          <div className={settingsControlStyles.discoveryCard}>
+            <strong>{localSyncPairingCode ? `Código: ${localSyncPairingCode}` : hasTrustedSyncPeer ? 'Conexão com o iPhone' : 'Primeiro pareamento'}</strong>
+            <span>
+              {localSyncPairingCode
+                ? 'No iPhone, procure este Mac e informe o código. Ele expira em 5 minutos e só pode ser usado uma vez.'
+                : hasTrustedSyncPeer
+                  ? 'Deixe o Mac visível para renovar o endereço da rede ou gere um novo código somente para outro iPhone.'
+                  : 'Gere um código temporário e confirme o Mac pelo iPhone na mesma rede Wi‑Fi.'}
+            </span>
+            <div className={settingsControlStyles.discoveryGrid}>
               <button
                 type="button"
-                className={`${settingsControlStyles.primaryButton} ${settingsControlStyles.secondaryButton}`}
-                onClick={() => void advertiseLocalSyncMac().catch(error => setLocalSyncError(error instanceof Error ? error.message : 'Falha ao anunciar o Mac.'))}
+                onClick={() => void beginLocalSyncPairing()}
+                disabled={localSyncBusy}
               >
-                Tornar Mac visível por 2 minutos
+                <RefreshCw size={14} className={localSyncBusy ? 'animate-spin' : ''} />
+                {localSyncPairingCode ? 'Novo código' : hasTrustedSyncPeer ? 'Parear outro' : 'Gerar código'}
               </button>
-            )}
-          </>
+              {hasTrustedSyncPeer && (
+                <button
+                  type="button"
+                  onClick={() => void advertiseLocalSyncMac().catch(error => setLocalSyncError(error instanceof Error ? error.message : 'Falha ao anunciar o Mac.'))}
+                  disabled={localSyncBusy}
+                >
+                  <Wifi size={14} />
+                  Tornar visível
+                </button>
+              )}
+            </div>
+          </div>
         ) : (
           <>
             <button
@@ -762,7 +765,8 @@ export function StatusPanel({
               Procurar Mac na rede local
             </button>
             {localSyncDiscovered.map(peer => {
-              const trusted = localSyncStatus?.peers.find(item => item.peer_device_id === peer.device_id)?.trusted
+              const savedPeer = localSyncStatus?.peers.find(item => item.peer_device_id === peer.device_id)
+              const trusted = Boolean(savedPeer?.trusted && savedPeer.credential_available !== false)
               return (
                 <article key={peer.device_id} className={settingsControlStyles.conversationStorageCard}>
                   <div className={settingsControlStyles.conversationStorageCopy}>
@@ -814,17 +818,30 @@ export function StatusPanel({
                         : peer.connected ? 'Conectado' : peer.trusted ? 'Desconectado' : 'Revogado'}
                 </span>
               </div>
+              {nativeIOS && peer.trusted && peer.credential_available === false && (
+                <p className={settingsControlStyles.error}>
+                  A credencial deste Mac não está mais no iPhone. No Mac, gere um novo código e procure-o novamente para renovar o pareamento.
+                </p>
+              )}
               <div className={settingsControlStyles.conversationStorageStats}>
-                <span>{peer.pending_out} pendente(s) para envio</span>
+                <span>
+                  {nativeIOS
+                    ? `${peer.pending_out} alteração(ões) para o Mac`
+                    : `${peer.pending_out} Focus para o iPhone · ${peer.pending_in ?? 0} do iPhone para receber`}
+                </span>
                 <span>Última troca: {peer.last_sent_count ?? 0} enviados · {peer.last_received_count ?? 0} recebidos</span>
               </div>
               {Boolean(peer.pending_details && Object.keys(peer.pending_details).length) && (
                 <details className={settingsControlStyles.storageInfoNotice}>
                   <summary>Mostrar detalhes</summary>
-                  <span>Focus · {peer.pending_details?.focus_tasks ?? 0} pendente(s)</span>
+                  <span>Focus · {peer.pending_details?.focus_tasks ?? 0}</span>
+                  <span>Conversas · {peer.pending_details?.chat_sessions ?? 0}</span>
+                  <span>Mensagens · {peer.pending_details?.chat_messages ?? 0}</span>
+                  <span>Pastas · {peer.pending_details?.chat_folders ?? 0}</span>
+                  <span>Memórias · {peer.pending_details?.memories ?? 0}</span>
                 </details>
               )}
-              {peer.trusted && (
+              {peer.trusted && (!nativeIOS || peer.credential_available !== false) && (
                 <button
                   type="button"
                   className={settingsControlStyles.primaryButton}
@@ -843,19 +860,21 @@ export function StatusPanel({
         {localSyncResult && (
           <div className={settingsControlStyles.storageInfoNotice}>
             <strong>Sincronizado</strong>
-            <span>{localSyncResult.sent} tarefa(s) enviada(s) · {localSyncResult.received} recebida(s) · {localSyncResult.conflicts} conflito(s)</span>
+            <span>{localSyncResult.sent} alteração(ões) enviada(s) · {localSyncResult.received} recebida(s) · {localSyncResult.conflicts} conflito(s)</span>
           </div>
         )}
         {Boolean(localSyncStatus?.history?.length) && (
-          <div className={settingsControlStyles.conversationStorageList}>
-            <strong>Histórico recente</strong>
-            {localSyncStatus?.history?.slice(0, 5).map(event => (
-              <div key={event.id} className={settingsControlStyles.conversationStorageStats}>
-                <span>{formatSyncDate(event.created_at)} · {event.status === 'synced' ? 'Sync concluído' : 'Falha no sync'}</span>
-                <span>{event.sent_count} enviados · {event.received_count} recebidos</span>
-              </div>
-            ))}
-          </div>
+          <details className={settingsControlStyles.storageInfoNotice}>
+            <summary>Histórico recente · {localSyncStatus?.history?.length ?? 0}</summary>
+            <div className={settingsControlStyles.conversationStorageList}>
+              {localSyncStatus?.history?.slice(0, 5).map(event => (
+                <div key={event.id} className={settingsControlStyles.conversationStorageStats}>
+                  <span>{formatSyncDate(event.created_at)} · {event.status === 'synced' ? 'Sync concluído' : 'Falha no sync'}</span>
+                  <span>{event.sent_count} enviados · {event.received_count} recebidos</span>
+                </div>
+              ))}
+            </div>
+          </details>
         )}
         {contextDevMode && localSyncResult && (
           <div className={settingsControlStyles.technicalGrid}>
@@ -926,7 +945,7 @@ export function StatusPanel({
         <div className={settingsControlStyles.storageInfoNotice}>
           <strong>Dados por conversa</strong>
           <span>
-            Remover um chat da barra lateral não apaga suas lembranças. Escolha abaixo o que deseja eliminar definitivamente; os pontos correspondentes também somem da Obsidian.
+            Chats escritos e conversas por voz aparecem aqui. Remover um chat da barra lateral não apaga suas lembranças; a exclusão definitiva abaixo também remove suas memórias e os pontos correspondentes da Obsidian.
           </span>
         </div>
 
@@ -935,21 +954,28 @@ export function StatusPanel({
             <div className={settingsControlStyles.storageEmpty}>
               <MessageSquare size={18} />
               <strong>Nenhuma conversa armazenada</strong>
-              <span>Quando houver chats, você poderá limpar cada um separadamente aqui.</span>
+              <span>Quando houver chats escritos ou por voz, você poderá limpar cada um separadamente aqui.</span>
             </div>
-          ) : storageItems.map(item => (
+          ) : storageItems.map(item => {
+            const isVoiceConversation = item.channel === 'voice'
+            const stateLabel = item.state === 'active' ? 'Ativa' : item.state === 'removed' ? 'Removida' : 'Antiga'
+            return (
             <article key={`${item.state}-${item.id}`} className={settingsControlStyles.conversationStorageCard}>
               <div className={settingsControlStyles.conversationStorageHeader}>
-                <span className={settingsControlStyles.conversationStorageIcon}><MessageSquare size={15} /></span>
+                <span className={settingsControlStyles.conversationStorageIcon}>
+                  {isVoiceConversation ? <Mic size={15} /> : <MessageSquare size={15} />}
+                </span>
                 <div className={settingsControlStyles.conversationStorageCopy}>
                   <strong>{item.title}</strong>
                   <small>
-                    {item.state === 'active' ? 'Na barra lateral' : item.state === 'removed' ? 'Removida da barra lateral' : 'Dados de uma versão anterior'}
+                    {isVoiceConversation
+                      ? 'Conversa por voz independente'
+                      : item.state === 'active' ? 'Na barra lateral' : item.state === 'removed' ? 'Removida da barra lateral' : 'Dados de uma versão anterior'}
                     {' · '}{formatStorageDate(item.deleted_at || item.created_at)}
                   </small>
                 </div>
                 <span className={settingsControlStyles.conversationStorageBadge} data-state={item.state}>
-                  {item.state === 'active' ? 'Ativa' : item.state === 'removed' ? 'Removida' : 'Antiga'}
+                  {isVoiceConversation ? `Voz · ${stateLabel}` : stateLabel}
                 </span>
               </div>
               <div className={settingsControlStyles.conversationStorageStats}>
@@ -968,10 +994,11 @@ export function StatusPanel({
                 }}
               >
                 <Trash2 size={14} />
-                Apagar chat e memórias
+                {isVoiceConversation ? 'Apagar conversa de voz e memórias' : 'Apagar chat e memórias'}
               </button>
             </article>
-          ))}
+            )
+          })}
         </div>
 
         <div className={settingsControlStyles.storageTotalDivider}>

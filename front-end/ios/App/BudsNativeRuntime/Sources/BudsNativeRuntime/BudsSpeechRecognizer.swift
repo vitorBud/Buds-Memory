@@ -6,6 +6,8 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
     public typealias UpdateHandler = @Sendable (_ transcript: String, _ isFinal: Bool, _ volume: Double) -> Void
 
     private let stateLock = NSLock()
+    private static let captureLock = NSLock()
+    private static var captureActive = false
     private var audioEngine: AVAudioEngine?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -13,12 +15,21 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
     private var updateHandler: UpdateHandler?
     private var tapInstalled = false
     private var operationId: String?
+    private var bargeInMode = false
+    private var lastVolumeEmitUptime: TimeInterval = 0
+
+    public static var isCapturing: Bool {
+        captureLock.lock()
+        defer { captureLock.unlock() }
+        return captureActive
+    }
 
     public init() {}
 
     public func start(
         operationId: String,
         localeIdentifier: String = "pt-BR",
+        bargeIn: Bool = false,
         onUpdate: @escaping UpdateHandler
     ) async throws {
         let authorization = await Self.requestAuthorization()
@@ -31,15 +42,25 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
         }
 
         try await MainActor.run {
-            self.stopOnMainActor()
+            self.stopOnMainActor(deactivateSession: false)
             self.stateLock.lock()
             self.latestTranscript = ""
             self.updateHandler = onUpdate
             self.operationId = operationId
+            self.bargeInMode = bargeIn
+            self.lastVolumeEmitUptime = 0
             self.stateLock.unlock()
 
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
+            // O app nativo trabalha em half-duplex. Uma sessão somente de
+            // gravação evita criar VoiceProcessingIO enquanto o reconhecedor
+            // está ativo, eliminando os render err -1 vistos no aparelho.
+            try audioSession.setCategory(
+                .record,
+                mode: .measurement,
+                options: [.allowBluetooth, .duckOthers]
+            )
+            try? audioSession.setPreferredIOBufferDuration(0.02)
             try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
 
             guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)),
@@ -50,10 +71,17 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
                     userInfo: [NSLocalizedDescriptionKey: "O reconhecimento de fala não está disponível agora."]
                 )
             }
+            guard recognizer.supportsOnDeviceRecognition else {
+                throw NSError(
+                    domain: "BudsSpeech",
+                    code: 4,
+                    userInfo: [NSLocalizedDescriptionKey: "O reconhecimento de fala local não está disponível neste iPhone. Nenhum áudio foi enviado à nuvem."]
+                )
+            }
 
             let request = SFSpeechAudioBufferRecognitionRequest()
             request.shouldReportPartialResults = true
-            request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
+            request.requiresOnDeviceRecognition = true
             if #available(iOS 16.0, *) {
                 request.addsPunctuation = true
             }
@@ -83,7 +111,10 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
                     self.latestTranscript = transcript
                     let handler = self.updateHandler
                     self.stateLock.unlock()
-                    handler?(transcript, result.isFinal, 0.22)
+                    // O nível real chega pelo tap do microfone. Não fabricar
+                    // volume junto da transcrição: isso podia transformar o
+                    // eco textual do próprio TTS em uma interrupção válida.
+                    handler?(transcript, result.isFinal, 0)
                 } else if error != nil {
                     self.stateLock.lock()
                     let handler = self.updateHandler
@@ -100,6 +131,7 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
             self.tapInstalled = true
             engine.prepare()
             try engine.start()
+            Self.setCaptureActive(true)
             onUpdate("", false, 0)
         }
     }
@@ -111,7 +143,7 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
             self.stateLock.unlock()
             guard isCurrent else { return "" }
             let transcript = self.currentTranscript
-            self.stopOnMainActor()
+            self.stopOnMainActor(deactivateSession: !self.bargeInMode)
             return transcript
         }
     }
@@ -125,7 +157,7 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
             }
             self.latestTranscript = ""
             self.stateLock.unlock()
-            self.stopOnMainActor()
+            self.stopOnMainActor(deactivateSession: !self.bargeInMode)
         }
     }
 
@@ -136,7 +168,7 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
     }
 
     @MainActor
-    private func stopOnMainActor() {
+    private func stopOnMainActor(deactivateSession: Bool = true) {
         if tapInstalled, let audioEngine {
             audioEngine.inputNode.removeTap(onBus: 0)
         }
@@ -150,8 +182,18 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
         stateLock.lock()
         updateHandler = nil
         operationId = nil
+        bargeInMode = false
         stateLock.unlock()
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        Self.setCaptureActive(false)
+        if deactivateSession {
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+
+    private static func setCaptureActive(_ active: Bool) {
+        captureLock.lock()
+        captureActive = active
+        captureLock.unlock()
     }
 
     private func emitVolume(from buffer: AVAudioPCMBuffer, operationId: String) {
@@ -164,16 +206,25 @@ public final class BudsSpeechRecognizer: @unchecked Sendable {
             sum += sample * sample
         }
         let rms = sqrt(sum / Float(count))
-        let volume = min(1, max(0, Double(rms) * 9))
+        // RMS linear do iPhone costuma ser muito pequeno (0.0001...0.01).
+        // Converter para uma escala logarítmica entrega um nível estável ao
+        // detector JS sem depender do ganho específico de cada aparelho.
+        let decibels = 20 * log10(max(Double(rms), 0.000_001))
+        let volume = min(1, max(0, (decibels + 62) / 42))
+        let uptime = ProcessInfo.processInfo.systemUptime
         stateLock.lock()
-        guard self.operationId == operationId else {
+        guard self.operationId == operationId,
+              uptime - lastVolumeEmitUptime >= 0.08 else {
             stateLock.unlock()
             return
         }
+        lastVolumeEmitUptime = uptime
         let handler = updateHandler
-        let transcript = latestTranscript
         stateLock.unlock()
-        handler?(transcript, false, volume)
+        // Texto só é emitido pelo callback do SFSpeechRecognizer. Repeti-lo a
+        // cada buffer de volume inundava a bridge Capacitor dezenas de vezes
+        // por segundo e mantinha a WebView ocupada sem informação nova.
+        handler?("", false, volume)
     }
 
     private static func requestAuthorization() async -> SFSpeechRecognizerAuthorizationStatus {

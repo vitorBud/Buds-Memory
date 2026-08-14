@@ -244,7 +244,7 @@ def get_conversation_storage() -> dict:
             return {"conversations": [], "orphaned": []}
 
         rows = conn.execute(
-            "SELECT id, title, created_at, deleted_at FROM sessions ORDER BY deleted_at IS NULL, COALESCE(deleted_at, created_at) DESC"
+            "SELECT id, title, created_at, deleted_at, channel FROM sessions ORDER BY deleted_at IS NULL, COALESCE(deleted_at, created_at) DESC"
         ).fetchall()
         for row in rows:
             conversations.append(_conversation_storage_row(conn, dict(row)))
@@ -351,6 +351,7 @@ def _orphan_storage_row(conn, session_id: str) -> dict:
     return {
         "id": session_id,
         "title": f"Conversa removida · {session_id[:8]}",
+        "channel": None,
         "created_at": None,
         "deleted_at": None,
         "state": "orphaned",

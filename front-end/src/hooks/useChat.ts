@@ -9,7 +9,8 @@ import {
   listenIOSNeuralSpeechState,
   stopIOSNeuralSpeech,
 } from '../plataformas'
-import { createOperationId } from '../utils/controleOperacoes'
+import { createOperationId, extractSpeakableChunks, VoiceTurnTelemetry } from '../utils/controleOperacoes'
+import type { VoiceCaptureMetrics } from '../utils/controleOperacoes'
 import { stripInternalReasoning } from '../utils/respostaVisivel'
 
 interface UseChatOptions {
@@ -78,24 +79,6 @@ function pickPreferredVoice(selectedVoiceURI?: string) {
     .sort((a, b) => scoreVoice(b) - scoreVoice(a))[0] ?? voices[0] ?? null
 }
 
-function extractCompleteSentences(buffer: string) {
-  const sentences: string[] = []
-  const regex = /([^.!?\n]+[.!?]+)(?:\s+|$)/g
-  let match: RegExpExecArray | null
-  let lastIndex = 0
-
-  while ((match = regex.exec(buffer))) {
-    const sentence = match[1].trim()
-    if (sentence.length > 2) sentences.push(sentence)
-    lastIndex = regex.lastIndex
-  }
-
-  return {
-    sentences,
-    rest: buffer.slice(lastIndex),
-  }
-}
-
 function canUseBrowserVoice(voiceProvider: VoiceProvider) {
   return voiceProvider === 'browser' && 'speechSynthesis' in window
 }
@@ -146,12 +129,16 @@ export function useChat({
 }: UseChatOptions) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isOutputActive, setIsOutputActive] = useState(false)
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
   const audioQueueRef = useRef<string[]>([])
   const isPlayingRef  = useRef(false)
   const speechQueueRef = useRef<string[]>([])
   const isSpeechPlayingRef = useRef(false)
   const isNativeSpeechPlayingRef = useRef(false)
+  const nativeVoiceFailedRef = useRef(false)
+  const nativeSpeechPendingRef = useRef<string[]>([])
+  const speechFallbackRef = useRef<(text: string) => void>(() => undefined)
   const preferredVoiceRef = useRef<SpeechSynthesisVoice | null>(null)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const activeAbortRef = useRef<AbortController | null>(null)
@@ -164,6 +151,31 @@ export function useChat({
   const tokenFlushTimerRef = useRef<number | null>(null)
   const flushingOfflineRef = useRef(false)
   const spokenLengthRef = useRef(0)
+  const voiceTelemetryRef = useRef<VoiceTurnTelemetry | null>(null)
+  const voiceResponseCompletedRef = useRef(false)
+
+  const voicePlatform = isNativeIOSRuntime()
+    ? 'iphone-native'
+    : isWindowsRuntime()
+      ? 'windows-web'
+      : 'mac-web'
+
+  function markVoice(event: Parameters<VoiceTurnTelemetry['mark']>[0]) {
+    const snapshot = voiceTelemetryRef.current?.mark(event)
+    if (snapshot && event === 'audio_start') {
+      console.info('[BudsVoicePerf]', { ...snapshot, event })
+    }
+    return snapshot
+  }
+
+  function finishVoiceMetrics(reason: 'complete' | 'interrupted' | 'error') {
+    const telemetry = voiceTelemetryRef.current
+    if (!telemetry) return
+    const snapshot = telemetry.mark('response_end')
+    console.info('[BudsVoicePerf]', { ...snapshot, reason })
+    voiceResponseCompletedRef.current = reason === 'complete'
+    if (reason !== 'complete') voiceTelemetryRef.current = null
+  }
 
   useEffect(() => {
     if (!('speechSynthesis' in window)) return
@@ -188,7 +200,9 @@ export function useChat({
 
     if (speechQueueRef.current.length === 0) {
       isSpeechPlayingRef.current = false
-      if (!isProcessing) onStateChange('idle')
+      setIsOutputActive(false)
+      if (!processingRef.current) onStateChange('idle')
+      if (!processingRef.current && voiceResponseCompletedRef.current) voiceTelemetryRef.current = null
       return
     }
 
@@ -204,8 +218,12 @@ export function useChat({
     utterance.volume = 1
     let ttsStartedAt = 0
     isSpeechPlayingRef.current = true
+    setIsOutputActive(true)
     onStateChange('speaking')
-    utterance.onstart = () => { ttsStartedAt = performance.now() }
+    utterance.onstart = () => {
+      ttsStartedAt = performance.now()
+      markVoice('audio_start')
+    }
     utterance.onend = () => {
       console.info('[BudsPerf]', {
         stage: 'tts', provider: 'browser', characters: cleanText.length,
@@ -221,18 +239,32 @@ export function useChat({
     const cleanText = text.trim()
     if (!cleanText || !('speechSynthesis' in window)) return
 
+    markVoice('tts_first_chunk')
     speechQueueRef.current.push(cleanText.replace(/\s+/g, ' '))
     if (!isSpeechPlayingRef.current) playNextSpeech(outputEpochRef.current)
   }
+  speechFallbackRef.current = queueSpeech
 
   function queueStreamingSpeech(text: string, useNativeVoice: boolean) {
     const cleanText = text.trim().replace(/\s+/g, ' ')
     if (!cleanText) return
-    if (useNativeVoice) {
+    if (useNativeVoice && !nativeVoiceFailedRef.current) {
+      markVoice('tts_first_chunk')
+      nativeSpeechPendingRef.current.push(cleanText)
+      // Reserva imediatamente a saída nativa. O Kokoro ainda pode estar
+      // sintetizando o primeiro PCM; sem esta marca o modo contínuo reabria o
+      // microfone e o AVAudioSession de gravação derrubava o player (`!pri`).
+      isNativeSpeechPlayingRef.current = true
+      setIsOutputActive(true)
+      onStateChange('speaking')
       void enqueueIOSNeuralSpeech(cleanText).catch((error) => {
         console.error('[Buds Voice] Falha na voz neural:', error)
+        nativeVoiceFailedRef.current = true
+        const fallbackText = nativeSpeechPendingRef.current.join(' ')
+        nativeSpeechPendingRef.current = []
         isNativeSpeechPlayingRef.current = false
-        onStateChange('error')
+        if (fallbackText) speechFallbackRef.current(fallbackText)
+        else if (processingRef.current) onStateChange('thinking')
       })
       return
     }
@@ -253,16 +285,22 @@ export function useChat({
     if (epoch !== outputEpochRef.current) return
     if (audioQueueRef.current.length === 0) {
       isPlayingRef.current = false
-      if (!isProcessing) onStateChange('idle')
+      setIsOutputActive(false)
+      if (!processingRef.current) onStateChange('idle')
+      if (!processingRef.current && voiceResponseCompletedRef.current) voiceTelemetryRef.current = null
       return
     }
     isPlayingRef.current = true
+    setIsOutputActive(true)
     const url = audioQueueRef.current.shift()!
     onStateChange('speaking')
     const audio = new Audio(url)
     let audioStartedAt = 0
     currentAudioRef.current = audio
-    audio.onplaying = () => { audioStartedAt = performance.now() }
+    audio.onplaying = () => {
+      audioStartedAt = performance.now()
+      markVoice('audio_start')
+    }
     audio.play().catch(() => playNextAudio(epoch))
     audio.onended = () => {
       console.info('[BudsPerf]', {
@@ -274,11 +312,15 @@ export function useChat({
   }
 
   function queueAudio(url: string) {
+    markVoice('tts_first_chunk')
     audioQueueRef.current.push(url)
     if (!isPlayingRef.current) playNextAudio(outputEpochRef.current)
   }
 
   const stopOutput = useCallback(() => {
+    if (voiceResponseCompletedRef.current) voiceTelemetryRef.current = null
+    else finishVoiceMetrics('interrupted')
+    voiceResponseCompletedRef.current = false
     outputEpochRef.current += 1
     activeAbortRef.current?.abort()
     activeAbortRef.current = null
@@ -296,10 +338,14 @@ export function useChat({
     isPlayingRef.current = false
     isSpeechPlayingRef.current = false
     isNativeSpeechPlayingRef.current = false
+    nativeVoiceFailedRef.current = false
+    nativeSpeechPendingRef.current = []
+    setIsOutputActive(false)
     window.speechSynthesis?.cancel()
     if (isIOSNeuralVoiceRuntime()) {
-      // Libera também a sessão de áudio antes de o microfone voltar a ouvir.
-      void stopIOSNeuralSpeech(true).catch(error => console.error('[Buds Voice] Falha ao interromper voz:', error))
+      // Interrompe imediatamente, mas preserva o engine para o próximo turno e
+      // para o microfone de barge-in não perder a AVAudioSession compartilhada.
+      void stopIOSNeuralSpeech(false).catch(error => console.error('[Buds Voice] Falha ao interromper voz:', error))
     }
     setMessages(prev => prev
       .map(msg => msg.streaming ? { ...msg, streaming: false } : msg)
@@ -316,15 +362,26 @@ export function useChat({
     void listenIOSNeuralSpeechState((event) => {
       if (disposed) return
       if (event.state === 'speaking') {
+        nativeSpeechPendingRef.current = []
         isNativeSpeechPlayingRef.current = true
+        setIsOutputActive(true)
+        markVoice('audio_start')
         onStateChange('speaking')
       } else if (event.state === 'idle') {
         isNativeSpeechPlayingRef.current = false
+        setIsOutputActive(false)
         if (!processingRef.current) onStateChange('idle')
+        if (!processingRef.current && voiceResponseCompletedRef.current) voiceTelemetryRef.current = null
       } else {
+        nativeVoiceFailedRef.current = true
+        const fallbackText = nativeSpeechPendingRef.current.join(' ')
+        nativeSpeechPendingRef.current = []
         isNativeSpeechPlayingRef.current = false
+        setIsOutputActive(false)
         console.error('[Buds Voice]', event.message || 'Falha na voz neural local.')
-        onStateChange('error')
+        if (fallbackText) speechFallbackRef.current(fallbackText)
+        else if (processingRef.current) onStateChange('thinking')
+        else onStateChange('idle')
       }
     }).then(listenerHandle => {
       if (disposed) void listenerHandle.remove()
@@ -462,8 +519,13 @@ export function useChat({
   }
 
   // ── Send text ──────────────────────────────────────────────────────────────
-  async function sendText(text: string) {
+  async function sendText(text: string, captureMetrics?: VoiceCaptureMetrics) {
     if (!text.trim() || processingRef.current) return
+    nativeVoiceFailedRef.current = false
+    nativeSpeechPendingRef.current = []
+    voiceTelemetryRef.current = autoPlayAudio ? new VoiceTurnTelemetry(voicePlatform, captureMetrics) : null
+    voiceResponseCompletedRef.current = false
+    if (voiceTelemetryRef.current && !captureMetrics?.sttFinalAt) markVoice('stt_final')
     processingRef.current = true
     setIsProcessing(true)
     onStateChange('thinking')
@@ -506,10 +568,12 @@ export function useChat({
         // explícita. Permissão negada não deve bloquear a conversa.
         await refreshLocationContext().catch(error => console.warn('[BudsContext] Localização exata indisponível:', error))
       }
+      markVoice('llm_start')
       await streamChat({ text, sessionId: sid, model: selectedModel, webSearch: webSearchEnabled, tts: useBackendVoice }, (event) => {
         const active = activeOperationRef.current
         if (!active || active.id !== requestId || active.sessionId !== sid) return
         if (event.type === 'token' && event.content) {
+          markVoice('llm_first_token')
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
           if (useStreamingVoice) {
@@ -518,8 +582,8 @@ export function useChat({
             if (cleanDelta.length > 0) {
               speechBuffer += cleanDelta
               spokenLengthRef.current = cleanFullText.length
-              const extracted = extractCompleteSentences(speechBuffer)
-              extracted.sentences.forEach(sentence => queueStreamingSpeech(sentence, useNativeVoice))
+              const extracted = extractSpeakableChunks(speechBuffer)
+              extracted.chunks.forEach(sentence => queueStreamingSpeech(sentence, useNativeVoice))
               speechBuffer = extracted.rest
             }
           }
@@ -544,12 +608,14 @@ export function useChat({
             speakText(stripInternalReasoning(streamedText))
           }
           onLatency(Date.now() - start)
+          finishVoiceMetrics('complete')
           if (!streamFailed) onResponseComplete?.(sid)
         } else if (event.type === 'error') {
           streamFailed = true
           console.error('[Chat] SSE error:', event.content)
           replaceStreamingText(assistantMessageId, `Falha no chat: ${event.content || 'o backend interrompeu a resposta.'}`)
           finalizeStreaming(assistantMessageId)
+          finishVoiceMetrics('error')
           onStateChange('error')
         }
       }, controller.signal)
@@ -569,6 +635,7 @@ export function useChat({
         addMessage({ sender: 'ia', text: `⚠ ${errorMsg}`, created_at: new Date().toISOString() })
       }
       onStateChange('error')
+      finishVoiceMetrics('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {
       if (activeOperationRef.current?.id === requestId) {
@@ -605,8 +672,12 @@ export function useChat({
   }, [autoPlayAudio, isProcessing, offlineQueueEnabled, selectedModel, selectedVoiceURI, sessionId, voiceProvider, webSearchEnabled])
 
   // ── Send audio ─────────────────────────────────────────────────────────────
-  async function sendAudio(blob: Blob) {
+  async function sendAudio(blob: Blob, captureMetrics?: VoiceCaptureMetrics) {
     if (processingRef.current) return
+    nativeVoiceFailedRef.current = false
+    nativeSpeechPendingRef.current = []
+    voiceTelemetryRef.current = autoPlayAudio ? new VoiceTurnTelemetry(voicePlatform, captureMetrics) : null
+    voiceResponseCompletedRef.current = false
     processingRef.current = true
     setIsProcessing(true)
     onStateChange('transcribing')
@@ -646,6 +717,8 @@ export function useChat({
         const active = activeOperationRef.current
         if (!active || active.id !== requestId || active.sessionId !== sid) return
         if (event.type === 'transcription' && event.content) {
+          markVoice('stt_final')
+          markVoice('llm_start')
           // Show user transcription
           setMessages(prev => {
             const userMsg: Message = { sender: 'user', text: event.content!, created_at: new Date().toISOString() }
@@ -657,6 +730,7 @@ export function useChat({
           })
           onStateChange('thinking')
         } else if (event.type === 'token' && event.content) {
+          markVoice('llm_first_token')
           streamedText += event.content
           appendStreamingToken(assistantMessageId, event.content)
           if (useStreamingVoice) {
@@ -665,8 +739,8 @@ export function useChat({
             if (cleanDelta.length > 0) {
               speechBuffer += cleanDelta
               spokenLengthRef.current = cleanFullText.length
-              const extracted = extractCompleteSentences(speechBuffer)
-              extracted.sentences.forEach(sentence => queueStreamingSpeech(sentence, useNativeVoice))
+              const extracted = extractSpeakableChunks(speechBuffer)
+              extracted.chunks.forEach(sentence => queueStreamingSpeech(sentence, useNativeVoice))
               speechBuffer = extracted.rest
             }
           }
@@ -691,12 +765,14 @@ export function useChat({
             speakText(stripInternalReasoning(streamedText))
           }
           onLatency(Date.now() - start)
+          finishVoiceMetrics('complete')
           if (!streamFailed) onResponseComplete?.(sid)
         } else if (event.type === 'error') {
           streamFailed = true
           console.error('[Audio Chat] SSE error:', event.content)
           replaceStreamingText(assistantMessageId, `Falha no chat: ${event.content || 'o backend interrompeu a resposta.'}`)
           finalizeStreaming(assistantMessageId)
+          finishVoiceMetrics('error')
           onStateChange('error')
         }
       }, controller.signal)
@@ -707,6 +783,7 @@ export function useChat({
       setMessages(prev => prev.filter(m => m.id !== assistantMessageId))
       addMessage({ sender: 'ia', text: `⚠ ${errorMsg}`, created_at: new Date().toISOString() })
       onStateChange('error')
+      finishVoiceMetrics('error')
       setTimeout(() => onStateChange('idle'), 3000)
     } finally {
       if (activeOperationRef.current?.id === requestId) {
@@ -748,5 +825,5 @@ export function useChat({
     onMsgCountChange(safeMessages.length)
   }, [onMsgCountChange])
 
-  return { messages, isProcessing, availableVoices, sendText, sendAudio, stopOutput, clearMessages, loadMessages }
+  return { messages, isProcessing, isOutputActive, availableVoices, sendText, sendAudio, stopOutput, clearMessages, loadMessages }
 }

@@ -120,7 +120,7 @@ export const settingsControlStyles = {
   storageInfoNotice:
     'grid gap-2 rounded-[18px] border border-[color-mix(in_srgb,var(--accent-hot),transparent_62%)] bg-[color-mix(in_srgb,var(--accent-hot),transparent_91%)] p-3.5 text-[12px] leading-[1.5] text-buds-muted [&>strong]:text-[13px] [&>strong]:text-buds-text',
   conversationStorageList:
-    'grid max-h-[520px] gap-2.5 overflow-y-auto pr-1 max-[760px]:max-h-none max-[760px]:overflow-visible',
+    'grid gap-2.5 overflow-visible',
   conversationStorageCard:
     'grid gap-3 rounded-[18px] border border-[var(--liquid-border)] p-3.5 [background:linear-gradient(135deg,var(--liquid-highlight),transparent_56%),var(--liquid-panel-soft)]',
   conversationStorageHeader:

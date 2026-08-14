@@ -35,18 +35,6 @@ export const voiceModeStyles = {
     'w-full min-w-0 appearance-none border-0 bg-transparent text-xs font-bold text-buds-text outline-none [&>option]:text-slate-900',
   neuralVoiceLabel:
     'min-w-0 flex-1 truncate text-xs font-extrabold text-buds-text',
-  sensitivity:
-    'inline-flex min-h-[38px] items-center gap-1 rounded-[18px] border border-white/8 bg-white/6 p-[3px] max-[760px]:grid max-[760px]:w-full max-[760px]:grid-cols-3',
-  sensitivityButton:
-    'inline-flex min-h-[30px] cursor-pointer appearance-none items-center gap-[7px] rounded-[14px] border-0 bg-transparent px-[11px] text-[11px] font-extrabold text-buds-muted transition-[background,color,transform] duration-180 hover:-translate-y-px hover:text-buds-text platform-windows:transition-none platform-windows:hover:translate-y-0 max-[760px]:w-full max-[760px]:min-w-0 max-[760px]:justify-center max-[760px]:px-2',
-  sensitivityActive:
-    'bg-[color-mix(in_srgb,var(--voice-a)_22%,rgba(255,255,255,0.1))] text-buds-text shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]',
-  interrupt:
-    'inline-flex min-h-[30px] cursor-pointer appearance-none items-center gap-[7px] rounded-[14px] border border-rose-500/24 bg-rose-500/15 px-[11px] text-[11px] font-extrabold text-rose-200 transition-[background,color,transform] duration-180 hover:-translate-y-px hover:text-buds-text platform-windows:transition-none platform-windows:hover:translate-y-0 max-[760px]:w-full max-[760px]:min-w-0 max-[760px]:justify-center max-[760px]:px-2',
-  end:
-    'relative z-20 mt-3 inline-flex min-h-11 items-center gap-[9px] rounded-full border border-white/14 px-[18px] text-buds-text shadow-[0_18px_48px_rgba(0,0,0,0.28)] transition-[transform,background] duration-200 [background:linear-gradient(135deg,rgba(255,255,255,0.14),transparent_48%),rgba(255,255,255,0.07)] [backdrop-filter:blur(18px)_saturate(1.35)] hover:-translate-y-px hover:bg-rose-500/18 platform-windows:shadow-none platform-windows:transition-none platform-windows:[backdrop-filter:none] max-[760px]:min-h-[42px] max-[760px]:max-w-[calc(100vw-32px)] max-[760px]:whitespace-nowrap max-[760px]:px-3.5 max-[760px]:[&>span]:overflow-hidden max-[760px]:[&>span]:text-ellipsis max-[760px]:[&>span]:text-[13px] platform-ios:!shadow-none',
-  micIndicator:
-    'fixed top-[88px] right-7 grid size-[42px] place-items-center rounded-full border border-[color-mix(in_srgb,var(--voice-a)_28%,transparent)] text-[var(--voice-c)] [backdrop-filter:blur(16px)_saturate(1.3)] platform-windows:[backdrop-filter:none] max-[760px]:top-[calc(14px+env(safe-area-inset-top))] max-[760px]:right-3.5 max-[760px]:size-[38px]',
 } as const
 
 export const voiceHaloStateStyles: Partial<Record<string, string>> = {

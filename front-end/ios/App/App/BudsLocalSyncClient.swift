@@ -42,7 +42,8 @@ final class BudsLocalSyncClient: @unchecked Sendable {
     static let protocolVersion = 1
     static let appVersion = "1"
     static let capabilities = [
-        "focus_tasks", "presence", "manual_sync_request",
+        "focus_tasks:bidirectional", "chat:upload", "folders:upload", "memory:upload",
+        "presence", "manual_sync_request",
     ]
     static let shared = BudsLocalSyncClient()
     private let runtime = BudsLocalRuntime.shared
@@ -58,6 +59,10 @@ final class BudsLocalSyncClient: @unchecked Sendable {
         connectedPeersLock.lock()
         defer { connectedPeersLock.unlock() }
         return connectedPeerIds.contains(peerDeviceId)
+    }
+
+    func hasCredential(peerDeviceId: String) -> Bool {
+        BudsSyncKeychain.token(peerDeviceId: peerDeviceId) != nil
     }
 
     private func setConnected(_ connected: Bool, peerDeviceId: String) {
@@ -76,7 +81,27 @@ final class BudsLocalSyncClient: @unchecked Sendable {
                 discovery.start(timeout: timeout) { result in
                     self.lastDiscoveryMs = (CFAbsoluteTimeGetCurrent() - started) * 1_000
                     self.activeDiscovery = nil
-                    continuation.resume(with: result)
+                    switch result {
+                    case .success(let peers):
+                        // Bonjour é a fonte atual do endereço do Mac. Se o
+                        // roteador trocou seu IP, atualizamos apenas o endpoint
+                        // do par já confiável; token e cursores são preservados.
+                        for peer in peers {
+                            if let stored = try? self.runtime.localSyncPeerState(peerDeviceId: peer.deviceId),
+                               stored.trusted {
+                                _ = try? self.runtime.refreshLocalSyncPeerEndpoint(
+                                    peerDeviceId: peer.deviceId,
+                                    peerName: peer.deviceName,
+                                    peerType: peer.deviceType,
+                                    baseURL: peer.baseURL,
+                                    protocolVersion: peer.protocolVersion
+                                )
+                            }
+                        }
+                        continuation.resume(returning: peers)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
         }
@@ -125,11 +150,13 @@ final class BudsLocalSyncClient: @unchecked Sendable {
             throw BudsLocalSyncClientError.peerNotTrusted
         }
         let started = CFAbsoluteTimeGetCurrent()
+        let syncRunId = UUID().uuidString.lowercased()
         // A credencial nunca é enviada para uma URL recém-anunciada por
         // Bonjour. Ela fica vinculada ao endereço confirmado no pareamento;
         // se o IP mudar, o usuário refaz o pareamento nesta V0.
         let baseURL = peer.baseURL
         let pending = try runtime.pendingLocalSyncFocusChanges(peerDeviceId: peer.peerDeviceId)
+        let uploadCounts = try runtime.pendingLocalSyncUploadCounts(peerDeviceId: peer.peerDeviceId)
         let outgoing = pending.map { change -> [String: Any] in
             [
                 "client_seq": change.localSeq,
@@ -141,14 +168,17 @@ final class BudsLocalSyncClient: @unchecked Sendable {
             "Authorization": "Bearer \(token)",
             "X-Buds-Sync-Device": try runtime.localSyncDevice().deviceId,
         ]
+        var pendingManifest = uploadCounts
+        pendingManifest["focus_tasks"] = outgoing.count
         let manifestStarted = CFAbsoluteTimeGetCurrent()
         let manifest = try await requestJSON(
             url: baseURL + "/api/local-sync/v1/manifest",
             body: [
                 "protocol_version": Self.protocolVersion,
                 "schema_version": 1,
+                "capabilities": Self.capabilities,
                 "server_cursor": peer.lastRemoteSeq,
-                "pending": ["focus_tasks": outgoing.count],
+                "pending": pendingManifest,
             ],
             headers: headers
         )
@@ -158,6 +188,80 @@ final class BudsLocalSyncClient: @unchecked Sendable {
             throw BudsLocalSyncClientError.invalidResponse
         }
         let manifestMs = (CFAbsoluteTimeGetCurrent() - manifestStarted) * 1_000
+        var uploaded = 0
+        var uploadApplied = 0
+        var uploadConflicts = 0
+        var uploadCursor = peer.lastUploadAcknowledgedSeq
+        var uploadBatchCount = 0
+        // Um comando manual pode escoar até 12 lotes (até 6.000 entidades),
+        // sem criar um pacote gigante nem monopolizar o app indefinidamente.
+        // Se ainda houver conteúdo, ele permanece visível como pendente.
+        while uploadBatchCount < 12 {
+            let uploadChanges = try runtime.pendingLocalSyncUploadChanges(peerDeviceId: peer.peerDeviceId)
+            if uploadChanges.isEmpty { break }
+            var mobileChanges = try uploadChanges.map { change -> [String: Any] in
+                var value: [String: Any] = [
+                    "client_seq": change.localSeq, "change_id": change.changeId,
+                    "entity_type": change.entityType, "entity_uid": change.entityUid,
+                    "entity_version": change.entityVersion, "operation": change.operation,
+                    "changed_at": change.changedAt,
+                ]
+                if let json = change.recordJSON,
+                   let data = json.data(using: .utf8),
+                   let record = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    value["record"] = record
+                }
+                return value
+            }
+            // Mantém folga abaixo do limite de 2 MB do Mac. O restante fica
+            // pendente, sem avanço indevido do cursor.
+            while mobileChanges.count > 1,
+                  let size = try? JSONSerialization.data(withJSONObject: mobileChanges).count,
+                  size > 1_500_000 {
+                mobileChanges.removeLast()
+            }
+            let uploadResponse: [String: Any]
+            do {
+                uploadResponse = try await requestJSON(
+                    url: baseURL + "/api/local-sync/v1/mobile/upload",
+                    body: [
+                        "protocol_version": Self.protocolVersion, "schema_version": 1,
+                        "sync_run_id": syncRunId,
+                        "acknowledged_client_seq": uploadCursor,
+                        "changes": mobileChanges,
+                    ],
+                    headers: headers
+                )
+            } catch {
+                try? runtime.recordLocalSyncError(peerDeviceId: peer.peerDeviceId, message: error.localizedDescription)
+                throw error
+            }
+            guard let uploadExchangeId = uploadResponse["exchange_id"] as? String,
+                  let uploadAckSeq = int64(uploadResponse["ack_client_seq"]) else {
+                throw BudsLocalSyncClientError.invalidResponse
+            }
+            // Primeiro persiste o cursor local. Se a rede cair antes do ACK ao
+            // Mac, o loop de presença recupera essa confirmação depois.
+            try runtime.acknowledgeLocalSyncUpload(
+                peerDeviceId: peer.peerDeviceId, clientSeq: uploadAckSeq
+            )
+            uploadCursor = max(uploadCursor, uploadAckSeq)
+            let uploadAck = try await requestJSON(
+                url: baseURL + "/api/local-sync/v1/ack",
+                body: [
+                    "protocol_version": Self.protocolVersion, "schema_version": 1,
+                    "exchange_id": uploadExchangeId, "server_cursor": 0,
+                ],
+                headers: headers
+            )
+            guard uploadAck["acknowledged"] as? Bool == true else {
+                throw BudsLocalSyncClientError.invalidResponse
+            }
+            uploaded += mobileChanges.count
+            uploadApplied += Int(int64(uploadResponse["applied"]) ?? 0)
+            uploadConflicts += Int(int64(uploadResponse["conflicts"]) ?? 0)
+            uploadBatchCount += 1
+        }
         let requestStarted = CFAbsoluteTimeGetCurrent()
         let response: [String: Any]
         do {
@@ -166,6 +270,7 @@ final class BudsLocalSyncClient: @unchecked Sendable {
                 body: [
                     "protocol_version": Self.protocolVersion,
                     "schema_version": 1,
+                    "sync_run_id": syncRunId,
                     "server_cursor": peer.lastRemoteSeq,
                     "acknowledged_client_seq": peer.lastAcknowledgedSeq,
                     "changes": outgoing,
@@ -219,14 +324,14 @@ final class BudsLocalSyncClient: @unchecked Sendable {
         let totalMs = (CFAbsoluteTimeGetCurrent() - started) * 1_000
         let transferMs = max(0, requestMs - manifestMs - serverApplyMs)
         try runtime.recordLocalSyncSuccess(
-            peerDeviceId: peer.peerDeviceId, sentCount: outgoing.count,
+            peerDeviceId: peer.peerDeviceId, sentCount: outgoing.count + uploaded,
             receivedCount: remoteChanges.count, durationMs: totalMs
         )
         return BudsLocalSyncRunResult(
-            sent: outgoing.count,
+            sent: outgoing.count + uploaded,
             received: remoteChanges.count,
-            changed: applied.changed,
-            conflicts: applied.conflicts,
+            changed: applied.changed + uploadApplied,
+            conflicts: applied.conflicts + uploadConflicts,
             discoveryMs: lastDiscoveryMs,
             connectMs: requestMs,
             manifestMs: manifestMs,
@@ -268,6 +373,8 @@ final class BudsLocalSyncClient: @unchecked Sendable {
                         "protocol_version": Self.protocolVersion,
                         "app_version": Self.appVersion,
                         "capabilities": Self.capabilities,
+                        "pending": (try? runtime.pendingLocalSyncUploadCounts(peerDeviceId: peer.peerDeviceId)) ?? [:],
+                        "upload_ack_seq": peer.lastUploadAcknowledgedSeq,
                     ],
                     headers: [
                         "Authorization": "Bearer \(token)",
@@ -276,6 +383,23 @@ final class BudsLocalSyncClient: @unchecked Sendable {
                 )
                 setConnected(true, peerDeviceId: peer.peerDeviceId)
                 onUpdate(["peer_device_id": peer.peerDeviceId, "connected": true])
+                if let pendingAcks = response["pending_acks"] as? [[String: Any]] {
+                    for pendingAck in pendingAcks {
+                        guard let exchangeId = pendingAck["exchange_id"] as? String,
+                              let serverCursor = int64(pendingAck["server_cursor"]) else { continue }
+                        _ = try await requestJSON(
+                            url: peer.baseURL + "/api/local-sync/v1/ack",
+                            body: [
+                                "protocol_version": Self.protocolVersion, "schema_version": 1,
+                                "exchange_id": exchangeId, "server_cursor": serverCursor,
+                            ],
+                            headers: [
+                                "Authorization": "Bearer \(token)",
+                                "X-Buds-Sync-Device": try runtime.localSyncDevice().deviceId,
+                            ]
+                        )
+                    }
+                }
                 if response["sync_requested"] as? Bool == true {
                     let result = try await sync(peer: peer)
                     onUpdate([
@@ -302,7 +426,21 @@ final class BudsLocalSyncClient: @unchecked Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError {
+            switch error.code {
+            case .cannotConnectToHost, .cannotFindHost, .timedOut,
+                 .networkConnectionLost, .notConnectedToInternet:
+                throw BudsLocalSyncClientError.server(
+                    "Não foi possível alcançar o Mac. Confirme que os dois aparelhos estão na mesma rede, abra o Buds no Mac e use “Tornar Mac visível”."
+                )
+            default:
+                throw error
+            }
+        }
         guard let http = response as? HTTPURLResponse,
               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw BudsLocalSyncClientError.invalidResponse
@@ -411,7 +549,11 @@ private final class BudsBonjourDiscovery: NSObject, NetServiceBrowserDelegate, N
         }
         guard string("protocol") == "buds-local-sync",
               string("version") == "1",
-              let id = string("id"), let url = string("url") else { return }
+              let id = string("id") else { return }
+        let advertisedURL = string("url")
+        let resolvedHost = sender.hostName?.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let url = resolvedHost.map { "http://\($0):\(sender.port)" } ?? advertisedURL
+        guard let url else { return }
         peers[id] = BudsDiscoveredSyncPeer(
             deviceId: id,
             deviceName: sender.name.replacingOccurrences(of: "Buds Memory — ", with: ""),

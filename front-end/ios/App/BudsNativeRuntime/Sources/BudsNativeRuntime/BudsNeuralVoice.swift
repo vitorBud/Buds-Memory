@@ -44,6 +44,7 @@ public final class BudsNeuralVoice: @unchecked Sendable {
     private var requests: [Request] = []
     private var epoch: UInt64 = 0
     private var activeCallbackEpoch: UInt64?
+    private var callbackSamplesScheduled = 0
     private var synthesizing = false
     private var scheduledBuffers = 0
     private var audioPrepared = false
@@ -123,10 +124,15 @@ public final class BudsNeuralVoice: @unchecked Sendable {
 
         synthesizing = true
         activeCallbackEpoch = request.epoch
+        callbackSamplesScheduled = 0
         let retained = Unmanaged.passUnretained(self).toOpaque()
         var generation = SherpaOnnxGenerationConfig()
-        generation.silence_scale = 0.12
-        generation.speed = 1.02
+        // A configuração anterior encurtava pausas e acelerava a locução, o
+        // que deixava a Dora comprimida e mecânica. Esta cadência preserva as
+        // pausas treinadas pelo Kokoro e desacelera apenas o suficiente para
+        // soar como conversa, sem aumentar muito o tempo de resposta.
+        generation.silence_scale = 0.20
+        generation.speed = 0.96
         generation.sid = 42 // pf_dora — voz feminina pt-BR do Kokoro 82M.
         generation.reference_audio = nil
         generation.reference_audio_len = 0
@@ -164,8 +170,23 @@ public final class BudsNeuralVoice: @unchecked Sendable {
             processNextIfNeeded()
             return
         }
-        _ = consume(samples: samples, count: Int(audio.pointee.n))
+        // Builds antigos do Sherpa podem não entregar PCM pelo callback. Nesse
+        // caso preservamos o fallback da frase completa; nos builds atuais o
+        // áudio já começou e não pode ser agendado novamente.
+        var producedAudibleAudio = callbackSamplesScheduled > 0
+        if !producedAudibleAudio {
+            producedAudibleAudio = consume(samples: samples, count: Int(audio.pointee.n))
+        }
         SherpaOnnxDestroyOfflineTtsGeneratedAudio(audio)
+        guard producedAudibleAudio else {
+            activeCallbackEpoch = nil
+            synthesizing = false
+            requests.removeAll()
+            suspendAudioOutput()
+            emit("error", "A voz neural produziu um buffer silencioso; usando a voz de segurança do iPhone.")
+            scheduleRelease()
+            return
+        }
         activeCallbackEpoch = nil
         synthesizing = false
         processNextIfNeeded()
@@ -173,19 +194,33 @@ public final class BudsNeuralVoice: @unchecked Sendable {
 
     private static let audioCallback: @convention(c) (
         UnsafePointer<Float>?, Int32, Float, UnsafeMutableRawPointer?
-    ) -> Int32 = { _, _, _, context in
-        guard let context else { return 0 }
+    ) -> Int32 = { samples, count, _, context in
+        guard let context, let samples, count > 0 else { return 0 }
         let voice = Unmanaged<BudsNeuralVoice>.fromOpaque(context).takeUnretainedValue()
         guard let callbackEpoch = voice.activeCallbackEpoch,
               callbackEpoch == voice.currentEpoch() else { return 0 }
-        // O callback fica apenas como cancelamento cooperativo. Reproduzir o
-        // PCM final de cada frase é mais estável no AVAudioEngine do iPhone.
+        if voice.consume(samples: samples, count: Int(count)) {
+            voice.callbackSamplesScheduled += Int(count)
+        }
+        // Um callback silencioso não significa cancelamento. Retornar 1 deixa
+        // o Sherpa continuar até produzir PCM audível ou o buffer final.
         return 1
     }
 
-    private func consume(samples: UnsafePointer<Float>, count: Int) -> Int32 {
+    private func consume(samples: UnsafePointer<Float>, count: Int) -> Bool {
         guard let callbackEpoch = activeCallbackEpoch,
-              callbackEpoch == currentEpoch() else { return 0 }
+              callbackEpoch == currentEpoch() else { return false }
+        let sampleBuffer = UnsafeBufferPointer(start: samples, count: count)
+        let peak = sampleBuffer.reduce(Float.zero) { max($0, abs($1)) }
+        // Algumas builds do Sherpa chamam o streaming callback inicialmente
+        // com silêncio. Não agendar nem contabilizar esse bloco: caso todos os
+        // callbacks venham vazios, o PCM completo será usado como fallback.
+        guard peak > 0.000_01 else {
+#if DEBUG
+            print("[Buds Voice] Callback silencioso ignorado: \(count) amostras")
+#endif
+            return false
+        }
         guard let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: sampleRate,
@@ -193,9 +228,18 @@ public final class BudsNeuralVoice: @unchecked Sendable {
             interleaved: false
         ),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)),
-              let channel = buffer.floatChannelData?[0] else { return 0 }
+              let channel = buffer.floatChannelData?[0] else { return false }
         buffer.frameLength = AVAudioFrameCount(count)
         channel.update(from: samples, count: count)
+
+        if !audioEngine.isRunning {
+            do {
+                try prepareAudio()
+            } catch {
+                emit("error", error.localizedDescription)
+                return false
+            }
+        }
 
         scheduledBuffers += 1
         player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -210,11 +254,9 @@ public final class BudsNeuralVoice: @unchecked Sendable {
         if !player.isPlaying { player.play() }
         emit("speaking", nil)
 #if DEBUG
-        let sampleBuffer = UnsafeBufferPointer(start: samples, count: count)
-        let peak = sampleBuffer.reduce(Float.zero) { max($0, abs($1)) }
         print("[Buds Voice] PCM agendado: \(count) amostras, pico \(peak), player=\(player.isPlaying), engine=\(audioEngine.isRunning)")
 #endif
-        return 1
+        return true
     }
 
     private func ensureReady() throws {
@@ -235,22 +277,25 @@ public final class BudsNeuralVoice: @unchecked Sendable {
     }
 
     private func prepareAudio() throws {
+        let session = AVAudioSession.sharedInstance()
+        // Em uma categoria somente de saída, A2DP já é implícito. Além disso,
+        // `duckOthers` só é aceito com o modo `.default`. Usar essas opções com
+        // `.spokenAudio` devolvia paramErr (-50 / 4294967246) no iPhone.
+        try session.setCategory(
+            .playback,
+            mode: .spokenAudio,
+            options: []
+        )
+        // 24 kHz é o formato do Kokoro, não uma exigência do hardware. O mixer
+        // do AVAudioEngine converte para 44,1/48 kHz quando necessário.
+        try? session.setPreferredSampleRate(sampleRate)
+        try session.setActive(true)
+
         guard !audioPrepared else {
             if !audioEngine.isRunning { try audioEngine.start() }
             return
         }
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(
-                .playAndRecord,
-                mode: .spokenAudio,
-                options: [.defaultToSpeaker, .allowBluetoothA2DP, .duckOthers]
-            )
-            try session.setPreferredSampleRate(sampleRate)
-            try session.setActive(true)
-            if session.currentRoute.outputs.contains(where: { $0.portType == .builtInReceiver }) {
-                try session.overrideOutputAudioPort(.speaker)
-            }
             guard let format = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
                 sampleRate: sampleRate,
@@ -309,7 +354,7 @@ public final class BudsNeuralVoice: @unchecked Sendable {
                                 config.rule_fsts = nil
                                 config.max_num_sentences = 1
                                 config.rule_fars = nil
-                                config.silence_scale = 0.12
+                                config.silence_scale = 0.20
                                 return SherpaOnnxCreateOfflineTts(&config)
                             }
                         }
@@ -323,8 +368,21 @@ public final class BudsNeuralVoice: @unchecked Sendable {
 
     private func finishIfIdle() {
         guard !synthesizing, requests.isEmpty, scheduledBuffers == 0 else { return }
+        // O modelo neural permanece aquecido, mas o engine e a sessão de saída
+        // são liberados antes de avisar o JS. Assim a próxima escuta não tenta
+        // reconfigurar AVAudioSession enquanto ainda existe render de áudio.
+        suspendAudioOutput()
         emit("idle", nil)
         scheduleRelease()
+    }
+
+    private func suspendAudioOutput() {
+        guard audioPrepared else { return }
+        player.stop()
+        if audioEngine.isRunning { audioEngine.stop() }
+        if !BudsSpeechRecognizer.isCapturing {
+            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        }
     }
 
     private func scheduleRelease() {
@@ -347,7 +405,11 @@ public final class BudsNeuralVoice: @unchecked Sendable {
             audioEngine.stop()
             audioEngine.detach(player)
             audioPrepared = false
-            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            // STT e TTS compartilham a AVAudioSession no Voice Mode. Desativar
+            // a sessão enquanto o recognizer está capturando derruba o barge-in.
+            if !BudsSpeechRecognizer.isCapturing {
+                try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+            }
         }
     }
 
@@ -368,10 +430,15 @@ public final class BudsNeuralVoice: @unchecked Sendable {
     }
 
     private static func cleanText(_ text: String) -> String {
-        text
+        let clean = text
             .replacingOccurrences(of: "```[\\s\\S]*?```", with: " código omitido ", options: .regularExpression)
             .replacingOccurrences(of: "[`*_#>]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\.{3,}", with: "…", options: .regularExpression)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = clean.last, !".!?…:;".contains(last) else { return clean }
+        // Frases finais do streaming às vezes chegam sem pontuação. Um ponto
+        // explícito evita que o sintetizador termine com entonação suspensa.
+        return clean + "."
     }
 }

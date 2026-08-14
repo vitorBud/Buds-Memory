@@ -229,7 +229,7 @@ public final class BudsLocalStore: @unchecked Sendable {
     public func conversationStorage() throws -> [BudsConversationStorageRecord] {
         try queue.sync {
             let statement = try prepare(
-                "SELECT id, title, created_at, deleted_at FROM sessions ORDER BY deleted_at IS NULL, COALESCE(deleted_at, created_at) DESC"
+                "SELECT id, title, created_at, deleted_at, channel FROM sessions ORDER BY deleted_at IS NULL, COALESCE(deleted_at, created_at) DESC"
             )
             defer { sqlite3_finalize(statement) }
             var records: [BudsConversationStorageRecord] = []
@@ -242,6 +242,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 records.append(BudsConversationStorageRecord(
                     id: id,
                     title: text(statement, 1),
+                    channel: optionalText(statement, 4),
                     createdAt: text(statement, 2),
                     deletedAt: deletedAt,
                     state: deletedAt == nil ? "active" : "removed",
@@ -259,6 +260,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 records.insert(BudsConversationStorageRecord(
                     id: "__legacy_orphaned__",
                     title: "Memórias antigas sem conversa",
+                    channel: nil,
                     createdAt: nil,
                     deletedAt: nil,
                     state: "orphaned",
@@ -319,6 +321,9 @@ public final class BudsLocalStore: @unchecked Sendable {
                 try execute("DELETE FROM memories")
                 try execute("DELETE FROM sessions")
                 try execute("DELETE FROM chat_folders")
+                try execute("DELETE FROM local_sync_upload_changes")
+                try execute("DELETE FROM local_sync_upload_meta")
+                try execute("DELETE FROM local_sync_history")
                 try execute("DELETE FROM local_sync_device")
                 try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox', 'location_places', 'location_events', 'location_routes', 'location_route_points')")
             }
@@ -449,7 +454,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 throw BudsNativeError.databaseUnavailable("A memória não pode ficar vazia.")
             }
             let statement = try prepare(
-                "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id, origin_type) VALUES (?, ?, 0, ?, 'global', NULL, 'manual')"
+                "INSERT OR IGNORE INTO memories (content, importance, is_core, created_at, scope, session_id, origin_type,user_confirmed) VALUES (?, ?, 0, ?, 'global', NULL, 'manual',1)"
             )
             defer { sqlite3_finalize(statement) }
             bind(String(value.prefix(2_000)), statement, 1)
@@ -494,13 +499,15 @@ public final class BudsLocalStore: @unchecked Sendable {
         try queue.sync {
             try ensureWritable()
             let statement = try prepare(
-                "UPDATE memories SET is_core = ?, importance = MAX(importance, ?), scope = CASE WHEN ? = 1 THEN 'global' ELSE scope END WHERE id = ?"
+                "UPDATE memories SET is_core=?,locked=?,user_confirmed=1,memory_type=CASE WHEN ?=1 THEN 'long' ELSE memory_type END,importance=MAX(importance,?),scope=CASE WHEN ?=1 THEN 'global' ELSE scope END WHERE id=?"
             )
             defer { sqlite3_finalize(statement) }
             sqlite3_bind_int(statement, 1, enabled ? 1 : 0)
-            sqlite3_bind_double(statement, 2, enabled ? 0.9 : 0.2)
+            sqlite3_bind_int(statement, 2, enabled ? 1 : 0)
             sqlite3_bind_int(statement, 3, enabled ? 1 : 0)
-            sqlite3_bind_int64(statement, 4, id)
+            sqlite3_bind_double(statement, 4, enabled ? 0.9 : 0.2)
+            sqlite3_bind_int(statement, 5, enabled ? 1 : 0)
+            sqlite3_bind_int64(statement, 6, id)
             try stepDone(statement)
             guard let updated = try memory(id: id) else {
                 throw BudsNativeError.databaseUnavailable("Memória não encontrada.")
@@ -801,6 +808,28 @@ public final class BudsLocalStore: @unchecked Sendable {
         }
     }
 
+    public func refreshLocalSyncPeerEndpoint(
+        peerDeviceId: String, peerName: String, peerType: String,
+        baseURL: String, protocolVersion: Int
+    ) throws -> BudsLocalSyncPeerStateRecord? {
+        try queue.sync {
+            try ensureWritable()
+            let statement = try prepare("""
+                UPDATE local_sync_peer_state
+                SET peer_name=?,peer_type=?,base_url=?,protocol_version=?,last_error=NULL
+                WHERE peer_device_id=? AND trusted=1
+                """)
+            defer { sqlite3_finalize(statement) }
+            bind(String(peerName.prefix(100)), statement, 1)
+            bind(String(peerType.prefix(30)), statement, 2)
+            bind(baseURL, statement, 3)
+            sqlite3_bind_int(statement, 4, Int32(protocolVersion))
+            bind(peerDeviceId, statement, 5)
+            try stepDone(statement)
+            return try localSyncPeerStateInsideQueue(peerDeviceId: peerDeviceId)
+        }
+    }
+
     public func pendingLocalSyncFocusChanges(peerDeviceId: String, limit: Int = 500) throws -> [BudsLocalSyncChangeRecord] {
         try queue.sync {
             let cursor = try localSyncPeerStateInsideQueue(peerDeviceId: peerDeviceId)?.lastAcknowledgedSeq ?? 0
@@ -828,6 +857,90 @@ public final class BudsLocalStore: @unchecked Sendable {
                 }
             }
             return changes
+        }
+    }
+
+    public func pendingLocalSyncUploadChanges(
+        peerDeviceId: String, limit: Int = 500
+    ) throws -> [BudsLocalSyncUploadChangeRecord] {
+        try queue.sync {
+            let cursor = try localSyncPeerStateInsideQueue(peerDeviceId: peerDeviceId)?.lastUploadAcknowledgedSeq ?? 0
+            let statement = try prepare("""
+                SELECT c.seq,c.change_id,c.entity_type,c.entity_uid,c.entity_version,c.operation,c.changed_at
+                FROM local_sync_upload_changes c
+                JOIN (
+                    SELECT entity_type,entity_uid,MAX(seq) AS max_seq
+                    FROM local_sync_upload_changes WHERE seq>?
+                    GROUP BY entity_type,entity_uid
+                ) latest ON latest.max_seq=c.seq
+                ORDER BY c.seq ASC LIMIT ?
+                """)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, cursor)
+            sqlite3_bind_int(statement, 2, Int32(max(1, min(limit, 500))))
+            var changes: [BudsLocalSyncUploadChangeRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let operation = text(statement, 5)
+                let entityType = text(statement, 2)
+                let uid = text(statement, 3)
+                let recordJSON = operation == "delete" ? nil : try localSyncUploadRecordJSON(
+                    entityType: entityType, entityUid: uid
+                )
+                // Se a linha sumiu fisicamente, o trigger de delete será a
+                // mudança mais nova. Não gere upsert vazio para estado antigo.
+                if operation == "upsert" && recordJSON == nil { continue }
+                changes.append(BudsLocalSyncUploadChangeRecord(
+                    localSeq: sqlite3_column_int64(statement, 0), changeId: text(statement, 1),
+                    entityType: entityType, entityUid: uid,
+                    entityVersion: sqlite3_column_int64(statement, 4), operation: operation,
+                    changedAt: text(statement, 6), recordJSON: recordJSON
+                ))
+            }
+            return changes
+        }
+    }
+
+    public func pendingLocalSyncUploadCounts(peerDeviceId: String) throws -> [String: Int] {
+        try queue.sync {
+            let cursor = try localSyncPeerStateInsideQueue(peerDeviceId: peerDeviceId)?.lastUploadAcknowledgedSeq ?? 0
+            let statement = try prepare("""
+                SELECT c.entity_type,COUNT(*) FROM local_sync_upload_changes c
+                JOIN (
+                    SELECT entity_type,entity_uid,MAX(seq) AS max_seq
+                    FROM local_sync_upload_changes WHERE seq>?
+                    GROUP BY entity_type,entity_uid
+                ) latest ON latest.max_seq=c.seq
+                GROUP BY c.entity_type
+                """)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, cursor)
+            var counts: [String: Int] = [:]
+            while sqlite3_step(statement) == SQLITE_ROW {
+                let key: String
+                switch text(statement, 0) {
+                case "chat_folder": key = "chat_folders"
+                case "chat_session": key = "chat_sessions"
+                case "chat_message": key = "chat_messages"
+                case "memory": key = "memories"
+                default: continue
+                }
+                counts[key] = Int(sqlite3_column_int64(statement, 1))
+            }
+            return counts
+        }
+    }
+
+    public func acknowledgeLocalSyncUpload(peerDeviceId: String, clientSeq: Int64) throws {
+        try queue.sync {
+            let statement = try prepare("""
+                UPDATE local_sync_peer_state
+                SET last_upload_ack_seq=MAX(last_upload_ack_seq,?),last_error=NULL
+                WHERE peer_device_id=? AND trusted=1
+                """)
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, clientSeq)
+            bind(peerDeviceId, statement, 2)
+            try stepDone(statement)
         }
     }
 
@@ -1549,6 +1662,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 trusted INTEGER NOT NULL DEFAULT 1,
                 last_remote_seq INTEGER NOT NULL DEFAULT 0,
                 last_acknowledged_seq INTEGER NOT NULL DEFAULT 0,
+                last_upload_ack_seq INTEGER NOT NULL DEFAULT 0,
                 last_sync_at TEXT,
                 last_error TEXT,
                 protocol_version INTEGER NOT NULL DEFAULT 1,
@@ -1571,6 +1685,7 @@ public final class BudsLocalStore: @unchecked Sendable {
         if !peerColumns.contains("total_received_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN total_received_count INTEGER NOT NULL DEFAULT 0") }
         if !peerColumns.contains("conflict_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN conflict_count INTEGER NOT NULL DEFAULT 0") }
         if !peerColumns.contains("retry_count") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0") }
+        if !peerColumns.contains("last_upload_ack_seq") { try execute("ALTER TABLE local_sync_peer_state ADD COLUMN last_upload_ack_seq INTEGER NOT NULL DEFAULT 0") }
         try execute("""
             CREATE TABLE IF NOT EXISTS local_sync_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1640,6 +1755,187 @@ public final class BudsLocalStore: @unchecked Sendable {
                 version: 1, originDeviceId: deviceId, changedAt: modifiedAt
             )
         }
+        try migrateLocalSyncUploads(deviceId: deviceId)
+    }
+
+    private func migrateLocalSyncUploads(deviceId: String) throws {
+        if !((try? tableColumns("messages")) ?? []).contains("sync_uid") {
+            try execute("ALTER TABLE messages ADD COLUMN sync_uid TEXT")
+        }
+        if !((try? tableColumns("messages")) ?? []).contains("sync_origin_device_id") {
+            try execute("ALTER TABLE messages ADD COLUMN sync_origin_device_id TEXT")
+        }
+        let memoryColumns = try tableColumns("memories")
+        if !memoryColumns.contains("sync_uid") { try execute("ALTER TABLE memories ADD COLUMN sync_uid TEXT") }
+        if !memoryColumns.contains("sync_origin_device_id") { try execute("ALTER TABLE memories ADD COLUMN sync_origin_device_id TEXT") }
+        if !memoryColumns.contains("memory_type") { try execute("ALTER TABLE memories ADD COLUMN memory_type TEXT NOT NULL DEFAULT 'medium'") }
+        if !memoryColumns.contains("locked") { try execute("ALTER TABLE memories ADD COLUMN locked INTEGER NOT NULL DEFAULT 0") }
+        if !memoryColumns.contains("user_confirmed") { try execute("ALTER TABLE memories ADD COLUMN user_confirmed INTEGER NOT NULL DEFAULT 0") }
+        if !memoryColumns.contains("tags") { try execute("ALTER TABLE memories ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'") }
+        if !memoryColumns.contains("expires_at") { try execute("ALTER TABLE memories ADD COLUMN expires_at TEXT") }
+
+        try execute("""
+            CREATE TABLE IF NOT EXISTS local_sync_upload_changes (
+                seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                change_id TEXT NOT NULL UNIQUE,
+                entity_type TEXT NOT NULL,
+                entity_uid TEXT NOT NULL,
+                entity_version INTEGER NOT NULL,
+                operation TEXT NOT NULL,
+                changed_at TEXT NOT NULL
+            )
+            """)
+        try execute("""
+            CREATE TABLE IF NOT EXISTS local_sync_upload_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_local_sync_upload_seq ON local_sync_upload_changes(seq,entity_type)")
+        try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_sync_uid ON messages(sync_uid) WHERE sync_uid IS NOT NULL")
+        try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_sync_uid ON memories(sync_uid) WHERE sync_uid IS NOT NULL")
+
+        try execute("UPDATE messages SET sync_uid=lower(hex(randomblob(16))) WHERE sync_uid IS NULL OR sync_uid=''")
+        try execute("UPDATE messages SET sync_origin_device_id='\(deviceId)' WHERE sync_origin_device_id IS NULL")
+        try execute("UPDATE memories SET sync_uid=lower(hex(randomblob(16))) WHERE sync_uid IS NULL OR sync_uid=''")
+        try execute("UPDATE memories SET sync_origin_device_id='\(deviceId)' WHERE sync_origin_device_id IS NULL")
+
+        let seeded = try prepare("SELECT 1 FROM local_sync_upload_meta WHERE key='shared_domain_seeded_v1'")
+        let alreadySeeded = sqlite3_step(seeded) == SQLITE_ROW
+        sqlite3_finalize(seeded)
+        if !alreadySeeded {
+            let now = Self.now()
+            try seedUploadChanges(
+                sql: "SELECT id FROM chat_folders ORDER BY created_at,id",
+                entityType: "chat_folder", uidColumn: 0, operation: "upsert", changedAt: now
+            )
+            try seedUploadChanges(
+                sql: "SELECT id FROM sessions ORDER BY created_at,id",
+                entityType: "chat_session", uidColumn: 0, operation: "upsert", changedAt: now
+            )
+            try seedUploadChanges(
+                sql: "SELECT sync_uid FROM messages ORDER BY id",
+                entityType: "chat_message", uidColumn: 0, operation: "upsert", changedAt: now
+            )
+            try seedUploadChanges(
+                sql: "SELECT sync_uid FROM memories WHERE scope IN ('global','conversation') ORDER BY id",
+                entityType: "memory", uidColumn: 0, operation: "upsert", changedAt: now
+            )
+            let marker = try prepare("INSERT INTO local_sync_upload_meta(key,value) VALUES ('shared_domain_seeded_v1',?)")
+            bind(now, marker, 1)
+            try stepDone(marker)
+            sqlite3_finalize(marker)
+        }
+
+        try createLocalSyncUploadTriggers()
+    }
+
+    private func seedUploadChanges(
+        sql: String, entityType: String, uidColumn: Int32, operation: String, changedAt: String
+    ) throws {
+        let statement = try prepare(sql)
+        var uids: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW { uids.append(text(statement, uidColumn)) }
+        sqlite3_finalize(statement)
+        for uid in uids where !uid.isEmpty {
+            let insert = try prepare("""
+                INSERT INTO local_sync_upload_changes
+                    (change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+                VALUES (?,?,?,1,?,?)
+                """)
+            bind(UUID().uuidString.lowercased(), insert, 1)
+            bind(entityType, insert, 2)
+            bind(uid, insert, 3)
+            bind(operation, insert, 4)
+            bind(changedAt, insert, 5)
+            try stepDone(insert)
+            sqlite3_finalize(insert)
+        }
+    }
+
+    private func createLocalSyncUploadTriggers() throws {
+        let triggerSQL = [
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_folder_insert AFTER INSERT ON chat_folders BEGIN
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              VALUES (lower(hex(randomblob(16))),'chat_folder',NEW.id,1,'upsert',NEW.updated_at);
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_folder_update AFTER UPDATE OF name,icon,color,updated_at ON chat_folders BEGIN
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              VALUES (lower(hex(randomblob(16))),'chat_folder',NEW.id,
+                COALESCE((SELECT MAX(entity_version)+1 FROM local_sync_upload_changes WHERE entity_type='chat_folder' AND entity_uid=NEW.id),1),
+                'upsert',NEW.updated_at);
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_folder_delete BEFORE DELETE ON chat_folders BEGIN
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              VALUES (lower(hex(randomblob(16))),'chat_folder',OLD.id,
+                COALESCE((SELECT MAX(entity_version)+1 FROM local_sync_upload_changes WHERE entity_type='chat_folder' AND entity_uid=OLD.id),1),
+                'delete',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_session_insert AFTER INSERT ON sessions BEGIN
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              VALUES (lower(hex(randomblob(16))),'chat_session',NEW.id,1,'upsert',NEW.created_at);
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_session_update AFTER UPDATE OF title,folder_id,deleted_at,channel ON sessions BEGIN
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              VALUES (lower(hex(randomblob(16))),'chat_session',NEW.id,
+                COALESCE((SELECT MAX(entity_version)+1 FROM local_sync_upload_changes WHERE entity_type='chat_session' AND entity_uid=NEW.id),1),
+                CASE WHEN NEW.deleted_at IS NULL THEN 'upsert' ELSE 'delete' END,
+                COALESCE(NEW.deleted_at,strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_session_delete BEFORE DELETE ON sessions BEGIN
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              VALUES (lower(hex(randomblob(16))),'chat_session',OLD.id,
+                COALESCE((SELECT MAX(entity_version)+1 FROM local_sync_upload_changes WHERE entity_type='chat_session' AND entity_uid=OLD.id),1),
+                'delete',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_message_insert AFTER INSERT ON messages BEGIN
+              UPDATE messages SET sync_uid=COALESCE(sync_uid,lower(hex(randomblob(16)))),
+                sync_origin_device_id=COALESCE(sync_origin_device_id,(SELECT device_id FROM local_sync_device WHERE singleton=1))
+                WHERE id=NEW.id;
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              SELECT lower(hex(randomblob(16))),'chat_message',sync_uid,1,'upsert',created_at FROM messages WHERE id=NEW.id;
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_memory_insert AFTER INSERT ON memories BEGIN
+              UPDATE memories SET sync_uid=COALESCE(sync_uid,lower(hex(randomblob(16)))),
+                sync_origin_device_id=COALESCE(sync_origin_device_id,(SELECT device_id FROM local_sync_device WHERE singleton=1))
+                WHERE id=NEW.id;
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              SELECT lower(hex(randomblob(16))),'memory',sync_uid,1,'upsert',created_at FROM memories WHERE id=NEW.id;
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_memory_update AFTER UPDATE OF content,importance,is_core,scope,session_id,memory_type,locked,user_confirmed,tags,expires_at ON memories BEGIN
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              VALUES (lower(hex(randomblob(16))),'memory',NEW.sync_uid,
+                COALESCE((SELECT MAX(entity_version)+1 FROM local_sync_upload_changes WHERE entity_type='memory' AND entity_uid=NEW.sync_uid),1),
+                'upsert',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS trg_sync_memory_delete BEFORE DELETE ON memories BEGIN
+              INSERT INTO local_sync_upload_changes(change_id,entity_type,entity_uid,entity_version,operation,changed_at)
+              VALUES (lower(hex(randomblob(16))),'memory',OLD.sync_uid,
+                COALESCE((SELECT MAX(entity_version)+1 FROM local_sync_upload_changes WHERE entity_type='memory' AND entity_uid=OLD.sync_uid),1),
+                'delete',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+            END
+            """,
+        ]
+        for sql in triggerSQL { try execute(sql) }
     }
 
     private func migrateLocation() throws {
@@ -2058,14 +2354,13 @@ public final class BudsLocalStore: @unchecked Sendable {
     private func localSyncPeerStateInsideQueue(peerDeviceId: String) throws -> BudsLocalSyncPeerStateRecord? {
         let statement = try prepare("""
             SELECT peer_device_id,peer_name,peer_type,base_url,trusted,last_remote_seq,
-                   last_acknowledged_seq,last_sync_at,last_error,protocol_version,app_version,capabilities,
+                   last_acknowledged_seq,last_upload_ack_seq,last_sync_at,last_error,protocol_version,app_version,capabilities,
                    last_sent_count,last_received_count,total_sent_count,total_received_count,conflict_count,retry_count
             FROM local_sync_peer_state WHERE peer_device_id=? LIMIT 1
             """)
         defer { sqlite3_finalize(statement) }
         bind(peerDeviceId, statement, 1)
         guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
-        let capabilitiesData = text(statement, 11).data(using: .utf8) ?? Data()
         return BudsLocalSyncPeerStateRecord(
             peerDeviceId: text(statement, 0),
             peerName: text(statement, 1),
@@ -2074,18 +2369,83 @@ public final class BudsLocalStore: @unchecked Sendable {
             trusted: sqlite3_column_int(statement, 4) == 1,
             lastRemoteSeq: sqlite3_column_int64(statement, 5),
             lastAcknowledgedSeq: sqlite3_column_int64(statement, 6),
-            lastSyncAt: optionalText(statement, 7),
-            lastError: optionalText(statement, 8),
-            protocolVersion: Int(sqlite3_column_int(statement, 9)),
-            appVersion: optionalText(statement, 10),
-            capabilities: (try? JSONDecoder().decode([String].self, from: capabilitiesData)) ?? [],
-            lastSentCount: Int(sqlite3_column_int(statement, 12)),
-            lastReceivedCount: Int(sqlite3_column_int(statement, 13)),
-            totalSentCount: Int(sqlite3_column_int(statement, 14)),
-            totalReceivedCount: Int(sqlite3_column_int(statement, 15)),
-            conflictCount: Int(sqlite3_column_int(statement, 16)),
-            retryCount: Int(sqlite3_column_int(statement, 17))
+            lastUploadAcknowledgedSeq: sqlite3_column_int64(statement, 7),
+            lastSyncAt: optionalText(statement, 8),
+            lastError: optionalText(statement, 9),
+            protocolVersion: Int(sqlite3_column_int(statement, 10)),
+            appVersion: optionalText(statement, 11),
+            capabilities: (try? JSONDecoder().decode([String].self, from: text(statement, 12).data(using: .utf8) ?? Data())) ?? [],
+            lastSentCount: Int(sqlite3_column_int(statement, 13)),
+            lastReceivedCount: Int(sqlite3_column_int(statement, 14)),
+            totalSentCount: Int(sqlite3_column_int(statement, 15)),
+            totalReceivedCount: Int(sqlite3_column_int(statement, 16)),
+            conflictCount: Int(sqlite3_column_int(statement, 17)),
+            retryCount: Int(sqlite3_column_int(statement, 18))
         )
+    }
+
+    private func localSyncUploadRecordJSON(entityType: String, entityUid: String) throws -> String? {
+        let payload: [String: Any]
+        switch entityType {
+        case "chat_folder":
+            let statement = try prepare(
+                "SELECT name,icon,color,created_at,updated_at FROM chat_folders WHERE id=? LIMIT 1"
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(entityUid, statement, 1)
+            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+            payload = [
+                "name": text(statement, 0), "icon": text(statement, 1), "color": text(statement, 2),
+                "created_at": text(statement, 3), "updated_at": text(statement, 4),
+            ]
+        case "chat_session":
+            let statement = try prepare(
+                "SELECT title,created_at,deleted_at,folder_id,channel FROM sessions WHERE id=? LIMIT 1"
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(entityUid, statement, 1)
+            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+            payload = [
+                "title": text(statement, 0), "created_at": text(statement, 1),
+                "deleted_at": optionalText(statement, 2) ?? NSNull(),
+                "folder_id": optionalText(statement, 3) ?? NSNull(), "channel": text(statement, 4),
+            ]
+        case "chat_message":
+            let statement = try prepare(
+                "SELECT session_id,sender,text,created_at FROM messages WHERE sync_uid=? LIMIT 1"
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(entityUid, statement, 1)
+            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+            payload = [
+                "session_id": text(statement, 0), "sender": text(statement, 1),
+                "text": text(statement, 2), "created_at": text(statement, 3),
+            ]
+        case "memory":
+            let statement = try prepare("""
+                SELECT content,importance,is_core,created_at,scope,session_id,origin_type,
+                       memory_type,locked,user_confirmed,tags,expires_at
+                FROM memories WHERE sync_uid=? AND scope IN ('global','conversation') LIMIT 1
+                """)
+            defer { sqlite3_finalize(statement) }
+            bind(entityUid, statement, 1)
+            guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+            let tagsData = text(statement, 10).data(using: .utf8) ?? Data()
+            payload = [
+                "content": text(statement, 0), "importance": sqlite3_column_double(statement, 1),
+                "is_core": sqlite3_column_int(statement, 2) == 1, "created_at": text(statement, 3),
+                "scope": text(statement, 4), "session_id": optionalText(statement, 5) ?? NSNull(),
+                "origin_type": text(statement, 6), "memory_type": text(statement, 7),
+                "locked": sqlite3_column_int(statement, 8) == 1,
+                "user_confirmed": sqlite3_column_int(statement, 9) == 1,
+                "tags": (try? JSONSerialization.jsonObject(with: tagsData)) as? [String] ?? [],
+                "expires_at": optionalText(statement, 11) ?? NSNull(),
+            ]
+        default:
+            return nil
+        }
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8)
     }
 
     private func insertSyncChange(

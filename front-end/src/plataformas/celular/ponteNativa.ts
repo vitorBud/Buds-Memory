@@ -132,7 +132,7 @@ interface IOSLocalPlugin {
   startLocationRoute(options: { name?: string }): Promise<LocationRoute>
   stopLocationRoute(): Promise<{ route: LocationRoute | null }>
   deleteLocationRoute(options: { id: number }): Promise<void>
-  startSpeechRecognition(options: { recordingId: string }): Promise<void>
+  startSpeechRecognition(options: { recordingId: string; mode?: 'turn' | 'barge-in' }): Promise<void>
   stopSpeechRecognition(options: { recordingId: string }): Promise<{ text: string; recordingId: string }>
   cancelSpeechRecognition(options: { recordingId?: string }): Promise<void>
   prepareNeuralVoice(): Promise<{ ready: boolean; voice: string; language: string }>
@@ -453,10 +453,11 @@ export function deleteIOSLocationRoute(id: number): Promise<void> {
 export async function startIOSSpeechRecognition(
   recordingId: string,
   onUpdate: (event: { text: string; isFinal: boolean; volume: number; recordingId: string }) => void,
+  mode: 'turn' | 'barge-in' = 'turn',
 ): Promise<PluginListenerHandle> {
   const listener = await native.addListener('speechRecognitionUpdate', onUpdate)
   try {
-    await native.startSpeechRecognition({ recordingId })
+    await native.startSpeechRecognition({ recordingId, mode })
     return listener
   } catch (error) {
     await listener.remove()

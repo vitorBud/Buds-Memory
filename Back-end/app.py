@@ -18,6 +18,7 @@ import json
 import time
 import re
 import concurrent.futures
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -222,6 +223,15 @@ def save_uploaded_audio(audio_file) -> Path:
     filepath = OUT_DIR / filename
     audio_file.save(str(filepath))
     return filepath
+
+
+def transcribe_uploaded_audio(audio_file) -> str:
+    """Transcreve um upload e remove o arquivo temporário mesmo em falha."""
+    filepath = save_uploaded_audio(audio_file)
+    try:
+        return stt_local(filepath)
+    finally:
+        filepath.unlink(missing_ok=True)
 
 
 # Importações do pipeline de ingestão cognitivo (eliminadas duplicatas locais)
@@ -1110,6 +1120,26 @@ def import_session_knowledge(session_id):
 
 # ====== ENDPOINTS DE CHAT E MULTIMÍDIA ======
 
+@app.route('/api/voice/transcribe-partial', methods=['POST'])
+def voice_transcribe_partial():
+    """Transcrição local incremental, usada apenas enquanto o usuário fala.
+
+    O navegador envia snapshots cumulativos com baixa frequência. A mesma
+    instância lazy do faster-whisper é reutilizada e serializada; não há cloud
+    fallback nem uma segunda cópia pesada do modelo.
+    """
+    audio_file = request.files.get("audio")
+    if audio_file is None:
+        return jsonify({"error": "Áudio parcial não informado."}), 400
+    started_at = time.perf_counter()
+    text = transcribe_uploaded_audio(audio_file)
+    return jsonify({
+        "text": text,
+        "final": False,
+        "latency_ms": round((time.perf_counter() - started_at) * 1000),
+        "provider": "faster-whisper-local",
+    })
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """
@@ -1125,8 +1155,7 @@ def chat():
     # Se receber um arquivo de áudio
     if 'audio' in request.files:
         audio_file = request.files['audio']
-        filepath = save_uploaded_audio(audio_file)
-        user_text = stt_local(filepath)
+        user_text = transcribe_uploaded_audio(audio_file)
     # Se receber texto em formato JSON
     elif request.is_json:
         user_text = request.json.get("text", "")
@@ -1254,8 +1283,7 @@ def chat_stream():
     user_text = ""
     if 'audio' in request.files:
         audio_file = request.files['audio']
-        filepath = save_uploaded_audio(audio_file)
-        user_text = stt_local(filepath)
+        user_text = transcribe_uploaded_audio(audio_file)
     elif request.is_json:
         user_text = request.json.get("text", "")
     else:
@@ -1280,6 +1308,9 @@ def chat_stream():
         knowledge_context = ""
         direct_reply = None
         visible_started = False
+        visible_response = ""
+        tts_futures: list[tuple] = []
+        tts_cancel_event = threading.Event()
         yield sse_event({
             'type': 'transcription',
             'content': user_text,
@@ -1319,14 +1350,14 @@ def chat_stream():
 
             buffer = ""
             raw_response = ""
-            visible_response = ""
             sentence_idx = 0
             defer_streaming = cognitive_finance.should_use_financial_context(user_text, history) and not direct_reply
             trace.set("defer_streaming", defer_streaming)
 
             # Lista de futures TTS submetidas em background durante o streaming.
             # (future, audio_url, sentence_text) — coletadas após o loop de tokens.
-            tts_futures: list[tuple] = []
+            next_tts_emit = 0
+            first_audio_emitted = False
 
             def mark_visible_once() -> None:
                 nonlocal visible_started
@@ -1341,19 +1372,59 @@ def chat_stream():
                 if not should_generate_tts or not text_delta:
                     return
 
+                def submit_sentence(sentence: str) -> None:
+                    nonlocal sentence_idx
+                    sentence_clean = sentence.strip()
+                    if not sentence_clean:
+                        return
+                    audio_filename = f"reply_{int(time.time())}_{sentence_idx}.wav"
+                    out_file = OUT_DIR / audio_filename
+                    fut = _TTS_POOL.submit(tts_piper, sentence_clean, out_file, tts_cancel_event)
+                    tts_futures.append((fut, f"/api/audio/{audio_filename}", sentence_clean))
+                    sentence_idx += 1
+
                 buffer += text_delta
                 parts = re.split(r'(?<=[.!?\n])\s+', buffer)
                 if len(parts) > 1:
                     for sentence in parts[:-1]:
-                        sentence_clean = sentence.strip()
-                        if sentence_clean:
-                            audio_filename = f"reply_{int(time.time())}_{sentence_idx}.wav"
-                            out_file = OUT_DIR / audio_filename
-                            # Submete ao pool e NÃO espera — o stream continua imediatamente
-                            fut = _TTS_POOL.submit(tts_piper, sentence_clean, out_file)
-                            tts_futures.append((fut, f"/api/audio/{audio_filename}", sentence_clean))
-                            sentence_idx += 1
+                        submit_sentence(sentence)
                     buffer = parts[-1]
+
+                # Modelos pequenos às vezes escrevem parágrafos longos sem
+                # ponto. Um corte em pausa/espaço mantém o primeiro áudio cedo.
+                while len(buffer) >= 150:
+                    window = buffer[:151]
+                    candidates = [window.rfind(mark) + 1 for mark in (",", ";", ":")]
+                    split_at = max(candidates)
+                    if split_at < 72:
+                        split_at = window.rfind(" ")
+                    if split_at < 72:
+                        split_at = 150
+                    submit_sentence(buffer[:split_at])
+                    buffer = buffer[split_at:].lstrip()
+
+            def ready_tts_events(*, wait_for_next: bool = False):
+                """Emite áudio em ordem assim que cada frase estiver pronta."""
+                nonlocal next_tts_emit, first_audio_emitted
+                while next_tts_emit < len(tts_futures):
+                    fut, audio_url, sentence_text = tts_futures[next_tts_emit]
+                    if not fut.done() and not wait_for_next:
+                        break
+                    try:
+                        fut.result(timeout=TTS_FUTURE_TIMEOUT if wait_for_next else 0)
+                        if not first_audio_emitted:
+                            first_audio_emitted = True
+                            trace.mark("tts_first_chunk")
+                            trace.set("time_to_first_audio_ms", trace.elapsed_ms())
+                        yield sse_event({
+                            'type': 'audio_sentence',
+                            'text': sentence_text,
+                            'url': audio_url,
+                            'audio_index': next_tts_emit,
+                        })
+                    except Exception as tts_exc:
+                        print(f"[TTS] Sentença ignorada ({tts_exc})")
+                    next_tts_emit += 1
 
             token_source = [direct_reply] if direct_reply else llm_ollama_stream(
                 user_text,
@@ -1378,6 +1449,7 @@ def chat_stream():
                         mark_visible_once()
                         yield sse_event({'type': 'token', 'content': delta})
                         enqueue_tts(delta)  # não bloqueia — submete TTS ao pool
+                        yield from ready_tts_events()
                 else:
                     mark_visible_once()
                     yield sse_event({'type': 'replace_response', 'content': safe_so_far})
@@ -1389,21 +1461,13 @@ def chat_stream():
                 sentence_clean = buffer.strip()
                 audio_filename = f"reply_{int(time.time())}_{sentence_idx}.wav"
                 out_file = OUT_DIR / audio_filename
-                fut = _TTS_POOL.submit(tts_piper, sentence_clean, out_file)
+                fut = _TTS_POOL.submit(tts_piper, sentence_clean, out_file, tts_cancel_event)
                 tts_futures.append((fut, f"/api/audio/{audio_filename}", sentence_clean))
 
-            # Coleta futures TTS já concluídas durante o stream e emite eventos
-            # O Piper rodou em paralelo — a maioria das futures já está pronta aqui
-            for fut, audio_url, sentence_text in tts_futures:
-                try:
-                    fut.result(timeout=TTS_FUTURE_TIMEOUT)
-                    yield sse_event({
-                        'type': 'audio_sentence',
-                        'text': sentence_text,
-                        'url': audio_url,
-                    })
-                except Exception as tts_exc:
-                    print(f"[TTS] Sentença ignorada ({tts_exc})")
+            # Aguarda apenas as frases ainda pendentes. As que terminaram durante
+            # o streaming já foram entregues e começaram a tocar antes do fim.
+            while next_tts_emit < len(tts_futures):
+                yield from ready_tts_events(wait_for_next=True)
 
             full_response = response_safety.sanitize_response(raw_response, user_text=user_text)
             if not full_response.strip():
@@ -1450,6 +1514,18 @@ def chat_stream():
                     database.add_message(session_id, "ia", full_response.strip())
                 process_post_chat_cognition(session_id, user_text, full_response.strip())
 
+        except GeneratorExit:
+            # O cliente interrompeu a resposta (barge-in/navegação). Mantemos
+            # somente o trecho já visível no histórico para que referências
+            # como “não, quero a segunda” continuem fazendo sentido.
+            tts_cancel_event.set()
+            for future, _audio_url, _sentence in tts_futures:
+                future.cancel()
+            interrupted = response_safety.sanitize_response(visible_response, user_text=user_text).strip()
+            if session_id and interrupted:
+                database.add_message(session_id, "ia", interrupted)
+            trace.mark("cancelled", partial_response_chars=len(interrupted))
+            raise
         except Exception as e:
             trace.mark("error", message=str(e))
             yield sse_event({'type': 'error', 'content': str(e)})

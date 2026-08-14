@@ -178,6 +178,7 @@ export interface LocalSyncPeer {
   device_type: string
   base_url?: string
   trusted: boolean
+  credential_available?: boolean
   connected?: boolean
   status?: 'disconnected' | 'discovering' | 'found' | 'pairing' | 'connected' | 'syncing' | 'synced' | 'error' | 'revoked' | string
   protocol_version?: number
@@ -251,6 +252,7 @@ export type ConversationStorageState = 'active' | 'removed' | 'orphaned'
 export interface ConversationStorageItem {
   id: string
   title: string
+  channel?: 'chat' | 'voice' | null
   created_at?: string | null
   deleted_at?: string | null
   state: ConversationStorageState

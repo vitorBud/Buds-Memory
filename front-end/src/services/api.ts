@@ -152,6 +152,33 @@ function getAudioUploadName(blob: Blob): string {
   return `recording.${extByMime[mime] || 'webm'}`
 }
 
+export async function transcribeAudioPartial(
+  audio: Blob,
+  signal?: AbortSignal,
+): Promise<{ text: string; latencyMs: number; provider: string }> {
+  if (isNativeIOSRuntime()) {
+    throw new Error('O iPhone usa o reconhecedor local incremental nativo.')
+  }
+  const body = new FormData()
+  body.append('audio', audio, getAudioUploadName(audio))
+  const response = await authFetch(`${getBase()}/voice/transcribe-partial`, {
+    method: 'POST',
+    body,
+    signal,
+  })
+  if (!response.ok) throw await apiError(response)
+  const result = await response.json() as {
+    text?: string
+    latency_ms?: number
+    provider?: string
+  }
+  return {
+    text: result.text?.trim() || '',
+    latencyMs: result.latency_ms ?? 0,
+    provider: result.provider || 'faster-whisper-local',
+  }
+}
+
 /**
  * Converte um caminho relativo de API (/api/audio/...) em URL absoluta.
  * Necessário para funcionar tanto no browser (proxy Vite) quanto no Electron (file://).

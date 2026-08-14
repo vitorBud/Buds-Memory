@@ -28,7 +28,6 @@ import { ChatInput } from './components/ChatInput'
 import { BootScreen } from './components/BootScreen'
 import type { SystemHealth } from './components/BootScreen'
 import { NetworkStatus } from './components/NetworkStatus'
-import type { VoiceSilenceMode } from './components/VoiceMode'
 import { useChat } from './hooks/useChat'
 import { useRecorder } from './hooks/useRecorder'
 import { useMobilePerformanceMonitor } from './plataformas'
@@ -74,7 +73,6 @@ const PaginaMapaBuds = lazy(() => import('./components/mapa/PaginaMapaBuds').the
 const SETTINGS_KEY = 'buds-interface-settings'
 const DESKTOP_THEME_BOOT_KEY = 'buds-desktop-theme-boot-v1'
 const VOICE_URI_KEY = 'buds-voice-uri-v1'
-const VOICE_SILENCE_MODE_KEY = 'buds-voice-silence-mode-v1'
 const AUDIO_DEFAULT_DISABLED_KEY = 'buds-audio-default-disabled-v1'
 const MOBILE_CHAT_INTRO_KEY = 'buds-mobile-chat-intro-seen-v1'
 
@@ -87,8 +85,6 @@ const MOBILE_CHAT_INTRO_KEY = 'buds-mobile-chat-intro-seen-v1'
     ['nexus-desktop-theme-boot-v1', 'buds-desktop-theme-boot-v1'],
     ['aether-voice-uri-v1', 'buds-voice-uri-v1'],
     ['nexus-voice-uri-v1', 'buds-voice-uri-v1'],
-    ['aether-voice-silence-mode-v1', 'buds-voice-silence-mode-v1'],
-    ['nexus-voice-silence-mode-v1', 'buds-voice-silence-mode-v1'],
     ['aether-audio-default-disabled-v1', 'buds-audio-default-disabled-v1'],
     ['aether-mobile-chat-intro-seen-v1', 'buds-mobile-chat-intro-seen-v1'],
     ['aether_selected_model', 'buds_selected_model'],
@@ -173,15 +169,11 @@ const DEFAULT_SETTINGS: InterfaceSettings = {
 }
 
 const OFFICIAL_THEMES = ['black', 'gold', 'silver'] as const
-const VOICE_SILENCE_CONFIG: Record<VoiceSilenceMode, {
-  silenceSeconds: number
-  speechThreshold: number
-  noSpeechTimeoutSeconds: number
-}> = {
-  fast: { silenceSeconds: 1.0, speechThreshold: 0.07, noSpeechTimeoutSeconds: 5 },
-  balanced: { silenceSeconds: 1.45, speechThreshold: 0.065, noSpeechTimeoutSeconds: 8 },
-  patient: { silenceSeconds: 2.1, speechThreshold: 0.058, noSpeechTimeoutSeconds: 12 },
-}
+const VOICE_RECORDER_CONFIG = {
+  silenceSeconds: 1.1,
+  speechThreshold: 0.075,
+  noSpeechTimeoutSeconds: 6,
+} as const
 
 function isDesktopApp() {
   return Boolean((window as unknown as { nexus?: { isDesktop?: boolean } }).nexus?.isDesktop)
@@ -227,12 +219,6 @@ function getInitialSettings(): InterfaceSettings {
   }
 }
 
-function getInitialVoiceSilenceMode(): VoiceSilenceMode {
-  const saved = localStorage.getItem(VOICE_SILENCE_MODE_KEY)
-  return saved === 'fast' || saved === 'patient' || saved === 'balanced' ? saved : 'balanced'
-}
-
-
 export default function App() {
   useMobilePerformanceMonitor('app')
   const obsidianSceneRef = useRef<HTMLElement>(null)
@@ -242,6 +228,7 @@ export default function App() {
   const didAutoLoadSessionRef = useRef(false)
   const sessionLoadRequestRef = useRef(0)
   const voiceSessionPromiseRef = useRef<Promise<string> | null>(null)
+  const wasVoiceActiveRef = useRef(false)
   const [aiState, setAiState] = useState<AiState>('idle')
   const [sessions, setSessions] = useState<Session[]>([])
   const [chatFolders, setChatFolders] = useState<ChatFolder[]>([])
@@ -281,7 +268,6 @@ export default function App() {
   const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null)
   const [bootDone, setBootDone] = useState(false)
   const [selectedVoiceURI, setSelectedVoiceURI] = useState(() => localStorage.getItem(VOICE_URI_KEY) || '')
-  const [voiceSilenceMode, setVoiceSilenceMode] = useState<VoiceSilenceMode>(getInitialVoiceSilenceMode)
 
   const [activeView, setActiveView] = useState<AppView>(() => viewFromHash(window.location.hash))
   const [viewDirection, setViewDirection] = useState(1)
@@ -602,41 +588,52 @@ export default function App() {
     onStateChange: setVoiceAiState,
     onLatency: () => undefined,
     onMsgCountChange: () => undefined,
-    autoPlayAudio: activeView === 'voice',
+    autoPlayAudio: activeView === 'voice' && !settingsOpen,
     offlineQueueEnabled: false,
   })
 
-  const voiceRecorderConfig = VOICE_SILENCE_CONFIG[voiceSilenceMode]
-
-  const { isRecording, seconds, volume: micVolume, toggle: toggleMic, cancel: cancelRecording } = useRecorder({
-    onStop: async (blob) => {
-      if (activeViewRef.current === 'voice') await sendVoiceAudio(blob)
-      else await sendAudio(blob)
+  const {
+    isRecording,
+    seconds,
+    volume: micVolume,
+    partialTranscript: voicePartialTranscript,
+    toggle: toggleMic,
+    cancel: cancelRecording,
+  } = useRecorder({
+    onStop: async (blob, metrics) => {
+      if (activeViewRef.current === 'voice') await sendVoiceAudio(blob, metrics)
+      else await sendAudio(blob, metrics)
     },
-    onTranscript: (text) => {
-      if (activeViewRef.current === 'voice') void sendVoiceText(text)
-      else void sendText(text)
+    onTranscript: (text, metrics) => {
+      if (activeViewRef.current === 'voice') void sendVoiceText(text, metrics)
+      else void sendText(text, metrics)
     },
     onStateChange: (state) => {
       if (activeViewRef.current === 'voice') setVoiceAiState(state)
       else setAiState(state)
     },
     autoStopOnSilence: activeView === 'voice',
-    silenceSeconds: activeView === 'voice' ? voiceRecorderConfig.silenceSeconds : 1.15,
-    speechThreshold: activeView === 'voice' ? voiceRecorderConfig.speechThreshold : 0.075,
+    silenceSeconds: activeView === 'voice' ? VOICE_RECORDER_CONFIG.silenceSeconds : 1.15,
+    speechThreshold: activeView === 'voice' ? VOICE_RECORDER_CONFIG.speechThreshold : 0.075,
     maxSeconds: activeView === 'voice' ? 45 : 30,
-    noSpeechTimeoutSeconds: activeView === 'voice' ? voiceRecorderConfig.noSpeechTimeoutSeconds : 10,
+    noSpeechTimeoutSeconds: activeView === 'voice' ? VOICE_RECORDER_CONFIG.noSpeechTimeoutSeconds : 10,
   })
+
+  useEffect(() => {
+    if (activeView === 'voice' && !settingsOpen) {
+      wasVoiceActiveRef.current = true
+      return
+    }
+    if (!wasVoiceActiveRef.current) return
+    wasVoiceActiveRef.current = false
+    cancelRecording()
+    stopVoiceOutput()
+  }, [activeView, cancelRecording, settingsOpen, stopVoiceOutput])
 
   const handleVoiceChange = useCallback((voiceURI: string) => {
     setSelectedVoiceURI(voiceURI)
     if (voiceURI) localStorage.setItem(VOICE_URI_KEY, voiceURI)
     else localStorage.removeItem(VOICE_URI_KEY)
-  }, [])
-
-  const handleVoiceSilenceModeChange = useCallback((mode: VoiceSilenceMode) => {
-    setVoiceSilenceMode(mode)
-    localStorage.setItem(VOICE_SILENCE_MODE_KEY, mode)
   }, [])
 
   const loadSessionData = useCallback(async (session: Session) => {
@@ -1060,13 +1057,6 @@ export default function App() {
       setVoiceAiState('error')
       showToast('Não foi possível preparar a conversa por voz.', 'info')
     })
-  }
-
-  const handleExitVoice = () => {
-    cancelRecording()
-    stopVoiceOutput()
-    activateView('chat')
-    if (isMobileViewport()) setFocusMode(true)
   }
 
   const handleOpenObsidian = () => {
@@ -1529,16 +1519,14 @@ export default function App() {
                 isRecording={isRecording}
                 recSeconds={seconds}
                 micVolume={micVolume}
+                partialTranscript={voicePartialTranscript}
                 isProcessing={isVoiceProcessing}
                 availableVoices={voiceAvailableVoices.length ? voiceAvailableVoices : availableVoices}
                 selectedVoiceURI={selectedVoiceURI}
-                silenceMode={voiceSilenceMode}
                 usesNeuralVoice={isNativeIOS}
                 onMicToggle={toggleMic}
                 onStopOutput={stopVoiceOutput}
                 onVoiceChange={handleVoiceChange}
-                onSilenceModeChange={handleVoiceSilenceModeChange}
-                onExit={handleExitVoice}
               />
             </Suspense>
           </motion.div>

@@ -1,11 +1,11 @@
 import BudsNativeRuntime
-import Capacitor
+@preconcurrency import Capacitor
 import Foundation
 import UIKit
 import UserNotifications
 
 @objc(BudsLocalPlugin)
-public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
+public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin, @unchecked Sendable {
     public let identifier = "BudsLocalPlugin"
     public let jsName = "BudsLocal"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -409,9 +409,12 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
                     ]
                 },
                 "peers": try peers.map { peer in
-                    let pending = try runtime.pendingLocalSyncFocusChanges(peerDeviceId: peer.peerDeviceId).count
+                    let focusPending = try runtime.pendingLocalSyncFocusChanges(peerDeviceId: peer.peerDeviceId).count
+                    var pendingDetails = try runtime.pendingLocalSyncUploadCounts(peerDeviceId: peer.peerDeviceId)
+                    pendingDetails["focus_tasks"] = focusPending
+                    let pending = pendingDetails.values.reduce(0, +)
                     return localSyncPeerPayload(
-                        peer, pendingOut: pending,
+                        peer, pendingOut: pending, pendingDetails: pendingDetails,
                         connected: BudsLocalSyncClient.shared.isConnected(peerDeviceId: peer.peerDeviceId)
                     )
                 },
@@ -454,7 +457,7 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         Task {
             do {
                 let trusted = try await BudsLocalSyncClient.shared.pair(peer: peer, code: code)
-                call.resolve(localSyncPeerPayload(trusted, pendingOut: 0, connected: true))
+                call.resolve(localSyncPeerPayload(trusted, pendingOut: 0, pendingDetails: [:], connected: true))
             } catch {
                 call.reject(error.localizedDescription)
             }
@@ -745,7 +748,11 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await speechRecognizer.start(operationId: recordingId, localeIdentifier: "pt-BR") { [weak self] transcript, isFinal, volume in
+                try await speechRecognizer.start(
+                    operationId: recordingId,
+                    localeIdentifier: "pt-BR",
+                    bargeIn: call.getString("mode") == "barge-in"
+                ) { [weak self] transcript, isFinal, volume in
                     DispatchQueue.main.async {
                         self?.notifyListeners("speechRecognitionUpdate", data: [
                             "text": transcript,
@@ -919,6 +926,7 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         [
             "id": item.id,
             "title": item.title,
+            "channel": item.channel ?? NSNull(),
             "created_at": item.createdAt ?? NSNull(),
             "deleted_at": item.deletedAt ?? NSNull(),
             "state": item.state,
@@ -991,18 +999,22 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin {
         ["device_id": device.deviceId, "device_name": device.deviceName, "device_type": device.deviceType]
     }
 
-    private func localSyncPeerPayload(_ peer: BudsLocalSyncPeerStateRecord, pendingOut: Int, connected: Bool = false) -> [String: Any] {
+    private func localSyncPeerPayload(
+        _ peer: BudsLocalSyncPeerStateRecord, pendingOut: Int,
+        pendingDetails: [String: Int], connected: Bool = false
+    ) -> [String: Any] {
         [
             "peer_device_id": peer.peerDeviceId,
             "device_name": peer.peerName,
             "device_type": peer.peerType,
             "base_url": peer.baseURL,
             "trusted": peer.trusted,
+            "credential_available": BudsLocalSyncClient.shared.hasCredential(peerDeviceId: peer.peerDeviceId),
             "connected": connected,
             "status": connected ? "connected" : "disconnected",
             "last_sync_at": peer.lastSyncAt ?? NSNull(),
             "pending_out": pendingOut,
-            "pending_details": ["focus_tasks": pendingOut],
+            "pending_details": pendingDetails,
             "pending_in": 0,
             "awaiting_ack": 0,
             "conflicts": peer.conflictCount,

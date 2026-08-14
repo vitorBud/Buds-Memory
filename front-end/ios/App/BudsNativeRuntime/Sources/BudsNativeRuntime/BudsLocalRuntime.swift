@@ -1,5 +1,22 @@
 import Foundation
 
+private final class BudsInterruptedResponseBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = ""
+
+    func append(_ token: String) {
+        lock.lock()
+        value += token
+        lock.unlock()
+    }
+
+    var text: String {
+        lock.lock()
+        defer { lock.unlock() }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 public final class BudsLocalRuntime: @unchecked Sendable {
     public static let shared = BudsLocalRuntime()
 
@@ -215,8 +232,30 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         )
     }
 
+    public func refreshLocalSyncPeerEndpoint(
+        peerDeviceId: String, peerName: String, peerType: String,
+        baseURL: String, protocolVersion: Int
+    ) throws -> BudsLocalSyncPeerStateRecord? {
+        try ensureStore().refreshLocalSyncPeerEndpoint(
+            peerDeviceId: peerDeviceId, peerName: peerName, peerType: peerType,
+            baseURL: baseURL, protocolVersion: protocolVersion
+        )
+    }
+
     public func pendingLocalSyncFocusChanges(peerDeviceId: String) throws -> [BudsLocalSyncChangeRecord] {
         try ensureStore().pendingLocalSyncFocusChanges(peerDeviceId: peerDeviceId)
+    }
+
+    public func pendingLocalSyncUploadChanges(peerDeviceId: String) throws -> [BudsLocalSyncUploadChangeRecord] {
+        try ensureStore().pendingLocalSyncUploadChanges(peerDeviceId: peerDeviceId)
+    }
+
+    public func pendingLocalSyncUploadCounts(peerDeviceId: String) throws -> [String: Int] {
+        try ensureStore().pendingLocalSyncUploadCounts(peerDeviceId: peerDeviceId)
+    }
+
+    public func acknowledgeLocalSyncUpload(peerDeviceId: String, clientSeq: Int64) throws {
+        try ensureStore().acknowledgeLocalSyncUpload(peerDeviceId: peerDeviceId, clientSeq: clientSeq)
     }
 
     public func applyLocalSyncFocusExchange(
@@ -592,6 +631,7 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             throw BudsNativeError.modelMissing
         }
         let prompt = BudsPromptBuilder.build(history: history, memories: memories)
+        let interruptedBuffer = BudsInterruptedResponseBuffer()
 
         return try await withCheckedThrowingContinuation { continuation in
             inferenceQueue.async { [engine, modelManager] in
@@ -604,6 +644,7 @@ public final class BudsLocalRuntime: @unchecked Sendable {
                         modelURL: modelManager.modelURL,
                         onToken: { token in
                             if self.isActiveGeneration(generationId, sessionId: sessionId) {
+                                interruptedBuffer.append(token)
                                 onToken(token)
                             }
                         }
@@ -642,6 +683,14 @@ public final class BudsLocalRuntime: @unchecked Sendable {
                     self.finishGeneration(generationId)
                     continuation.resume(returning: (answer, session, metrics))
                 } catch {
+                    if case BudsNativeError.cancelled = error {
+                        let partial = interruptedBuffer.text
+                        if !partial.isEmpty {
+                            // Não roda memória/cognição: é apenas contexto
+                            // conversacional para o turno que interrompeu.
+                            _ = try? store.addMessage(sessionId: sessionId, sender: "ia", text: partial)
+                        }
+                    }
                     self.finishGeneration(generationId)
                     continuation.resume(throwing: error)
                 }

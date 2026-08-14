@@ -658,6 +658,20 @@ class RagCleanupTests(unittest.TestCase):
 
 
 class ConversationStorageTests(unittest.TestCase):
+    def test_voice_conversation_is_identified_in_storage(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            db_path = Path(temp_dir) / "voice-conversation-storage.db"
+            with patch.object(database, "DB_PATH", db_path), patch.object(database_v2, "DB_PATH", db_path):
+                database.init_db()
+                database_v2.migrate()
+                session = database.create_session("Conversa por voz", channel="voice")
+                database.add_message(session["id"], "user", "Mensagem falada")
+
+                status = local_backup.get_conversation_storage()
+                stored = next(item for item in status["conversations"] if item["id"] == session["id"])
+                self.assertEqual(stored["channel"], "voice")
+                self.assertEqual(stored["message_count"], 1)
+
     def test_archive_preserves_data_until_explicit_conversation_purge(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "conversation-storage.db"

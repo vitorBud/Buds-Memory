@@ -262,6 +262,7 @@ def _upgrade_local_sync_v1(conn):
     _add_column_if_missing(conn, "local_sync_trusted_peers", "app_version", "TEXT")
     _add_column_if_missing(conn, "local_sync_trusted_peers", "capabilities", "TEXT NOT NULL DEFAULT '[]'")
     _add_column_if_missing(conn, "local_sync_trusted_peers", "last_presence_at", "TEXT")
+    _add_column_if_missing(conn, "local_sync_trusted_peers", "remote_pending", "TEXT NOT NULL DEFAULT '{}'")
     _add_column_if_missing(conn, "local_sync_peer_state", "last_sent_count", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "local_sync_peer_state", "last_received_count", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "local_sync_peer_state", "total_sent_count", "INTEGER NOT NULL DEFAULT 0")
@@ -271,6 +272,17 @@ def _upgrade_local_sync_v1(conn):
     _add_column_if_missing(conn, "local_sync_peer_state", "last_bytes_received", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "local_sync_peer_state", "conflict_count", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "local_sync_peer_state", "retry_count", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "local_sync_peer_state", "last_upload_ack_seq", "INTEGER NOT NULL DEFAULT 0")
+    if _table_exists(conn, "sessions"):
+        _add_column_if_missing(conn, "sessions", "sync_origin_device_id", "TEXT")
+    if _table_exists(conn, "chat_folders"):
+        _add_column_if_missing(conn, "chat_folders", "sync_origin_device_id", "TEXT")
+    if _table_exists(conn, "messages"):
+        _add_column_if_missing(conn, "messages", "sync_uid", "TEXT")
+        _add_column_if_missing(conn, "messages", "sync_origin_device_id", "TEXT")
+    if _table_exists(conn, "memories"):
+        _add_column_if_missing(conn, "memories", "sync_uid", "TEXT")
+        _add_column_if_missing(conn, "memories", "sync_origin_device_id", "TEXT")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS local_sync_requests (
             request_id      TEXT PRIMARY KEY,
@@ -314,6 +326,35 @@ def _upgrade_local_sync_v1(conn):
                 REFERENCES local_sync_trusted_peers(peer_device_id) ON DELETE CASCADE
         )
     """)
+    _add_column_if_missing(conn, "local_sync_exchanges", "exchange_kind", "TEXT NOT NULL DEFAULT 'focus'")
+    _add_column_if_missing(conn, "local_sync_exchanges", "entity_counts", "TEXT NOT NULL DEFAULT '{}'")
+    _add_column_if_missing(conn, "local_sync_exchanges", "sync_run_id", "TEXT")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_ingested_changes (
+            change_id TEXT PRIMARY KEY,
+            peer_device_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_uid TEXT NOT NULL,
+            entity_version INTEGER NOT NULL,
+            operation TEXT NOT NULL,
+            applied_at TEXT NOT NULL,
+            FOREIGN KEY(peer_device_id)
+                REFERENCES local_sync_trusted_peers(peer_device_id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS local_sync_ingested_entities (
+            peer_device_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_uid TEXT NOT NULL,
+            entity_version INTEGER NOT NULL,
+            deleted_at TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(peer_device_id,entity_type,entity_uid),
+            FOREIGN KEY(peer_device_id)
+                REFERENCES local_sync_trusted_peers(peer_device_id) ON DELETE CASCADE
+        )
+    """)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_local_sync_history_peer "
         "ON local_sync_history(peer_device_id, id DESC)"
@@ -325,6 +366,20 @@ def _upgrade_local_sync_v1(conn):
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_local_sync_exchanges_peer "
         "ON local_sync_exchanges(peer_device_id, created_at DESC)"
+    )
+    if _table_exists(conn, "messages"):
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_sync_uid "
+            "ON messages(sync_uid) WHERE sync_uid IS NOT NULL"
+        )
+    if _table_exists(conn, "memories"):
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_sync_uid "
+            "ON memories(sync_uid) WHERE sync_uid IS NOT NULL"
+        )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_local_sync_ingested_entity "
+        "ON local_sync_ingested_changes(peer_device_id,entity_type,entity_uid)"
     )
 
 
@@ -842,6 +897,13 @@ def _table_count(conn, table_name: str) -> int:
         return int(conn.execute(f"SELECT COUNT(*) as n FROM {table_name}").fetchone()["n"])
     except Exception:
         return 0
+
+
+def _table_exists(conn, table_name: str) -> bool:
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone())
 
 
 def _rebuild_fts_if_empty(conn, fts_table: str, source_table: str) -> None:
