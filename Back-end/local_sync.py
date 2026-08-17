@@ -1,8 +1,8 @@
 """Buds Local Sync — reconciliação local e autenticada entre instalações.
 
-O módulo é deliberadamente estreito: nenhuma outra tabela cognitiva é lida ou
-transferida. O iPhone inicia uma troca manual e o Mac responde com deltas do
-change log local.
+O Focus usa deltas bidirecionais. Chats, pastas, mensagens e memórias pessoais
+possuem uma entrada separada e unilateral do iPhone para o Mac; esses domínios
+nunca são exportados de volta ao celular. O usuário inicia a troca manualmente.
 """
 
 from __future__ import annotations

@@ -30,7 +30,7 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>O Buds Memory usa a rede local para parear com seu Mac e sincronizar tarefas do Focus quando você solicitar.</string>
+	<string>O Buds Memory usa a rede local para parear com seu Mac e sincronizar Focus, chats, pastas e memórias quando você solicitar.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_budssync._tcp</string>
@@ -42,7 +42,7 @@
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>O Buds usa regiões de baixo consumo para atualizar o contexto Casa, Trabalho ou Academia sem manter o GPS ligado.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>O Buds Memory transforma sua fala em texto localmente para conversar com o motor 7B.</string>
+	<string>O Buds Memory transforma sua fala em texto localmente para conversar com o modelo local.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>UIApplicationSceneManifest</key>

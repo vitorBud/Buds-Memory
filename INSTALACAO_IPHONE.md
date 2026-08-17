@@ -1,23 +1,42 @@
 # Buds Memory no iPhone
 
-O aplicativo iOS reaproveita a interface React/Tailwind pelo Capacitor, mas o
-chat principal agora funciona de forma nativa e local no aparelho. Ele usa o
-mesmo `Qwen2.5-Coder 7B Instruct` escolhido no Mac, quantizado em Q4_K_M, com
-aceleração Metal pelo `llama.cpp`.
+O aplicativo iOS compartilha a interface React/Tailwind pelo Capacitor, mas o
+chat principal é nativo e local. Ele usa **Qwen3.5 4B Instruct Q4_K_M** com
+`llama.cpp` e aceleração Metal. Não depende do Flask, do Ollama, de token remoto
+nem de o Mac permanecer ligado.
 
-Conversas, sessões e memórias básicas ficam em um SQLite próprio do iPhone. O
-chat não depende do Flask, do Ollama, do token remoto nem de o Mac estar ligado.
-O backend do Mac continua intacto para o aplicativo desktop e para recursos que
-ainda não foram portados, como importação completa de documentos, voz offline,
-RAG avançado, backup e indexação de codebase.
+Conversas, pastas, memórias, Focus, lugares e trajetos ficam no SQLite privado
+do iPhone. O mapa-base usa internet quando a região ainda não está no cache; os
+dados de localização, contexto e trajetos continuam locais.
+
+## O que funciona nativamente
+
+- chat local com Qwen3.5 4B e contexto de 4096 tokens;
+- sessões, pastas, mensagens e memórias isoladas por conversa;
+- anexo de PDF/TXT na conversa, com extração e busca local de trechos;
+- Buds Focus, Inbox e Timeline;
+- Buds Map, lugares conhecidos, geofencing de baixo consumo, contexto
+  semântico, gravação e visualização de trajetos;
+- STT on-device com `SFSpeechRecognizer`;
+- TTS local Kokoro 82M, voz feminina `pf_dora`, via Sherpa-ONNX;
+- Voice Mode em sessão própria: toque no núcleo para ouvir; durante a fala,
+  outro toque interrompe imediatamente e abre uma nova captura;
+- Buds Local Sync com um Mac pareado na mesma rede.
+
+Importação por URL, RAG semântico avançado, codebase e backup JSON completo
+continuam no backend desktop. No iPhone, PDFs com texto selecionável são
+extraídos localmente por PDFKit; documentos formados apenas por imagens ainda
+precisam de OCR. O Local Sync leva Focus nos dois sentidos e envia
+chats, pastas e memórias somente do iPhone para o Mac.
 
 ## Requisitos
 
 - iPhone com iOS 16.4 ou mais recente;
-- aproximadamente 4,7 GB para o modelo e pelo menos 2 GB adicionais durante o
-  download;
-- Xcode completo e uma conta Apple configurada para instalar pelo cabo;
-- internet apenas para o primeiro download do modelo no iPhone.
+- aproximadamente **2,71 GB decimais (2,52 GiB)** para o modelo;
+- cerca de **4,86 GB livres (4,52 GiB)** antes de iniciar o download, pois o app
+  exige o tamanho do GGUF mais 2 GiB de margem;
+- Xcode completo e uma conta Apple configurada;
+- internet para preparar dependências no Mac e baixar o modelo no primeiro uso.
 
 Com uma conta Apple gratuita, a assinatura de desenvolvimento precisa ser
 renovada periodicamente. O Apple Developer Program permite distribuições mais
@@ -25,8 +44,9 @@ duradouras.
 
 ## Preparar e instalar pelo cabo
 
-Conecte o iPhone, autorize `Confiar` e deixe o Modo de Desenvolvedor ligado.
-Depois execute:
+1. Conecte o iPhone, desbloqueie-o e autorize **Confiar**.
+2. Ative o Modo de Desenvolvedor no iPhone.
+3. No Mac, execute:
 
 ```bash
 cd front-end
@@ -34,69 +54,88 @@ npm install
 npm run ios:open
 ```
 
-O comando `ios:open` baixa e valida o XCFramework oficial do `llama.cpp`, gera o
-frontend e sincroniza o projeto iOS. No Xcode:
+`ios:open` prepara versões fixadas de `llama.cpp` e do runtime de voz,
+compila o frontend, sincroniza os assets e abre o Xcode.
 
-1. selecione o projeto `App` e a sua conta em `Signing & Capabilities > Team`;
-2. mantenha o bundle ID `com.vitor.budsmemory`;
+No Xcode:
+
+1. selecione o projeto `App` e sua conta em
+   `Signing & Capabilities > Team`;
+2. **mantenha o bundle ID existente `com.vitor.aethermemory`**;
 3. selecione o iPhone conectado como destino;
-4. pressione `Run`.
+4. pressione **Run**.
 
-O Xcode substitui a instalação anterior usando o mesmo bundle ID. Não apague o
-app se quiser preservar o banco e o modelo já baixado.
+O bundle ID é legado de propósito: ele permite atualizar a instalação já
+existente sem perder o container que guarda o modelo, o banco, chats e memórias.
+Não o renomeie e não apague o app se quiser preservar esses dados.
 
-## Primeira abertura e modelo 7B
+Se o iPhone disser que o desenvolvedor não é confiável, abra
+`Ajustes > Geral > VPN e Gerenciamento de Dispositivo`, selecione o certificado
+da sua conta e toque em **Confiar**.
 
-Na primeira abertura, o Buds mostra o estado do armazenamento e solicita o
-download do modelo oficial de aproximadamente 4,7 GB. O download apresenta o
-progresso e só conclui a instalação depois de validar o SHA-256 do arquivo.
+## Primeira abertura e modelo 4B
 
-Depois disso, o chat funciona offline. O modelo é mantido fora do repositório e
-fora do pacote Git; cada aparelho o baixa para o armazenamento privado do app.
+Na primeira abertura, o Buds verifica o armazenamento e oferece o download do
+arquivo `qwen3.5-4b-instruct-Q4_K_M.gguf`. O progresso é exibido e a instalação
+só termina depois de validar tamanho e SHA-256.
 
-## Temperatura e bateria
+Após a instalação, o chat funciona offline. O GGUF fica fora do Git e do pacote
+inicial do app, no armazenamento privado do iPhone.
 
-O modelo continua sendo 7B; ele não é substituído silenciosamente por um 3B.
-Para controlar aquecimento, o runtime reduz threads e o tamanho máximo da
-resposta no Modo de Pouca Energia ou quando o iPhone fica morno. Em estado
-térmico sério, a geração é pausada com uma mensagem clara. Em estado crítico,
-o modelo também é descarregado da memória. Ao normalizar a temperatura, basta
-enviar novamente.
+## Temperatura, bateria e memória
 
-Esses ajustes alteram velocidade e extensão da resposta, não os pesos nem a
-capacidade de raciocínio do modelo 7B.
+O runtime ajusta threads e extensão máxima da resposta em Modo de Pouca Energia
+ou quando o iPhone aquece. Em estado térmico sério, a geração é pausada; em
+estado crítico, o modelo pode ser descarregado da RAM. Isso altera velocidade e
+tamanho da resposta, não substitui o Qwen3.5 4B por outro modelo.
+
+Localização usa geofencing e mudanças significativas sempre que possível. GPS
+preciso é reservado ao mapa aberto ou à gravação de trajeto. O modelo não fica
+monitorando sensores em segundo plano.
 
 ## Proteção contra pouco espaço
 
-- abaixo de 3 GB livres, o app exibe um alerta preventivo;
-- abaixo de 1,5 GB livres, o SQLite não é aberto nem recebe gravações;
-- o download do modelo só começa se houver espaço para o arquivo e mais 2 GB de
-  margem;
-- erros `SQLITE_FULL` são capturados e apresentados sem recriar nem apagar o
-  banco.
+- abaixo de 3 GiB livres, o app mostra um alerta preventivo;
+- abaixo de 1,5 GB livres, o SQLite não é aberto para novas gravações;
+- o download exige o tamanho do modelo mais 2 GiB de margem;
+- erros `SQLITE_FULL` são apresentados sem recriar ou apagar o banco.
 
-Essas verificações usam a capacidade disponível informada pelo próprio iOS e
-preservam os dados existentes.
+Em `Configurações > Armazenamento` é possível revisar o uso local e apagar
+itens compatíveis de forma explícita.
+
+## Buds Local Sync
+
+1. Deixe Mac e iPhone na mesma rede.
+2. No Mac, abra `Configurações > Local Sync`, gere o código e torne o Mac
+   visível.
+3. No iPhone, abra a mesma seção, localize o Mac e informe o código de seis
+   dígitos.
+4. Depois de pareado, use **Sincronizar agora**.
+
+O pareamento usa Bonjour apenas durante uma janela curta e armazena uma
+credencial própria. Ele não usa o token do acesso web remoto.
 
 ## Atualizar o app
 
 ```bash
 cd front-end
-npm run ios:sync   # runtime nativo + build React + sincronização
-npm run ios:open   # faz o mesmo e abre o Xcode
-npm run ios:run    # faz o mesmo e seleciona um aparelho para executar
-npm run ios:doctor # diagnóstico do ambiente iOS
+npm run ios:sync   # prepara runtimes, compila React e sincroniza o Capacitor
+npm run ios:open   # faz o sync e abre o Xcode
+npm run ios:run    # faz o sync e permite selecionar o aparelho
+npm run ios:doctor # diagnostica o ambiente iOS
 ```
 
-O XCFramework é baixado de forma reproduzível pelo script
-`scripts/setup-ios-llama.sh`; versão e SHA-256 ficam fixados no projeto. A pasta
-binária `BudsNativeRuntime/Vendor` é ignorada pelo Git.
+Depois de `ios:open`, selecione o iPhone e pressione **Run** novamente. O Xcode
+substitui a versão anterior e mantém o container quando o bundle ID não mudou.
+
+Os scripts `setup-ios-llama.sh` e `setup-ios-voice.sh` fixam versões e hashes.
+Os binários em `BudsNativeRuntime/Vendor`, o GGUF e os recursos de voz baixados
+são gerados localmente e ignorados pelo Git.
 
 ## Privacidade
 
-- modelo, mensagens, sessões e memórias ficam no armazenamento privado do app;
-- o chat local não envia prompt, histórico ou token ao Mac;
-- o acesso remoto autenticado do projeto continua disponível no frontend web,
-  mas não é necessário para o modo nativo do iPhone;
-- o manifesto de privacidade declara a consulta de espaço em disco usada para
-  proteção do modelo e do banco.
+- modelo, mensagens, sessões, memórias e localização ficam no aparelho;
+- o Qwen recebe apenas o contexto local necessário à conversa;
+- o chat nativo não envia prompt ou histórico ao Mac;
+- somente uma sincronização manual envia os domínios descritos ao Mac pareado;
+- o modo web remoto autenticado é opcional e separado do aplicativo nativo.

@@ -9,7 +9,8 @@ organizado, interativo e fiel ao que a IA aprendeu.
 
 - `front-end/src/components/BrainMap.tsx`
 - `front-end/src/components/HomeBrain.tsx`
-- `front-end/src/index.css`
+- `front-end/src/tailwind.css`
+- `front-end/src/styles/mapaCerebro.ts`
 - `front-end/src/types/index.ts`
 - `front-end/src/services/api.ts`
 - `Back-end/cognitive/knowledge_graph.py`

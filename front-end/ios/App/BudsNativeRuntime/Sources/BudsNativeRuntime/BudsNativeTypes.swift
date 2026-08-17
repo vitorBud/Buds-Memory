@@ -11,6 +11,7 @@ public enum BudsNativeError: LocalizedError {
     case modelIntegrity
     case modelDownload(String)
     case modelLoad(String)
+    case documentImport(String)
     case inference(String)
     case thermalBlocked
     case cancelled
@@ -29,6 +30,8 @@ public enum BudsNativeError: LocalizedError {
             return "Falha ao baixar o modelo 4B: \(message)"
         case let .modelLoad(message):
             return "Falha ao carregar o modelo 4B: \(message)"
+        case let .documentImport(message):
+            return "Não foi possível importar o documento: \(message)"
         case let .inference(message):
             return "Falha durante a resposta local: \(message)"
         case .thermalBlocked:
@@ -128,6 +131,7 @@ public struct BudsConversationStorageRecord: Sendable {
     public let deletedAt: String?
     public let state: String
     public let messageCount: Int
+    public let knowledgeCount: Int
     public let memoryCount: Int
     public let totalRecords: Int
     public let estimatedBytes: Int64
@@ -138,6 +142,19 @@ public struct BudsMessageRecord: Sendable {
     public let sessionId: String
     public let sender: String
     public let text: String
+    public let createdAt: String
+}
+
+public struct BudsKnowledgeSourceRecord: Sendable {
+    public let id: Int64
+    public let sessionId: String
+    public let title: String
+    public let sourceType: String
+    public let sourceName: String?
+    public let summary: String
+    public let content: String
+    public let topics: [String]
+    public let pageCount: Int?
     public let createdAt: String
 }
 

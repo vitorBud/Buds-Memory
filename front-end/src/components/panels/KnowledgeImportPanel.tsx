@@ -64,7 +64,7 @@ export function KnowledgeImportPanel({
           {isImporting ? 'Lendo...' : 'Aprender'}
         </button>
       </div>
-      <div className="knowledge-learned-row flex min-w-0 items-center gap-1.5 overflow-hidden max-[760px]:hidden [&>span]:whitespace-nowrap [&>span]:text-[11px] [&>span]:not-italic [&>span]:text-[rgba(255,237,213,0.48)] [&>em]:whitespace-nowrap [&>em]:text-[11px] [&>em]:not-italic [&>em]:text-[rgba(255,237,213,0.48)] theme-light:[&>span]:text-slate-500 theme-light:[&>em]:text-slate-500">
+      <div className="knowledge-learned-row flex min-w-0 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>span]:whitespace-nowrap [&>span]:text-[11px] [&>span]:not-italic [&>span]:text-[rgba(255,237,213,0.48)] [&>em]:whitespace-nowrap [&>em]:text-[11px] [&>em]:not-italic [&>em]:text-[rgba(255,237,213,0.48)] theme-light:[&>span]:text-slate-500 theme-light:[&>em]:text-slate-500">
         <span>Aprendido</span>
         {sources.length ? sources.slice(0, 3).map(source => (
           <strong

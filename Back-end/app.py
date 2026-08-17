@@ -95,8 +95,8 @@ database_v2.migrate()
 # Registra o Blueprint da Camada Cognitiva
 app.register_blueprint(cognitive_bp)
 app.register_blueprint(local_sync_bp)
-# Mantém as URLs da prova de conceito para instalações antigas e oferece o
-# namespace estável do protocolo v1 às versões atuais.
+# Mantém o namespace v0 para clientes já instalados e oferece o namespace
+# estável do protocolo v1 às versões atuais.
 app.register_blueprint(local_sync_bp, url_prefix="/api/local-sync/v1", name="local_sync_v1")
 
 # Pool compartilhado para background cognition — evita acúmulo de threads daemon
@@ -132,8 +132,8 @@ def enforce_api_security():
 
     if request.method == "OPTIONS":
         return app.make_default_options_response()
-    # Local Sync possui pareamento e credencial próprios. As rotas validam o
-    # peer antes de expor qualquer Focus Task e nunca herdam o token remoto.
+    # Local Sync possui pareamento e credencial próprios. Cada rota valida o
+    # peer e o domínio permitido antes de trocar dados; não herda token remoto.
     if request.path.startswith(("/api/local-sync/v0/", "/api/local-sync/v1/")):
         return None
     if not remote_access.REMOTE_MODE:

@@ -137,6 +137,45 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         }
     }
 
+    public func knowledgeSources(sessionId: String) throws -> [BudsKnowledgeSourceRecord] {
+        try ensureStore().knowledgeSources(sessionId: sessionId)
+    }
+
+    public func importPDFKnowledge(
+        sessionId: String,
+        data: Data,
+        fileName: String,
+        title: String?
+    ) throws -> BudsKnowledgeSourceRecord {
+        let extraction = try BudsPDFKnowledge.extract(from: data)
+        let fallbackTitle = (fileName as NSString).deletingPathExtension
+        let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try ensureStore().addKnowledgeSource(
+            sessionId: sessionId,
+            title: cleanTitle?.isEmpty == false ? cleanTitle! : fallbackTitle,
+            sourceType: "pdf",
+            sourceName: fileName,
+            content: extraction.text,
+            pageCount: extraction.pageCount
+        )
+    }
+
+    public func importTextKnowledge(
+        sessionId: String,
+        content: String,
+        title: String?
+    ) throws -> BudsKnowledgeSourceRecord {
+        let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try ensureStore().addKnowledgeSource(
+            sessionId: sessionId,
+            title: cleanTitle?.isEmpty == false ? cleanTitle! : "Texto importado",
+            sourceType: "texto",
+            sourceName: "Texto local do iPhone",
+            content: content,
+            pageCount: nil
+        )
+    }
+
     public func memories(limit: Int) throws -> [BudsMemoryRecord] {
         try ensureStore().memories(limit: limit)
     }
@@ -543,6 +582,18 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             _ = try store.addMessage(sessionId: sessionId, sender: "user", text: text)
             history = try store.messages(sessionId: sessionId, limit: 24)
             memories = try store.memoriesForPrompt(sessionId: sessionId, limit: 16)
+            if let knowledge = try? store.knowledgeContext(sessionId: sessionId, query: text),
+               !knowledge.isEmpty {
+                memories.insert(BudsMemoryRecord(
+                    id: -3,
+                    content: knowledge,
+                    importance: 1,
+                    isCore: false,
+                    createdAt: "",
+                    scope: "session",
+                    sessionId: sessionId
+                ), at: 0)
+            }
             let appliedFocusCandidates = focusCandidates.filter {
                 $0.autoApply && ["TASK", "REMINDER"].contains($0.itemType)
             }

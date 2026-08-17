@@ -25,6 +25,8 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin, @unchecked Send
         CAPPluginMethod(name: "listConversationStorage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "purgeConversation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getMessages", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listKnowledge", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "importKnowledge", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getMemories", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "createMemory", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateMemory", returnType: CAPPluginReturnPromise),
@@ -276,6 +278,68 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin, @unchecked Send
         }
         resolve(call) {
             ["messages": try runtime.messages(sessionId: sessionId).map(messagePayload)]
+        }
+    }
+
+    @objc func listKnowledge(_ call: CAPPluginCall) {
+        guard let sessionId = call.getString("sessionId") else {
+            call.reject("Conversa não informada.")
+            return
+        }
+        resolve(call) {
+            ["sources": try runtime.knowledgeSources(sessionId: sessionId).map(knowledgeSourcePayload)]
+        }
+    }
+
+    @objc func importKnowledge(_ call: CAPPluginCall) {
+        guard let sessionId = call.getString("sessionId") else {
+            call.reject("Conversa não informada.")
+            return
+        }
+        let title = call.getString("title")
+        let fileName = call.getString("fileName") ?? "documento.pdf"
+
+        if let base64 = call.getString("fileBase64") {
+            let maximumBase64Characters = (BudsPDFKnowledge.maximumFileBytes * 4 / 3) + 16
+            guard base64.utf8.count <= maximumBase64Characters,
+                  let data = Data(base64Encoded: base64, options: [.ignoreUnknownCharacters]) else {
+                call.reject("O arquivo é inválido ou excede o limite de 24 MB.")
+                return
+            }
+            let isPDF = fileName.lowercased().hasSuffix(".pdf")
+                || call.getString("mimeType")?.lowercased().contains("pdf") == true
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let source: BudsKnowledgeSourceRecord
+                    if isPDF {
+                        source = try runtime.importPDFKnowledge(
+                            sessionId: sessionId, data: data, fileName: fileName, title: title
+                        )
+                    } else if let content = String(data: data, encoding: .utf8) {
+                        source = try runtime.importTextKnowledge(
+                            sessionId: sessionId, content: content, title: title ?? fileName
+                        )
+                    } else {
+                        throw BudsNativeError.documentImport("formato não suportado no iPhone")
+                    }
+                    call.resolve(knowledgeSourcePayload(source))
+                } catch {
+                    call.reject(error.localizedDescription)
+                }
+            }
+            return
+        }
+
+        guard let content = call.getString("content")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !content.isEmpty else {
+            call.reject("Conteúdo do documento não informado.")
+            return
+        }
+        resolve(call) {
+            knowledgeSourcePayload(try runtime.importTextKnowledge(
+                sessionId: sessionId, content: content, title: title
+            ))
         }
     }
 
@@ -931,7 +995,7 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin, @unchecked Send
             "deleted_at": item.deletedAt ?? NSNull(),
             "state": item.state,
             "message_count": item.messageCount,
-            "knowledge_count": 0,
+            "knowledge_count": item.knowledgeCount,
             "memory_count": item.memoryCount,
             "timeline_count": 0,
             "graph_count": 0,
@@ -947,6 +1011,22 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin, @unchecked Send
             "sender": message.sender,
             "text": message.text,
             "created_at": message.createdAt,
+        ]
+    }
+
+    private func knowledgeSourcePayload(_ source: BudsKnowledgeSourceRecord) -> [String: Any] {
+        var metadata: [String: Any] = ["origin": "iphone_local_knowledge"]
+        if let pageCount = source.pageCount { metadata["page_count"] = pageCount }
+        return [
+            "id": source.id,
+            "session_id": source.sessionId,
+            "title": source.title,
+            "source_type": source.sourceType,
+            "source_name": source.sourceName ?? NSNull(),
+            "summary": source.summary,
+            "topics": source.topics,
+            "metadata": metadata,
+            "created_at": source.createdAt,
         ]
     }
 

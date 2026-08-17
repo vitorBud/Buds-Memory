@@ -2,9 +2,9 @@
 
 ## Missao
 
-Garantir que o Buds Memory funcione como app desktop plug and play, como PWA
-mobile e em acesso remoto, preservando dados locais e oferecendo backup portatil
-da memoria.
+Garantir que o Buds Memory funcione como app desktop plug and play, web/PWA em
+acesso remoto e app nativo no iPhone, preservando dados locais, Local Sync e
+backup portatil.
 
 ## Arquivos Principais
 
@@ -16,6 +16,7 @@ da memoria.
 - `front-end/public/sw.js`
 - `Back-end/remote_access.py`
 - `Back-end/local_backup.py`
+- `Back-end/local_sync.py`
 - `Back-end/storage.py`
 - `Back-end/start_mobile_backend.sh`
 
@@ -39,11 +40,17 @@ Desktop:
 - `npm run update:app`
 - Electron abre janela, registra `nexus-asset`, encontra Python e inicia Flask.
 
-Mobile local:
+Web mobile local:
 
 - Backend em `5050`.
 - Frontend em `5174` com `npm run dev:mobile`.
 - iPhone acessa o IP do Mac na mesma rede.
+
+App iPhone:
+
+- Qwen3.5 4B, SQLite e Kokoro rodam no aparelho sem backend/token.
+- Local Sync usa pareamento próprio: Focus bidirecional e dados pessoais apenas
+  do iPhone para o Mac.
 
 Mobile remoto:
 

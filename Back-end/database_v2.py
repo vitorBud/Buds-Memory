@@ -153,10 +153,13 @@ def _migrate_focus_capture_columns(conn):
 
 
 def _create_local_sync_v0(conn):
-    """Prepara somente ``focus_tasks`` para a prova de conceito Local Sync.
+    """Cria a base compatível do Local Sync e prepara deltas do Focus.
 
-    O ``id`` inteiro continua sendo a chave local consumida pela UI. ``sync_uid``
-    passa a identificar a mesma tarefa entre instalações independentes.
+    O nome da migração permanece ``v0`` porque bancos já instalados dependem
+    dele. O protocolo atual também usa tabelas/colunas adicionadas por migrações
+    posteriores para receber chats, pastas, mensagens e memórias do iPhone.
+    O ``id`` inteiro continua sendo a chave local da UI; ``sync_uid`` identifica
+    a mesma tarefa Focus entre instalações independentes.
     """
     _add_column_if_missing(conn, "focus_tasks", "sync_uid", "TEXT")
     _add_column_if_missing(conn, "focus_tasks", "sync_version", "INTEGER NOT NULL DEFAULT 0")

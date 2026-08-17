@@ -14,6 +14,7 @@ importacao de conhecimento, voz, auth remoto, backup local ou Electron.
 - `Back-end/cognitive_api.py`
 - `Back-end/storage.py`
 - `Back-end/remote_access.py`
+- `Back-end/local_sync.py`
 - `Back-end/requirements.txt`
 
 ## Regras
@@ -42,6 +43,8 @@ importacao de conhecimento, voz, auth remoto, backup local ou Electron.
 - Auth remoto/local: `/api/auth/*`.
 - Backup local: `/api/local-backup/status`, `/api/local-backup/export`,
   `/api/local-backup/import`.
+- Local Sync: `/api/local-sync/v1/*`; Focus e upload pessoal possuem direcoes
+  diferentes e credencial própria.
 
 ## Pontos Sensíveis
 

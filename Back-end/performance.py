@@ -137,6 +137,8 @@ def diagnostics_requested(args=None, headers=None) -> bool:
         args.get("diagnostics")
         or args.get("debug")
         or headers.get("X-Buds-Diagnostics")
+        # Header legado aceito somente para instalações anteriores à mudança
+        # de nome. Não deve ser anunciado como identidade pública do produto.
         or headers.get("X-Aether-Diagnostics")
         or headers.get("X-Nexus-Diagnostics")
         or ""

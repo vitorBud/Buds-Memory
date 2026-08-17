@@ -110,8 +110,11 @@ export function BudsMap({ onContextChanged, expanded = false }: BudsMapProps) {
   }, [])
 
   useEffect(() => {
-    void load()
-    void getOfflineMapStatus().then(setOffline).catch(() => undefined)
+    const timeout = window.setTimeout(() => {
+      void load()
+      void getOfflineMapStatus().then(setOffline).catch(() => undefined)
+    }, 0)
+    return () => window.clearTimeout(timeout)
   }, [load])
 
   useEffect(() => {

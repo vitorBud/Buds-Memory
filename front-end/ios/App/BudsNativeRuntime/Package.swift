@@ -36,6 +36,7 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("Speech"),
                 .linkedFramework("CoreLocation"),
+                .linkedFramework("PDFKit"),
             ]
         ),
     ]

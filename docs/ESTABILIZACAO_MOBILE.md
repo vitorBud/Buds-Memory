@@ -1,67 +1,84 @@
-# Estabilização arquitetural do Buds Memory mobile
+# Estabilização arquitetural mobile
 
-## Arquitetura verificada
+Estado revisado em 17 de agosto de 2026.
 
-- **Frontend/mobile:** React/Vite dentro do Capacitor. O `useChat` controla uma única requisição ativa; o `useRecorder` controla a captura e o endpoint de fala.
-- **Voice no iPhone:** WebView → plugin Capacitor → `SFSpeechRecognizer`. O texto final retorna ao mesmo fluxo do chat local. O TTS usa a síntese do navegador e o microfone permanece desligado enquanto o Buds fala.
-- **Conversation Engine mobile:** `BudsLocalRuntime` serializa a inferência em uma fila nativa e usa o `sessionId` para ler histórico.
-- **LLM mobile:** llama.cpp com Qwen 7B local, contexto limpo antes de cada geração e apenas uma inferência válida por vez.
-- **Banco mobile:** SQLite nativo com sessões, mensagens e memórias. Memórias agora possuem `scope` e `session_id`.
-- **Backend desktop/web:** Flask monta contexto com perfil/Core Memory global, working memory/histórico/resumo da sessão, RAG filtrado por sessão e Ollama.
-- **Cache:** não existe response/semantic cache de respostas no iPhone. No backend, `ingestion_cache` serve apenas à indexação e é removido com mensagens/documentos da sessão.
+## Arquitetura atual
 
-## Causas encontradas e correções
+- **Interface:** React/Vite/Tailwind dentro do Capacitor, com navegação e
+  safe-area adaptadas ao iPhone.
+- **Chat nativo:** `BudsLocalRuntime` serializa inferências e usa `sessionId` e
+  `generationId` para impedir respostas cruzadas ou atrasadas.
+- **LLM:** `llama.cpp` + Qwen3.5 4B Q4_K_M, contexto máximo de 4096 tokens e uma
+  geração válida por vez.
+- **Banco:** SQLite nativo com sessões, pastas, mensagens, memórias, Focus,
+  documentos por conversa, localização, trajetos e estado do Local Sync.
+- **PDF:** PDFKit extrai texto localmente; chunks determinísticos recuperam
+  somente trechos relevantes antes do prompt, sem outra chamada ao Qwen.
+- **Voz:** `SFSpeechRecognizer` on-device para STT e Kokoro 82M/Dora local para
+  TTS. Voice usa sessão própria e não contamina o chat de texto aberto.
+- **Interação de voz:** o microfone só abre quando o usuário toca o núcleo. Um
+  toque durante a fala cancela áudio/geração e inicia uma nova captura.
+- **Focus/Contexto:** captura determinística, lugares e eventos passam por
+  código antes de qualquer contexto chegar ao modelo.
+- **Mapa:** tiles online com cache/download regional, lugares e trajetos locais.
+- **Local Sync v1:** Focus bidirecional; chats, pastas, mensagens e memórias são
+  enviados somente do iPhone para o Mac.
+- **Desktop/web:** Flask monta perfil, Core Memory, histórico, resumo, RAG e
+  contexto; Ollama gera a resposta.
 
-### Isolamento de chats
+## Isolamento e exclusão de chats
 
-- **Causa real no iPhone:** toda mensagem não trivial virava registro na tabela global `memories`; o Prompt Builder reinjetava todos esses registros em qualquer chat. Excluir a sessão removia mensagens, mas não essas memórias.
-- **Causa real no backend:** memórias derivadas tinham `session_id`, mas não tinham escopo explícito; a FK `ON DELETE SET NULL` podia preservar contexto conversacional como se fosse global.
-- **Correção:** `global`, `conversation` e `detached` passam a ser persistidos. O prompt recebe apenas globais + memórias da sessão atual. Excluir chat apaga memórias conversacionais, mensagens, resumos, documentos/chunks e cache de ingestão associados, preservando perfil/Core Memory global.
-- **Migração iOS:** fatos/Core antigos com importância compatível permanecem globais; tópicos automáticos antigos sem sessão recuperável ficam `detached` (visíveis na memória, nunca injetados no prompt).
+- Memórias têm escopo `global`, `conversation` ou `detached`.
+- O prompt recebe globais e memórias da sessão atual, nunca contexto de outra
+  conversa por conveniência.
+- Excluir chat remove mensagens e dados conversacionais associados; fatos/Core
+  globais permanecem.
+- Chats de voz são sessões próprias e aparecem no gerenciamento de
+  armazenamento.
+- Bancos antigos são migrados sem recriar tabelas: fatos duráveis continuam
+  globais e registros sem sessão recuperável ficam `detached`.
 
-### Captura que perdia o início
+## Captura, voz e concorrência
 
-- **Causa real:** `chunksRef` e flags de emissão eram compartilhados entre gravações; `onstop` assíncrono de uma captura podia ler/resetar o buffer da seguinte.
-- **Correção:** cada gravação fecha sobre seu próprio array de chunks e seu `recording_id`. Uma nova captura fica bloqueada até o `onstop` finalizar. O Blob só é criado depois do último `dataavailable`; o buffer só é liberado depois do envio.
+- Cada captura possui `recording_id`; cada geração, `generation_id` e
+  `session_id`.
+- Callbacks obsoletos são ignorados no React, Capacitor e Swift.
+- O buffer de áudio pertence à gravação que o criou e só é liberado depois do
+  último `dataavailable`/envio.
+- Captura web usa cancelamento de eco, redução de ruído e ganho automático.
+- No iPhone, `playAndRecord`/`voiceChat` e voice processing reduzem retorno do
+  alto-falante para o microfone.
+- Cancelar invalida STT, geração e TTS em conjunto; resposta cancelada não é
+  persistida como se estivesse completa.
+- Não existe escuta contínua em segundo plano. Isso reduz falsos disparos,
+  consumo e conflitos do Audio Unit no iOS.
 
-### Voice cortando pausas e concorrência
+## Armazenamento e temperatura
 
-- **Causa real:** encerramento dependia de um timestamp/limiar simples e callbacks nativos não tinham identidade. Resultado antigo podia alterar estado atual.
-- **Correção:** máquina `waiting → speech-candidate → speaking → possible-pause → complete`, com debounce de ativação, duração mínima e silêncio contínuo. React, Capacitor e Swift validam `recording_id`; callbacks obsoletos são ignorados.
-- **Barge-in:** o microfone não fica aberto durante TTS, eliminando feedback Buds→microfone. A interrupção é explícita pelo núcleo; primeiro invalida geração/TTS e depois abre uma nova captura.
+- alerta abaixo de 3 GiB livres;
+- banco bloqueado para novas gravações abaixo de 1,5 GB;
+- download do GGUF exige 2,71 GB mais 2 GiB de margem;
+- estado térmico sério pausa geração e estado crítico pode descarregar o modelo;
+- Modo de Pouca Energia reduz custo sem trocar os pesos do Qwen3.5 4B.
 
-### Geração concorrente
+## Instrumentação
 
-- Cada geração possui `generation_id` e `session_id`.
-- Troca/exclusão de chat invalida a operação anterior.
-- Tokens e resultados atrasados são descartados no React e no Swift.
-- Uma resposta cancelada não é persistida no SQLite.
-
-## Instrumentação adicionada
-
-Logs estruturados usam o prefixo `[BudsPerf]`:
-
-- `voice_capture`: duração, bytes, chunks, caracteres reconhecidos e ID.
-- `llm_generation`: modelo, prompt, histórico, memórias, tokens, load, TTFT, geração, tokens/s, threads, CPU, RAM e pico observado, estado térmico.
-- `tts`: provedor, caracteres e duração.
-- `ui_health` a cada 30 s no iPhone: atraso do event loop, renders React, long tasks e heap JS quando o WebKit disponibiliza.
-
-Esses dados são diagnóstico; não alteram amostragem, quantização ou qualidade do modelo.
+Logs `[BudsPerf]` registram captura, geração, TTS e saúde da UI. Logs
+`[BudsVoicePerf]` registram início/fim de fala, primeiro parcial/final do STT,
+primeiro token, primeiro áudio e fim do turno. Eles servem para diagnóstico e
+não alteram quantização ou qualidade.
 
 ## Profiling no iPhone
 
-1. Conecte o iPhone, abra `front-end/ios/App/App.xcodeproj` e execute o app em modo Debug.
-2. Em **Product → Profile**, use:
-   - **Time Profiler** para CPU e funções quentes;
-   - **Allocations** e **Leaks** para crescimento de RAM;
-   - **Energy Log** para energia/temperatura;
-   - **Metal System Trace** para offload GPU/Metal do llama.cpp;
-   - **Network** apenas durante download do GGUF.
-3. Faça uma captura fria (primeira geração/model load) e outra quente (modelo já carregado).
-4. Marque 20 mensagens, 10 ciclos de voz, troca/exclusão de cinco chats e uma resposta longa.
-5. Compare `generation_id` dos logs com os intervalos no Instruments. RAM deve estabilizar após aquecimento; tokens/s não devem degradar continuamente.
+1. Abra `front-end/ios/App/App.xcodeproj` e execute no aparelho em Debug.
+2. Em **Product > Profile**, use Time Profiler, Allocations, Leaks, Energy Log e
+   Metal System Trace.
+3. Compare uma geração fria com outra após o modelo já estar carregado.
+4. Teste texto, Voice, troca/exclusão de chats, Focus, Map e Local Sync.
+5. Relacione `generation_id`/`recording_id` dos logs aos intervalos no
+   Instruments.
 
-## Testes
+## Validação automatizada
 
 ```bash
 cd Back-end
@@ -70,6 +87,11 @@ env PYTHONPYCACHEPREFIX=/private/tmp/buds_pycache ambiente/bin/python -m unittes
 cd ../front-end
 npm run test:mobile
 npm run build
+npm run ios:sync
 ```
 
-A suíte cobre isolamento Chat A/Chat B, exclusão, preservação de fato global, 20 mensagens, ruído, pausa natural e invalidação de operações em 20 ciclos. No aparelho, ainda são necessários testes físicos de microfone, TTS, carga térmica e Instruments porque simulador/CI não reproduzem acústica nem temperatura reais.
+Microfone, alto-falante, assinatura, temperatura e bateria ainda exigem teste
+em iPhone físico; simulador e CI não reproduzem acústica ou pressão térmica.
+
+Na revisão de 17 de agosto de 2026: 151 testes de backend e 18 testes mobile
+passaram; ESLint, TypeScript e o build Vite também concluíram sem erros.

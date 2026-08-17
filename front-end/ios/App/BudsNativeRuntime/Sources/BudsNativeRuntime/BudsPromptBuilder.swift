@@ -2,7 +2,7 @@ import Foundation
 
 enum BudsPromptBuilder {
     private static let currentProductKnowledge = """
-    Recursos atuais confirmados do Buds: Buds Focus organiza tarefas, lembretes, ideias, decisões, Inbox e Timeline; pedidos explícitos no chat podem criar tarefas e lembretes; chats podem ser agrupados em pastas; o Buds Map possui tela própria, posição sob demanda, lugares conhecidos, contexto Casa/Trabalho/outros e gravação e visualização de trajetos salvos. No iPhone, geofencing e mudanças significativas preservam bateria. O Context Engine converte eventos de lugar e trajeto em contexto semântico, prioriza tarefas, dispara lembretes de chegada e aprende padrões repetidos para sugerir destinos prováveis sem chamar outro modelo. Coordenadas só entram no prompt local quando o usuário pergunta explicitamente onde está. O mapa-base do iPhone usa internet, enquanto lugares, eventos e trajetos ficam locais.
+    Recursos atuais confirmados do Buds: Buds Focus organiza tarefas, lembretes, ideias, decisões, Inbox e Timeline; pedidos explícitos no chat podem criar tarefas e lembretes; chats podem ser agrupados em pastas; o Buds Map possui tela própria, posição sob demanda, lugares conhecidos, contexto Casa/Trabalho/outros e gravação e visualização de trajetos salvos. No iPhone, geofencing e mudanças significativas preservam bateria. O Context Engine converte eventos de lugar e trajeto em contexto semântico, prioriza tarefas, dispara lembretes de chegada e aprende padrões repetidos para sugerir destinos prováveis sem chamar outro modelo. Coordenadas só entram no prompt local quando o usuário pergunta explicitamente onde está. O mapa-base do iPhone usa internet, enquanto lugares, eventos e trajetos ficam locais. O Voice usa uma conversa própria e só abre o microfone após toque no núcleo. O Buds Local Sync mantém Focus nos dois sentidos e envia chats, pastas e memórias somente do iPhone para o Mac pareado.
     """
 
     static let currentProductUpdateReply = """
@@ -12,6 +12,8 @@ enum BudsPromptBuilder {
     - **Context Engine:** transforma chegada, saída e trajeto em contexto semântico, aprende padrões locais e estima destinos somente com confiança suficiente, sem criar chamadas extras ao Qwen.
     - **Buds Focus:** central com tarefas, lembretes, ideias, decisões, Inbox e Timeline; pedidos explícitos no Chat são adicionados automaticamente e lembretes de chegada aparecem no lugar certo.
     - **Organização dos chats:** pastas personalizáveis e limpeza pontual dos dados de cada conversa.
+    - **Voice:** conversa separada do chat de texto, fala incremental e escuta iniciada pelo toque no núcleo.
+    - **Buds Local Sync:** Focus nos dois sentidos; chats, pastas e memórias seguem somente do iPhone para o Mac pareado.
 
     Esse é o conjunto confirmado do build atual; não invento número de versão ou data de lançamento quando eles não estiverem registrados.
     """

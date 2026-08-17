@@ -40,7 +40,6 @@ import type {
 } from '../types'
 import {
   clearIOSLocalData,
-  createIOSLocalMemory,
   createIOSLocalSession,
   createIOSFocusTask,
   deleteIOSLocalSession,
@@ -50,6 +49,7 @@ import {
   getIOSFocusThink,
   getIOSLocalMemories,
   getIOSLocalMessages,
+  getIOSSessionKnowledge,
   getIOSLocalStatus,
   listIOSLocalSessions,
   listIOSFocusInbox,
@@ -88,6 +88,7 @@ import {
   getIOSLocalSyncStatus,
   pairIOSLocalSyncPeer,
   syncIOSFocusWithPeer,
+  importIOSKnowledge,
 } from '../plataformas'
 
 type BudsBridge = {
@@ -700,10 +701,7 @@ export async function getSessionMessages(id: string): Promise<Message[]> {
 // ── Knowledge Sources ──────────────────────────────────────────────────────
 
 export async function getSessionKnowledge(id: string): Promise<KnowledgeSource[]> {
-  if (isNativeIOSRuntime()) {
-    void id
-    return []
-  }
+  if (isNativeIOSRuntime()) return getIOSSessionKnowledge(id)
   const res = await authFetch(`${getBase()}/sessions/${id}/knowledge`)
   if (!res.ok) throw new Error(`getSessionKnowledge: ${res.status}`)
   return res.json()
@@ -714,24 +712,12 @@ export async function importKnowledge(
   payload: { file?: File; text?: string; url?: string; query?: string; title?: string },
 ): Promise<KnowledgeSource> {
   if (isNativeIOSRuntime()) {
-    if (payload.file) {
-      throw new Error('PDFs continuam sendo indexados pelo Buds no Mac; no iPhone você pode salvar textos diretamente na memória.')
-    }
     const content = (payload.text || payload.url || payload.query || '').trim()
-    if (!content) throw new Error('Digite o conteúdo que deseja salvar na memória.')
-    const memory = await createIOSLocalMemory(content, 0.76)
-    return {
-      id: memory.id,
-      session_id: sessionId,
-      title: payload.title || content.slice(0, 72),
-      source_type: payload.url ? 'url' : 'texto',
-      source_name: 'Memória local do iPhone',
-      summary: content,
-      content,
-      topics: memory.tags,
-      metadata: { origin: 'iphone_local_memory' },
-      created_at: memory.created_at,
-    }
+    return importIOSKnowledge(sessionId, {
+      ...(payload.file ? { file: payload.file } : {}),
+      ...(content ? { text: content } : {}),
+      ...(payload.title ? { title: payload.title } : {}),
+    })
   }
   let response: Response
 
@@ -771,7 +757,7 @@ export async function streamChat(
   signal?: AbortSignal,
 ): Promise<void> {
   if (isNativeIOSRuntime()) {
-    if (payload.audio) throw new Error('A transcrição de áudio local será adicionada depois do motor 4B.')
+    if (payload.audio) throw new Error('No iPhone, use a captura nativa de voz; o chat local recebe o texto já transcrito.')
     return streamIOSLocalChat(payload, onEvent, signal)
   }
   const attempts = isDesktopRuntime() ? 3 : 2

@@ -23,6 +23,7 @@ import type {
   LocalSyncPeer,
   LocalSyncRunResult,
   LocalSyncStatus,
+  KnowledgeSource,
   SemanticLocationContext,
   Message,
   Session,
@@ -67,6 +68,15 @@ interface IOSLocalPlugin {
   listConversationStorage(): Promise<{ conversations: ConversationStorageItem[] }>
   purgeConversation(options: { id: string; confirmation: string }): Promise<{ conversations: ConversationStorageItem[] }>
   getMessages(options: { sessionId: string }): Promise<{ messages: Message[] }>
+  listKnowledge(options: { sessionId: string }): Promise<{ sources: KnowledgeSource[] }>
+  importKnowledge(options: {
+    sessionId: string
+    title?: string
+    fileName?: string
+    mimeType?: string
+    fileBase64?: string
+    content?: string
+  }): Promise<KnowledgeSource>
   getMemories(options: { limit: number }): Promise<{ memories: CognitiveMemory[] }>
   createMemory(options: { content: string; importance: number }): Promise<CognitiveMemory>
   updateMemory(options: { id: number; content?: string; importance?: number }): Promise<CognitiveMemory>
@@ -253,6 +263,55 @@ export async function getIOSLocalMessages(sessionId: string): Promise<Message[]>
       ? { ...message, text: stripInternalReasoning(message.text).trim() }
       : message)
     .filter(message => message.sender === 'user' || Boolean(message.text))
+}
+
+export async function getIOSSessionKnowledge(sessionId: string): Promise<KnowledgeSource[]> {
+  return (await native.listKnowledge({ sessionId })).sources
+}
+
+const IOS_KNOWLEDGE_FILE_LIMIT = 24 * 1024 * 1024
+
+async function fileAsBase64(file: File): Promise<string> {
+  if (file.size > IOS_KNOWLEDGE_FILE_LIMIT) {
+    throw new Error('No iPhone, o arquivo deve ter no máximo 24 MB.')
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Não foi possível ler o arquivo selecionado.'))
+    reader.onload = () => {
+      const dataURL = typeof reader.result === 'string' ? reader.result : ''
+      const separator = dataURL.indexOf(',')
+      if (separator < 0) {
+        reject(new Error('O arquivo selecionado possui um formato inválido.'))
+        return
+      }
+      resolve(dataURL.slice(separator + 1))
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+export async function importIOSKnowledge(
+  sessionId: string,
+  payload: { file?: File; text?: string; title?: string },
+): Promise<KnowledgeSource> {
+  if (payload.file) {
+    const fileBase64 = await fileAsBase64(payload.file)
+    return native.importKnowledge({
+      sessionId,
+      ...(payload.title ? { title: payload.title } : {}),
+      fileName: payload.file.name,
+      mimeType: payload.file.type,
+      fileBase64,
+    })
+  }
+  const content = payload.text?.trim() || ''
+  if (!content) throw new Error('Digite o conteúdo que deseja anexar à conversa.')
+  return native.importKnowledge({
+    sessionId,
+    ...(payload.title ? { title: payload.title } : {}),
+    content,
+  })
 }
 
 export async function getIOSLocalMemories(limit: number): Promise<CognitiveMemory[]> {

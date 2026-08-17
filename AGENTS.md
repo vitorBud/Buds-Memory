@@ -69,6 +69,8 @@ O Buds Memory e um assistente local-first:
 - Backup local em JSON para mover memorias entre computadores.
 - Web opcional via Google Custom Search.
 - Voz offline com Piper e STT com faster-whisper.
+- App iPhone com Qwen3.5 4B/llama.cpp, STT on-device e Kokoro local.
+- Focus, Map/contexto de localizacao e Buds Local Sync.
 - Obsidian/Second Brain com memorias, documentos, entidades e grafo.
 - Codebase Indexer para entender projetos de codigo.
 - App desktop macOS via Electron que tenta iniciar o backend automaticamente.
@@ -125,6 +127,7 @@ Back-end/
   database_v2.py          Migracoes cognitivas e tabelas do Second Brain
   cognitive_api.py        Blueprint /api/cognitive/*
   local_backup.py         Exportacao/importacao portatil do banco local
+  local_sync.py           Pareamento e sincronizacao local Mac/iPhone
   remote_access.py        Modo remoto, tokens, LAN/ngrok/Tailscale
   storage.py              Caminhos persistentes no dev e no Electron
   cognitive/
@@ -142,7 +145,7 @@ Back-end/
     search.py             Busca interna unificada
 
 front-end/
-  src/App.tsx             Orquestracao das telas Home, Chat, Voice, Obsidian
+  src/App.tsx             Home, Chat, Voice, Obsidian, Focus, Map e Config
   src/services/api.ts     Camada unica de chamadas HTTP
   src/types/index.ts      Contratos TypeScript compartilhados no front
   src/components/         UI principal
@@ -150,9 +153,11 @@ front-end/
   src/hooks/useChat.ts    Streaming do chat e fila offline
   src/hooks/useRecorder.ts Gravacao/transcricao
   src/utils/runtime.ts    Deteccao de plataforma e perfil visual Windows
-  src/index.css           Design system Liquid Glass e responsividade
+  src/tailwind.css        Tokens globais, base e regras de plataforma
+  src/styles/             Classes Tailwind por tela/componente
   electron/main.cjs       App desktop e bootstrap do backend
   electron/preload.cjs    Bridge segura do Electron
+  ios/                    App iPhone e runtimes nativos Qwen/Kokoro
   scripts/update-app.sh   Build/instalacao do app no macOS
 ```
 
@@ -255,7 +260,7 @@ SQLite:
 - `database_v2.py` faz migracoes idempotentes para:
   `memories`, `user_profile_facts`, `kg_entities`, `kg_relations`, `projects`,
   `timeline_events`, `insights`, `embeddings`, `conversation_summaries`,
-  `codebase_index`.
+  `codebase_index`, tabelas do Focus, Location e Local Sync.
 
 Ao adicionar colunas/tabelas:
 
@@ -342,6 +347,17 @@ Caracteristicas:
 
 Nao coloque backups exportados no Git. Eles podem conter dados pessoais do usuario.
 
+## Buds Local Sync
+
+Arquivo: `Back-end/local_sync.py` e runtime nativo em
+`front-end/ios/App/BudsNativeRuntime`.
+
+- Pareamento manual, Bonjour temporario e credencial propria.
+- Focus e bidirecional.
+- Chats, pastas, mensagens e memorias sao enviados somente do iPhone para o Mac.
+- Local Sync nao usa o token do acesso web remoto.
+- Nao amplie a direcao Mac -> iPhone para dominios pessoais sem pedido explicito.
+
 ## Acesso Remoto e Mobile
 
 Arquivo: `Back-end/remote_access.py`.
@@ -356,6 +372,8 @@ Variaveis principais:
 - `NEXUS_PUBLIC_FRONTEND_URL`
 
 O modo remoto exige token para APIs protegidas. Nao remova esse controle.
+O app nativo do iPhone e independente desse modo; browser remoto e app nativo
+sao fluxos diferentes.
 
 ## Electron
 
@@ -385,7 +403,7 @@ Design esperado:
 - Compacto, premium, responsivo.
 - Mobile Safari/Chrome deve funcionar.
 - Evitar UI poluida no chat.
-- Home, Chat, Voice, Obsidian e Configuracoes devem continuar existindo.
+- Home, Chat, Voice, Obsidian, Focus, Map e Configuracoes devem continuar existindo.
 
 Regras praticas:
 
@@ -396,7 +414,8 @@ Regras praticas:
 - `VoiceMode.tsx` cuida da conversa por voz.
 - `BrainMap.tsx` cuida da Obsidian.
 - `HomeBrain.tsx` cuida do cerebro da Home.
-- Estilos principais ficam em `front-end/src/index.css`.
+- Tokens/base ficam em `front-end/src/tailwind.css`; classes compostas ficam em
+  `front-end/src/styles/*.ts`.
 - `front-end/src/utils/runtime.ts` detecta Windows; use esse helper para
   ajustes condicionais de plataforma.
 - Use `lucide-react` para icones.
@@ -416,7 +435,7 @@ no frontend quando a diferenca for de plataforma.
 Regras:
 
 - Preserve `data-platform="windows"` no `documentElement`.
-- Mantenha o perfil Windows em `index.css` removendo blur pesado, sombras
+- Mantenha o perfil Windows em `tailwind.css` removendo blur pesado, sombras
   grandes e animacoes nas telas Chat, Config e Obsidian.
 - Evite `backdrop-filter`, `filter: blur`, `drop-shadow` e sombras gigantes em
   areas que mudam durante digitacao ou streaming.
@@ -548,6 +567,7 @@ necessidade. Identifique e pare o processo antigo somente com permissao clara.
 - Modelo padrao leve: `qwen2.5-coder:3b`.
 - Modelos conhecidos: `qwen2.5-coder:3b`, `qwen2.5-coder:7b`,
   `qwen2.5-coder:14b`.
+- Modelo nativo do iPhone: `Qwen3.5 4B` Q4_K_M, separado do Ollama desktop.
 - Porta backend padrao: `5050`.
 - Porta mobile frontend padrao: `5174`.
 - Tema desktop tende a iniciar em `black`; web padrao usa `silver`.

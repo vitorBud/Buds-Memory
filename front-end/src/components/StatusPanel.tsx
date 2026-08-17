@@ -109,7 +109,7 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; hint: strin
   { id: 'ai', label: 'IA', hint: 'Modelo e Google', icon: BrainCircuit },
   { id: 'voice', label: 'Voz', hint: 'Ativar e escolher', icon: Volume2 },
   { id: 'backup', label: 'Backup', hint: 'Memória local', icon: HardDrive },
-  { id: 'sync', label: 'Local Sync', hint: 'Focus entre aparelhos', icon: RefreshCw },
+  { id: 'sync', label: 'Local Sync', hint: 'Dados entre iPhone e Mac', icon: RefreshCw },
   { id: 'storage', label: 'Armazenamento', hint: 'Uso e limpeza', icon: Database },
   { id: 'codebase', label: 'Codebase', hint: 'Projetos locais', icon: Code2 },
   { id: 'memory', label: 'Memória', hint: 'Contexto do chat', icon: Activity },
@@ -232,7 +232,8 @@ export function StatusPanel({
 
   useEffect(() => {
     if (activeSection === 'system' && contextDevMode && !semanticContext && !semanticContextBusy) {
-      void loadSemanticContext()
+      const timeout = window.setTimeout(() => void loadSemanticContext(), 0)
+      return () => window.clearTimeout(timeout)
     }
     // O diagnóstico é carregado somente ao abrir Sistema; não há polling de localização.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -260,7 +261,6 @@ export function StatusPanel({
     const interval = window.setInterval(() => void loadLocalSync(), 5_000)
     return () => window.clearInterval(interval)
     // Presença é atualizada somente enquanto a Central de Sync está visível.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection])
 
   const beginLocalSyncPairing = async () => {
@@ -329,8 +329,7 @@ export function StatusPanel({
       } else {
         const before = localSyncStatus?.peers.find(peer => peer.peer_device_id === peerDeviceId)?.last_sync_at
         await requestLocalSyncFromMac(peerDeviceId)
-        const deadline = Date.now() + 16_000
-        while (Date.now() < deadline) {
+        for (let attempt = 0; attempt < 16; attempt += 1) {
           await new Promise(resolve => window.setTimeout(resolve, 1_000))
           const status = await getLocalSyncStatus()
           setLocalSyncStatus(status)

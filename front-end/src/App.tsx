@@ -907,7 +907,8 @@ export default function App() {
     try {
       const sessionId = await ensureSession()
       const source = await importKnowledge(sessionId, { file })
-      if (!isNativeIOS) setKnowledgeSources(prev => [source, ...prev])
+      setKnowledgeSources(prev => [source, ...prev.filter(item => item.id !== source.id)])
+      showToast(`${source.source_type === 'pdf' ? 'PDF' : 'Arquivo'} anexado à conversa`, 'success')
       void refreshCognitiveBrain()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Falha ao importar conhecimento.')
@@ -929,7 +930,7 @@ export default function App() {
           ? { text: value }
           : { query: value }
       const source = await importKnowledge(sessionId, payload)
-      if (!isNativeIOS) setKnowledgeSources(prev => [source, ...prev])
+      setKnowledgeSources(prev => [source, ...prev.filter(item => item.id !== source.id)])
       setKnowledgeInput('')
       void refreshCognitiveBrain()
     } catch (err) {

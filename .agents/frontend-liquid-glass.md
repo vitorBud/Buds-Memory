@@ -10,7 +10,8 @@ Windows.
 ## Arquivos Principais
 
 - `front-end/src/App.tsx`
-- `front-end/src/index.css`
+- `front-end/src/tailwind.css`
+- `front-end/src/styles/`
 - `front-end/src/components/ChatWindow.tsx`
 - `front-end/src/components/ChatInput.tsx`
 - `front-end/src/components/Sidebar.tsx`
@@ -24,7 +25,7 @@ Windows.
 ## Regras
 
 - Reaproveite componentes existentes antes de criar novos.
-- Mantenha Home, Chat, Voice, Obsidian e Configuracoes acessiveis.
+- Mantenha Home, Chat, Voice, Obsidian, Focus, Map e Configuracoes acessiveis.
 - Nao coloque funcionalidades importantes escondidas sem caminho de volta.
 - Nao polua o chat com botoes demais.
 - Use `lucide-react` para icones.
@@ -40,8 +41,9 @@ Windows.
 ## Pontos Sensíveis
 
 - `App.tsx` concentra muito estado global; altere com cuidado.
-- `index.css` possui muitas regras responsivas e pode ter sobreposicoes.
-- `index.css` tem perfil `:root[data-platform='windows']`; mantenha essa camada
+- `tailwind.css` concentra tokens/base e regras responsivas globais; os módulos
+  em `src/styles/` concentram classes por tela.
+- `tailwind.css` tem perfil `:root[data-platform='windows']`; mantenha essa camada
   no fim do arquivo para ganhar prioridade.
 - `VoiceMode.tsx` usa microfone/permissao; nao deixe escutando por padrao.
 - O chat mobile deve manter input e sidebar usaveis sem cobrir mensagens.
@@ -62,6 +64,8 @@ Quando mexer em mobile, testar visualmente:
 - Chat com sidebar aberta/fechada
 - Voice Mode
 - Obsidian
+- Focus
+- Map
 - Configuracoes
 
 ## Resultado Esperado

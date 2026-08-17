@@ -236,6 +236,7 @@ public final class BudsLocalStore: @unchecked Sendable {
             while sqlite3_step(statement) == SQLITE_ROW {
                 let id = text(statement, 0)
                 let messages = try count(table: "messages", sessionId: id)
+                let knowledge = try count(table: "knowledge_sources", sessionId: id)
                 let memories = try count(table: "memories", sessionId: id)
                 let bytes = try conversationTextBytes(sessionId: id)
                 let deletedAt = optionalText(statement, 3)
@@ -247,8 +248,9 @@ public final class BudsLocalStore: @unchecked Sendable {
                     deletedAt: deletedAt,
                     state: deletedAt == nil ? "active" : "removed",
                     messageCount: messages,
+                    knowledgeCount: knowledge,
                     memoryCount: memories,
-                    totalRecords: messages + memories + 1,
+                    totalRecords: messages + knowledge + memories + 1,
                     estimatedBytes: bytes
                 ))
             }
@@ -265,6 +267,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                     deletedAt: nil,
                     state: "orphaned",
                     messageCount: 0,
+                    knowledgeCount: 0,
                     memoryCount: legacyCount,
                     totalRecords: legacyCount,
                     estimatedBytes: try scalarInt64(
@@ -318,6 +321,8 @@ public final class BudsLocalStore: @unchecked Sendable {
                 try execute("DELETE FROM focus_ideas")
                 try execute("DELETE FROM focus_tasks")
                 try execute("DELETE FROM messages")
+                try execute("DELETE FROM knowledge_chunks")
+                try execute("DELETE FROM knowledge_sources")
                 try execute("DELETE FROM memories")
                 try execute("DELETE FROM sessions")
                 try execute("DELETE FROM chat_folders")
@@ -325,7 +330,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 try execute("DELETE FROM local_sync_upload_meta")
                 try execute("DELETE FROM local_sync_history")
                 try execute("DELETE FROM local_sync_device")
-                try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox', 'location_places', 'location_events', 'location_routes', 'location_route_points')")
+                try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'knowledge_sources', 'knowledge_chunks', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox', 'location_places', 'location_events', 'location_routes', 'location_route_points')")
             }
             // Limpeza total também revoga a identidade local anterior. Uma
             // nova instalação lógica precisa parear novamente antes de trocar dados.
@@ -357,6 +362,156 @@ public final class BudsLocalStore: @unchecked Sendable {
                 ))
             }
             return records.reversed()
+        }
+    }
+
+    public func knowledgeSources(sessionId: String, limit: Int = 30) throws -> [BudsKnowledgeSourceRecord] {
+        try queue.sync {
+            let statement = try prepare(
+                """
+                SELECT id,session_id,title,source_type,source_name,summary,content,topics,page_count,created_at
+                FROM knowledge_sources WHERE session_id=? ORDER BY id DESC LIMIT ?
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(sessionId, statement, 1)
+            sqlite3_bind_int(statement, 2, Int32(max(1, min(limit, 100))))
+            var records: [BudsKnowledgeSourceRecord] = []
+            while sqlite3_step(statement) == SQLITE_ROW {
+                records.append(knowledgeSourceRecord(statement))
+            }
+            return records
+        }
+    }
+
+    public func addKnowledgeSource(
+        sessionId: String,
+        title: String,
+        sourceType: String,
+        sourceName: String?,
+        content: String,
+        pageCount: Int?
+    ) throws -> BudsKnowledgeSourceRecord {
+        try queue.sync {
+            try ensureWritable()
+            guard try session(id: sessionId) != nil else {
+                throw BudsNativeError.documentImport("a conversa selecionada não existe")
+            }
+            let cleanContent = String(
+                Self.normalizeKnowledgeText(content).prefix(BudsPDFKnowledge.maximumExtractedCharacters)
+            )
+            guard cleanContent.count >= 20 else {
+                throw BudsNativeError.documentImport("o documento não possui texto suficiente")
+            }
+            let cleanTitle = String(
+                title.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120)
+            ).nonEmpty ?? "Documento"
+            let topics = Self.knowledgeTopics(cleanContent)
+            let topicsData = try JSONSerialization.data(withJSONObject: topics)
+            let topicsJSON = String(data: topicsData, encoding: .utf8) ?? "[]"
+            let summary = Self.knowledgeSummary(cleanContent)
+            let chunks = Self.knowledgeChunks(cleanContent)
+            let createdAt = Self.now()
+            var sourceId: Int64 = 0
+
+            try transaction {
+                let source = try prepare(
+                    """
+                    INSERT INTO knowledge_sources
+                      (session_id,title,source_type,source_name,summary,content,topics,page_count,created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                    """
+                )
+                defer { sqlite3_finalize(source) }
+                bind(sessionId, source, 1)
+                bind(cleanTitle, source, 2)
+                bind(sourceType, source, 3)
+                bindOptional(sourceName, source, 4)
+                bind(summary, source, 5)
+                bind(cleanContent, source, 6)
+                bind(topicsJSON, source, 7)
+                if let pageCount { sqlite3_bind_int(source, 8, Int32(pageCount)) }
+                else { sqlite3_bind_null(source, 8) }
+                bind(createdAt, source, 9)
+                try stepDone(source)
+                sourceId = sqlite3_last_insert_rowid(database)
+
+                for (index, chunk) in chunks.enumerated() {
+                    let insert = try prepare(
+                        "INSERT INTO knowledge_chunks (knowledge_id,session_id,chunk_index,content) VALUES (?,?,?,?)"
+                    )
+                    sqlite3_bind_int64(insert, 1, sourceId)
+                    bind(sessionId, insert, 2)
+                    sqlite3_bind_int(insert, 3, Int32(index))
+                    bind(chunk, insert, 4)
+                    do { try stepDone(insert) }
+                    catch { sqlite3_finalize(insert); throw error }
+                    sqlite3_finalize(insert)
+                }
+            }
+            guard let record = try knowledgeSource(id: sourceId) else {
+                throw BudsNativeError.documentImport("o documento não pôde ser recuperado após salvar")
+            }
+            return record
+        }
+    }
+
+    public func knowledgeContext(sessionId: String, query: String, maximumCharacters: Int = 5_000) throws -> String {
+        try queue.sync {
+            let statement = try prepare(
+                """
+                SELECT chunk.content,source.title,chunk.chunk_index,source.id
+                FROM knowledge_chunks chunk
+                JOIN knowledge_sources source ON source.id=chunk.knowledge_id
+                WHERE chunk.session_id=?
+                ORDER BY source.id DESC,chunk.chunk_index ASC
+                LIMIT 1800
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(sessionId, statement, 1)
+            var candidates: [(content: String, title: String, index: Int, sourceId: Int64, order: Int)] = []
+            var order = 0
+            while sqlite3_step(statement) == SQLITE_ROW {
+                candidates.append((
+                    content: text(statement, 0), title: text(statement, 1),
+                    index: Int(sqlite3_column_int(statement, 2)),
+                    sourceId: sqlite3_column_int64(statement, 3), order: order
+                ))
+                order += 1
+            }
+            guard !candidates.isEmpty else { return "" }
+
+            let terms = Self.knowledgeQueryTerms(query)
+            let ranked = candidates.map { candidate -> (Int, Int, (content: String, title: String, index: Int, sourceId: Int64, order: Int)) in
+                let haystack = Self.foldKnowledgeText(candidate.title + " " + candidate.content)
+                let score = terms.reduce(0) { partial, term in
+                    partial + (haystack.components(separatedBy: term).count - 1)
+                }
+                return (score, candidate.order, candidate)
+            }.sorted {
+                if $0.0 != $1.0 { return $0.0 > $1.0 }
+                return $0.1 < $1.1
+            }
+
+            let hasRelevantMatch = ((ranked.first?.0) ?? 0) > 0
+            let foldedQuery = Self.foldKnowledgeText(query)
+            let explicitlyReferencesDocument = [
+                "pdf", "documento", "arquivo", "anexo", "material", "texto importado", "resuma", "resumo",
+            ].contains { foldedQuery.contains($0) }
+            guard hasRelevantMatch || explicitlyReferencesDocument else { return "" }
+            let selected = (hasRelevantMatch ? ranked.filter { $0.0 > 0 } : ranked)
+                .prefix(5)
+                .map(\.2)
+                .sorted { $0.order < $1.order }
+            var result = "DOCUMENTOS ANEXADOS A ESTA CONVERSA:\n"
+            for item in selected {
+                let section = "\n[\(item.title) — trecho \(item.index + 1)]\n\(item.content)\n"
+                let remaining = maximumCharacters - result.count
+                if remaining <= 80 { break }
+                result += String(section.prefix(remaining))
+            }
+            return result
         }
     }
 
@@ -746,7 +901,7 @@ public final class BudsLocalStore: @unchecked Sendable {
         }
     }
 
-    // MARK: - Buds Local Sync V0 (somente Focus Tasks)
+    // MARK: - Buds Local Sync (Focus bidirecional + upload pessoal ao Mac)
 
     public func localSyncDevice() throws -> BudsLocalSyncDeviceRecord {
         try queue.sync { try localSyncDeviceInsideQueue() }
@@ -1550,6 +1705,7 @@ public final class BudsLocalStore: @unchecked Sendable {
             )
             """)
         try execute("CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)")
+        try migrateKnowledge()
         try migrateMemoryScopeIfNeeded()
         let memoryColumns = try tableColumns("memories")
         if !memoryColumns.contains("origin_type") {
@@ -1557,7 +1713,43 @@ public final class BudsLocalStore: @unchecked Sendable {
         }
         try migrateFocus()
         try migrateLocalSyncV0()
-        try execute("PRAGMA user_version=8")
+        try execute("PRAGMA user_version=9")
+    }
+
+    private func migrateKnowledge() throws {
+        try execute(
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_name TEXT,
+                summary TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL,
+                topics TEXT NOT NULL DEFAULT '[]',
+                page_count INTEGER,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+            """
+        )
+        try execute(
+            """
+            CREATE TABLE IF NOT EXISTS knowledge_chunks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                knowledge_id INTEGER NOT NULL,
+                session_id TEXT NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                FOREIGN KEY(knowledge_id) REFERENCES knowledge_sources(id) ON DELETE CASCADE,
+                FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                UNIQUE(knowledge_id, chunk_index)
+            )
+            """
+        )
+        try execute("CREATE INDEX IF NOT EXISTS idx_knowledge_session ON knowledge_sources(session_id,id DESC)")
+        try execute("CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_session ON knowledge_chunks(session_id,knowledge_id,chunk_index)")
     }
 
     private func migrateFocus() throws {
@@ -2854,6 +3046,111 @@ public final class BudsLocalStore: @unchecked Sendable {
         )
     }
 
+    private func knowledgeSource(id: Int64) throws -> BudsKnowledgeSourceRecord? {
+        let statement = try prepare(
+            """
+            SELECT id,session_id,title,source_type,source_name,summary,content,topics,page_count,created_at
+            FROM knowledge_sources WHERE id=?
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return knowledgeSourceRecord(statement)
+    }
+
+    private func knowledgeSourceRecord(_ statement: OpaquePointer) -> BudsKnowledgeSourceRecord {
+        let topicsData = Data(text(statement, 7).utf8)
+        return BudsKnowledgeSourceRecord(
+            id: sqlite3_column_int64(statement, 0),
+            sessionId: text(statement, 1),
+            title: text(statement, 2),
+            sourceType: text(statement, 3),
+            sourceName: optionalText(statement, 4),
+            summary: text(statement, 5),
+            content: text(statement, 6),
+            topics: (try? JSONSerialization.jsonObject(with: topicsData)) as? [String] ?? [],
+            pageCount: sqlite3_column_type(statement, 8) == SQLITE_NULL
+                ? nil : Int(sqlite3_column_int(statement, 8)),
+            createdAt: text(statement, 9)
+        )
+    }
+
+    private static func normalizeKnowledgeText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\u{0000}", with: "")
+            .replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func foldKnowledgeText(_ value: String) -> String {
+        value
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "pt_BR"))
+            .lowercased()
+    }
+
+    private static func knowledgeQueryTerms(_ query: String) -> [String] {
+        let words = foldKnowledgeText(query)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        return Array(Set(words.filter {
+            $0.count >= 3 && !knowledgeStopwords.contains($0)
+        })).sorted().prefix(14).map { $0 }
+    }
+
+    private static func knowledgeTopics(_ content: String) -> [String] {
+        let words = foldKnowledgeText(content)
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        var counts: [String: Int] = [:]
+        for word in words where word.count >= 4 && !knowledgeStopwords.contains(word) {
+            counts[word, default: 0] += 1
+        }
+        return counts.sorted {
+            if $0.value != $1.value { return $0.value > $1.value }
+            return $0.key < $1.key
+        }.prefix(8).map(\.key)
+    }
+
+    private static func knowledgeSummary(_ content: String) -> String {
+        let compact = content.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return String(compact.prefix(420))
+    }
+
+    private static func knowledgeChunks(_ content: String) -> [String] {
+        let maximum = 1_300
+        let overlap = 140
+        var chunks: [String] = []
+        var current = ""
+
+        func flushCurrent() {
+            let clean = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !clean.isEmpty { chunks.append(clean) }
+            current = ""
+        }
+
+        for rawParagraph in content.components(separatedBy: "\n\n") {
+            let paragraph = rawParagraph.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !paragraph.isEmpty else { continue }
+            if paragraph.count <= maximum {
+                if current.count + paragraph.count + 2 > maximum { flushCurrent() }
+                current += current.isEmpty ? paragraph : "\n\n" + paragraph
+                continue
+            }
+
+            flushCurrent()
+            var start = paragraph.startIndex
+            while start < paragraph.endIndex {
+                let end = paragraph.index(start, offsetBy: maximum, limitedBy: paragraph.endIndex) ?? paragraph.endIndex
+                let piece = String(paragraph[start..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !piece.isEmpty { chunks.append(piece) }
+                guard end < paragraph.endIndex else { break }
+                start = paragraph.index(end, offsetBy: -min(overlap, paragraph.distance(from: start, to: end)))
+            }
+        }
+        flushCurrent()
+        return Array(chunks.prefix(1_500))
+    }
+
     private func updateAutomaticTitleIfNeeded(sessionId: String, text: String) throws {
         guard let current = try session(id: sessionId), current.title == "Nova conversa" else { return }
         let words = text.split(whereSeparator: { $0.isWhitespace }).prefix(7)
@@ -2990,12 +3287,14 @@ public final class BudsLocalStore: @unchecked Sendable {
             """
             SELECT
               COALESCE((SELECT SUM(LENGTH(text)) FROM messages WHERE session_id=?), 0) +
-              COALESCE((SELECT SUM(LENGTH(content)) FROM memories WHERE session_id=?), 0)
+              COALESCE((SELECT SUM(LENGTH(content)) FROM memories WHERE session_id=?), 0) +
+              COALESCE((SELECT SUM(LENGTH(content)) FROM knowledge_sources WHERE session_id=?), 0)
             """
         )
         defer { sqlite3_finalize(statement) }
         bind(sessionId, statement, 1)
         bind(sessionId, statement, 2)
+        bind(sessionId, statement, 3)
         guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
         return sqlite3_column_int64(statement, 0)
     }
@@ -3090,6 +3389,11 @@ public final class BudsLocalStore: @unchecked Sendable {
     private static let locationTaskContexts: Set<String> = ["anywhere", "home", "work", "gym", "study", "other"]
     private static let placeContexts: Set<String> = ["home", "work", "gym", "study", "other"]
     private static let semanticContexts: Set<String> = ["home", "work", "gym", "study", "other", "commuting", "away", "unknown"]
+    private static let knowledgeStopwords: Set<String> = [
+        "a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em", "um", "uma", "para", "por", "com",
+        "que", "qual", "quais", "como", "sobre", "isso", "isto", "esse", "essa", "este", "esta", "meu", "minha",
+        "pdf", "arquivo", "documento", "texto", "anexo", "anexado", "resuma", "resumo", "explique", "conteudo",
+    ]
     private static let routeTitleFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "pt_BR")
