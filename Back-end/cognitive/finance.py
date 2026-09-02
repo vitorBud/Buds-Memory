@@ -37,7 +37,8 @@ FINANCIAL_KEYWORDS = {
     "reembolsado", "receberei", "receber", "pagar", "gasto", "despesa",
     "dívida", "divida", "fluxo de caixa", "renda", "assinatura", "pago",
     "pagando", "por mês", "por mes", "mensalidade", "mensal", "invisto",
-    "investir", "investimento", "patrimônio", "patrimonio",
+    "investir", "investimento", "patrimônio", "patrimonio", "finanças",
+    "financas", "financeiro", "financeira",
 }
 
 
@@ -51,6 +52,11 @@ def detect_financial_intents(text: str) -> list[str]:
             labels.append(label)
 
     has_money = bool(_money_values(lower))
+    add("FINANCIAL_BUDGET", any(term in lower for term in (
+        "minhas finanças", "minhas financas", "resumo financeiro", "assistente financeiro",
+        "quanto investi", "quanto ganhei", "quanto tenho de fatura", "como está meu mês",
+        "como esta meu mes",
+    )))
     add("FINANCIAL_BUDGET", has_money and any(term in lower for term in ("organizar", "orçamento", "orcamento", "salário", "salario", "gasto", "despesa", "pago", "pagando", "mensal", "por mês", "por mes")))
     add("CREDIT_CARD", any(term in lower for term in ("cartão", "cartao", "fatura", "limite")))
     add("INSTALLMENT_PLAN", any(term in lower for term in ("parcela", "parcelas", "parcelando", "dividido", "divididos", "vezes")))
@@ -161,11 +167,22 @@ def build_financial_context(text: str, history: Optional[list[dict]] = None) -> 
     if not facts["financial_intents"]:
         return ""
 
+    structured_context = ""
+    try:
+        from cognitive import finance_store
+        month_match = re.search(r"\b(20\d{2}-(?:0[1-9]|1[0-2]))\b", text or "")
+        structured_context = finance_store.prompt_context(month_match.group(1) if month_match else None)
+    except Exception:
+        # O chat continua funcionando durante migração ou recuperação do banco.
+        structured_context = ""
+
     lines = [
         "Análise financeira estruturada local:",
         "Regras: não inventar meses, vencimentos, juros, parcelas ou valores não informados.",
         "Separar sempre fatura bruta, despesa pessoal, reembolso e impacto líquido no salário.",
     ]
+    if structured_context:
+        lines.extend([structured_context, "Use estes dados persistentes como fonte principal."])
     if facts.get("monthly_income"):
         lines.append(f"Salário mensal informado: {_format_brl(facts['monthly_income'])}.")
     if facts.get("credit_limit"):
@@ -208,6 +225,13 @@ def build_financial_context(text: str, history: Optional[list[dict]] = None) -> 
 
 def build_financial_reply(text: str, history: Optional[list[dict]] = None) -> Optional[str]:
     """Gera resposta determinística para organização financeira quando os fatos fecham."""
+    try:
+        from cognitive import finance_store
+        stored_reply = finance_store.direct_reply(text)
+        if stored_reply:
+            return stored_reply
+    except Exception:
+        pass
     if not should_answer_financial_directly(text, history):
         return None
     combined = _combine_financial_history(text, history)

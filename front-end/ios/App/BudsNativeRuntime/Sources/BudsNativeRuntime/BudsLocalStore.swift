@@ -320,6 +320,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 try execute("DELETE FROM focus_decisions")
                 try execute("DELETE FROM focus_ideas")
                 try execute("DELETE FROM focus_tasks")
+                try execute("DELETE FROM finance_transactions")
                 try execute("DELETE FROM messages")
                 try execute("DELETE FROM knowledge_chunks")
                 try execute("DELETE FROM knowledge_sources")
@@ -330,7 +331,7 @@ public final class BudsLocalStore: @unchecked Sendable {
                 try execute("DELETE FROM local_sync_upload_meta")
                 try execute("DELETE FROM local_sync_history")
                 try execute("DELETE FROM local_sync_device")
-                try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'knowledge_sources', 'knowledge_chunks', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox', 'location_places', 'location_events', 'location_routes', 'location_route_points')")
+                try execute("DELETE FROM sqlite_sequence WHERE name IN ('messages', 'knowledge_sources', 'knowledge_chunks', 'memories', 'focus_tasks', 'focus_ideas', 'focus_decisions', 'focus_timeline', 'focus_inbox', 'finance_transactions', 'location_places', 'location_events', 'location_routes', 'location_route_points')")
             }
             // Limpeza total também revoga a identidade local anterior. Uma
             // nova instalação lógica precisa parear novamente antes de trocar dados.
@@ -683,6 +684,231 @@ public final class BudsLocalStore: @unchecked Sendable {
             sqlite3_bind_int64(statement, 1, id)
             try stepDone(statement)
         }
+    }
+
+    public func financeDashboard(month: String) throws -> BudsFinanceDashboardRecord {
+        try queue.sync {
+            try financeDashboardInsideQueue(month: Self.validFinanceMonth(month))
+        }
+    }
+
+    public func createFinanceTransaction(
+        kind: String, amountCents: Int64, description: String, category: String,
+        occurredOn: String, invoiceMonth: String?, status: String
+    ) throws -> BudsFinanceTransactionRecord {
+        try queue.sync {
+            try ensureWritable()
+            guard Self.financeKinds.contains(kind) else {
+                throw BudsNativeError.databaseUnavailable("Tipo financeiro inválido.")
+            }
+            guard amountCents > 0, amountCents <= 99_999_999_999 else {
+                throw BudsNativeError.databaseUnavailable("Informe um valor maior que zero.")
+            }
+            let cleanDescription = String(description.trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))
+            guard !cleanDescription.isEmpty else {
+                throw BudsNativeError.databaseUnavailable("Informe uma descrição.")
+            }
+            guard Self.isValidFinanceDate(occurredOn) else {
+                throw BudsNativeError.databaseUnavailable("Data financeira inválida.")
+            }
+            let cleanMonth = kind == "card"
+                ? try Self.validFinanceMonth(invoiceMonth ?? String(occurredOn.prefix(7)))
+                : nil
+            let cleanStatus = kind == "card" && status == "paid" ? "paid" : (kind == "card" ? "pending" : "confirmed")
+            let cleanCategory = String((category.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty ?? "Outros").prefix(40))
+            let now = Self.now()
+            let statement = try prepare(
+                """
+                INSERT INTO finance_transactions
+                  (kind,amount_cents,description,category,occurred_on,invoice_month,status,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?)
+                """
+            )
+            defer { sqlite3_finalize(statement) }
+            bind(kind, statement, 1)
+            sqlite3_bind_int64(statement, 2, amountCents)
+            bind(cleanDescription, statement, 3)
+            bind(cleanCategory, statement, 4)
+            bind(occurredOn, statement, 5)
+            bindOptional(cleanMonth, statement, 6)
+            bind(cleanStatus, statement, 7)
+            bind(now, statement, 8)
+            bind(now, statement, 9)
+            try stepDone(statement)
+            guard let created = try financeTransactionInsideQueue(id: sqlite3_last_insert_rowid(database)) else {
+                throw BudsNativeError.databaseUnavailable("Não foi possível recuperar o lançamento.")
+            }
+            return created
+        }
+    }
+
+    public func updateFinanceTransaction(id: Int64, status: String) throws -> BudsFinanceTransactionRecord {
+        try queue.sync {
+            try ensureWritable()
+            guard let current = try financeTransactionInsideQueue(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Lançamento não encontrado.")
+            }
+            let cleanStatus = current.kind == "card" && status == "paid" ? "paid" : (current.kind == "card" ? "pending" : "confirmed")
+            let statement = try prepare("UPDATE finance_transactions SET status=?,updated_at=? WHERE id=?")
+            defer { sqlite3_finalize(statement) }
+            bind(cleanStatus, statement, 1)
+            bind(Self.now(), statement, 2)
+            sqlite3_bind_int64(statement, 3, id)
+            try stepDone(statement)
+            guard let updated = try financeTransactionInsideQueue(id: id) else {
+                throw BudsNativeError.databaseUnavailable("Lançamento não encontrado.")
+            }
+            return updated
+        }
+    }
+
+    public func deleteFinanceTransaction(id: Int64) throws {
+        try queue.sync {
+            try ensureWritable()
+            let statement = try prepare("DELETE FROM finance_transactions WHERE id=?")
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int64(statement, 1, id)
+            try stepDone(statement)
+        }
+    }
+
+    public func financePromptContext(userText: String) throws -> String {
+        let normalized = userText.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "pt_BR")).lowercased()
+        guard Self.financePromptWords.contains(where: { normalized.contains($0) }) else { return "" }
+        return try queue.sync {
+            let month = Self.financeMonthInText(userText) ?? Self.currentFinanceMonth()
+            let dashboard = try financeDashboardInsideQueue(month: month)
+            guard !dashboard.transactions.isEmpty else { return "" }
+            let totals = dashboard.totals
+            return """
+            RESUMO FINANCEIRO LOCAL CALCULADO PELO CÓDIGO PARA \(month):
+            Receitas: \(Self.financeBRL(totals.incomeCents)).
+            Despesas fora do cartão: \(Self.financeBRL(totals.expenseCents)).
+            Investimentos: \(Self.financeBRL(totals.investmentCents)).
+            Fatura aberta: \(Self.financeBRL(totals.invoiceCents)).
+            Fatura paga: \(Self.financeBRL(totals.invoicePaidCents)).
+            Disponível após compromissos: \(Self.financeBRL(totals.availableCents)).
+            Taxa investida: \(String(format: "%.1f", totals.savingsRate))% da receita.
+            Use exatamente estes números; não recalcule nem invente lançamentos.
+            """
+        }
+    }
+
+    public func financeDirectReply(userText: String) throws -> String? {
+        let normalized = userText.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "pt_BR")).lowercased()
+        let asksInvestment = normalized.range(of: #"quanto\s+(eu\s+)?invest|total\s+(de\s+)?invest"#, options: .regularExpression) != nil
+        let asksIncome = normalized.range(of: #"quanto\s+(eu\s+)?(ganhei|ganho|recebi)|total\s+(de\s+)?(renda|receita)"#, options: .regularExpression) != nil
+        let asksInvoice = normalized.contains("fatura") && ["quanto", "qual", "total", "valor"].contains(where: { normalized.contains($0) })
+        let asksAvailable = normalized.range(of: #"quanto\s+(me\s+)?sobra|quanto\s+(esta\s+)?livre|disponivel"#, options: .regularExpression) != nil
+        guard asksInvestment || asksIncome || asksInvoice || asksAvailable else { return nil }
+        return try queue.sync {
+            let month = Self.financeMonthInText(userText) ?? Self.currentFinanceMonth()
+            let dashboard = try financeDashboardInsideQueue(month: month)
+            guard !dashboard.transactions.isEmpty else { return nil }
+            let totals = dashboard.totals
+            if asksInvestment { return "Em \(month), você investiu \(Self.financeBRL(totals.investmentCents))." }
+            if asksIncome { return "Em \(month), suas receitas registradas somam \(Self.financeBRL(totals.incomeCents))." }
+            if asksInvoice {
+                let paid = totals.invoicePaidCents > 0 ? " Você já marcou \(Self.financeBRL(totals.invoicePaidCents)) como pago." : ""
+                return "Sua fatura aberta de \(month) está em \(Self.financeBRL(totals.invoiceCents)).\(paid)"
+            }
+            return "Em \(month), o valor livre calculado é \(Self.financeBRL(totals.availableCents)), depois das despesas, investimentos e fatura registrada."
+        }
+    }
+
+    private func financeDashboardInsideQueue(month: String) throws -> BudsFinanceDashboardRecord {
+        let statement = try prepare(
+            """
+            SELECT id,kind,amount_cents,description,category,occurred_on,invoice_month,status,created_at,updated_at
+            FROM finance_transactions
+            WHERE substr(occurred_on,1,7)=? OR (kind='card' AND invoice_month=?)
+            ORDER BY occurred_on DESC,id DESC
+            """
+        )
+        defer { sqlite3_finalize(statement) }
+        bind(month, statement, 1)
+        bind(month, statement, 2)
+        var transactions: [BudsFinanceTransactionRecord] = []
+        var income: Int64 = 0
+        var expense: Int64 = 0
+        var investment: Int64 = 0
+        var invoice: Int64 = 0
+        var invoicePaid: Int64 = 0
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let item = financeTransactionRecord(statement)
+            transactions.append(item)
+            if item.kind == "income" && item.occurredOn.hasPrefix(month) { income += item.amountCents }
+            if item.kind == "expense" && item.occurredOn.hasPrefix(month) { expense += item.amountCents }
+            if item.kind == "investment" && item.occurredOn.hasPrefix(month) { investment += item.amountCents }
+            if item.kind == "card" && item.invoiceMonth == month {
+                if item.status == "paid" { invoicePaid += item.amountCents } else { invoice += item.amountCents }
+            }
+        }
+        let totals = BudsFinanceTotalsRecord(
+            incomeCents: income, expenseCents: expense, investmentCents: investment,
+            invoiceCents: invoice, invoicePaidCents: invoicePaid,
+            availableCents: income - expense - investment - invoice - invoicePaid,
+            savingsRate: income > 0 ? (Double(investment) / Double(income)) * 100 : 0
+        )
+        return BudsFinanceDashboardRecord(month: month, totals: totals, transactions: transactions)
+    }
+
+    private func financeTransactionInsideQueue(id: Int64) throws -> BudsFinanceTransactionRecord? {
+        let statement = try prepare(
+            "SELECT id,kind,amount_cents,description,category,occurred_on,invoice_month,status,created_at,updated_at FROM finance_transactions WHERE id=?"
+        )
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return financeTransactionRecord(statement)
+    }
+
+    private func financeTransactionRecord(_ statement: OpaquePointer) -> BudsFinanceTransactionRecord {
+        BudsFinanceTransactionRecord(
+            id: sqlite3_column_int64(statement, 0), kind: text(statement, 1),
+            amountCents: sqlite3_column_int64(statement, 2), description: text(statement, 3),
+            category: text(statement, 4), occurredOn: text(statement, 5),
+            invoiceMonth: optionalText(statement, 6), status: text(statement, 7),
+            createdAt: text(statement, 8), updatedAt: text(statement, 9)
+        )
+    }
+
+    private static let financeKinds: Set<String> = ["income", "expense", "investment", "card"]
+    private static let financePromptWords = ["financ", "fatura", "cartao", "invest", "renda", "receita", "despesa", "gasto", "quanto sobra"]
+
+    private static func currentFinanceMonth() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM"
+        return formatter.string(from: Date())
+    }
+
+    private static func validFinanceMonth(_ value: String) throws -> String {
+        guard value.range(of: #"^\d{4}-(0[1-9]|1[0-2])$"#, options: .regularExpression) != nil else {
+            throw BudsNativeError.databaseUnavailable("Mês inválido. Use AAAA-MM.")
+        }
+        return value
+    }
+
+    private static func isValidFinanceDate(_ value: String) -> Bool {
+        guard value.range(of: #"^\d{4}-(0[1-9]|1[0-2])-([0-2]\d|3[01])$"#, options: .regularExpression) != nil else { return false }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        return formatter.date(from: value) != nil
+    }
+
+    private static func financeMonthInText(_ text: String) -> String? {
+        guard let range = text.range(of: #"20\d{2}-(0[1-9]|1[0-2])"#, options: .regularExpression) else { return nil }
+        return String(text[range])
+    }
+
+    private static func financeBRL(_ cents: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "pt_BR")
+        formatter.numberStyle = .currency
+        return formatter.string(from: NSNumber(value: Double(cents) / 100)) ?? "R$ 0,00"
     }
 
     public func focusTasks() throws -> [BudsFocusTaskRecord] {
@@ -1712,8 +1938,9 @@ public final class BudsLocalStore: @unchecked Sendable {
             try execute("ALTER TABLE memories ADD COLUMN origin_type TEXT NOT NULL DEFAULT 'legacy'")
         }
         try migrateFocus()
+        try migrateFinance()
         try migrateLocalSyncV0()
-        try execute("PRAGMA user_version=9")
+        try execute("PRAGMA user_version=10")
     }
 
     private func migrateKnowledge() throws {
@@ -1826,6 +2053,25 @@ public final class BudsLocalStore: @unchecked Sendable {
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_tasks_dedup ON focus_tasks(dedup_key) WHERE dedup_key IS NOT NULL AND completed = 0")
         try execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_inbox_dedup ON focus_inbox(dedup_key) WHERE dedup_key IS NOT NULL AND status = 'pending'")
         try migrateLocation()
+    }
+
+    private func migrateFinance() throws {
+        try execute("""
+            CREATE TABLE IF NOT EXISTS finance_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL CHECK(kind IN ('income','expense','investment','card')),
+                amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
+                description TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'Outros',
+                occurred_on TEXT NOT NULL,
+                invoice_month TEXT,
+                status TEXT NOT NULL DEFAULT 'confirmed'
+                    CHECK(status IN ('confirmed','pending','paid')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """)
+        try execute("CREATE INDEX IF NOT EXISTS idx_finance_month ON finance_transactions(occurred_on,invoice_month,kind,status)")
     }
 
     private func migrateLocalSyncV0() throws {

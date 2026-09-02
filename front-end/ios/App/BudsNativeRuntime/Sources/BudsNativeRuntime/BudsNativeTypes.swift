@@ -168,6 +168,35 @@ public struct BudsMemoryRecord: Sendable {
     public let sessionId: String?
 }
 
+public struct BudsFinanceTransactionRecord: Sendable {
+    public let id: Int64
+    public let kind: String
+    public let amountCents: Int64
+    public let description: String
+    public let category: String
+    public let occurredOn: String
+    public let invoiceMonth: String?
+    public let status: String
+    public let createdAt: String
+    public let updatedAt: String
+}
+
+public struct BudsFinanceTotalsRecord: Sendable {
+    public let incomeCents: Int64
+    public let expenseCents: Int64
+    public let investmentCents: Int64
+    public let invoiceCents: Int64
+    public let invoicePaidCents: Int64
+    public let availableCents: Int64
+    public let savingsRate: Double
+}
+
+public struct BudsFinanceDashboardRecord: Sendable {
+    public let month: String
+    public let totals: BudsFinanceTotalsRecord
+    public let transactions: [BudsFinanceTransactionRecord]
+}
+
 public struct BudsFocusTaskRecord: Sendable {
     public let id: Int64
     public let title: String

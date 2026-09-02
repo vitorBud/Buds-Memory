@@ -32,6 +32,10 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin, @unchecked Send
         CAPPluginMethod(name: "updateMemory", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "setCoreMemory", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteMemory", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "financeDashboard", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "createFinanceTransaction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateFinanceTransaction", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "deleteFinanceTransaction", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listFocusTasks", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "createFocusTask", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateFocusTask", returnType: CAPPluginReturnPromise),
@@ -394,6 +398,53 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin, @unchecked Send
         }
         resolve(call) {
             try runtime.deleteMemory(id: Int64(id), force: call.getBool("force") ?? false)
+            return [:]
+        }
+    }
+
+    @objc func financeDashboard(_ call: CAPPluginCall) {
+        guard let month = call.getString("month") else {
+            call.reject("Mês financeiro não informado.")
+            return
+        }
+        resolve(call) { financeDashboardPayload(try runtime.financeDashboard(month: month)) }
+    }
+
+    @objc func createFinanceTransaction(_ call: CAPPluginCall) {
+        guard let kind = call.getString("kind"),
+              let amountCents = call.getInt("amountCents"),
+              let description = call.getString("description"),
+              let occurredOn = call.getString("occurredOn") else {
+            call.reject("Preencha tipo, valor, descrição e data.")
+            return
+        }
+        resolve(call) {
+            financeTransactionPayload(try runtime.createFinanceTransaction(
+                kind: kind, amountCents: Int64(amountCents), description: description,
+                category: call.getString("category") ?? "Outros",
+                occurredOn: occurredOn, invoiceMonth: call.getString("invoiceMonth"),
+                status: call.getString("status") ?? (kind == "card" ? "pending" : "confirmed")
+            ))
+        }
+    }
+
+    @objc func updateFinanceTransaction(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id"), let status = call.getString("status") else {
+            call.reject("Lançamento e status são obrigatórios.")
+            return
+        }
+        resolve(call) {
+            financeTransactionPayload(try runtime.updateFinanceTransaction(id: Int64(id), status: status))
+        }
+    }
+
+    @objc func deleteFinanceTransaction(_ call: CAPPluginCall) {
+        guard let id = call.getInt("id") else {
+            call.reject("Lançamento não informado.")
+            return
+        }
+        resolve(call) {
+            try runtime.deleteFinanceTransaction(id: Int64(id))
             return [:]
         }
     }
@@ -1073,6 +1124,37 @@ public final class BudsLocalPlugin: CAPPlugin, CAPBridgedPlugin, @unchecked Send
         payload["contextual_score"] = task.contextualScore
         payload["contextual_reasons"] = task.contextualReasons
         return payload
+    }
+
+    private func financeTransactionPayload(_ item: BudsFinanceTransactionRecord) -> [String: Any] {
+        [
+            "id": item.id,
+            "kind": item.kind,
+            "amount_cents": item.amountCents,
+            "description": item.description,
+            "category": item.category,
+            "occurred_on": item.occurredOn,
+            "invoice_month": item.invoiceMonth ?? NSNull(),
+            "status": item.status,
+            "created_at": item.createdAt,
+            "updated_at": item.updatedAt,
+        ]
+    }
+
+    private func financeDashboardPayload(_ dashboard: BudsFinanceDashboardRecord) -> [String: Any] {
+        [
+            "month": dashboard.month,
+            "totals": [
+                "income_cents": dashboard.totals.incomeCents,
+                "expense_cents": dashboard.totals.expenseCents,
+                "investment_cents": dashboard.totals.investmentCents,
+                "invoice_cents": dashboard.totals.invoiceCents,
+                "invoice_paid_cents": dashboard.totals.invoicePaidCents,
+                "available_cents": dashboard.totals.availableCents,
+                "savings_rate": dashboard.totals.savingsRate,
+            ],
+            "transactions": dashboard.transactions.map(financeTransactionPayload),
+        ]
     }
 
     private func localSyncDevicePayload(_ device: BudsLocalSyncDeviceRecord) -> [String: Any] {

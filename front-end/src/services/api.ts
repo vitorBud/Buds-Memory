@@ -37,6 +37,9 @@ import type {
   LocalSyncPeer,
   LocalSyncRunResult,
   LocalSyncStatus,
+  FinanceDashboard,
+  FinanceTransaction,
+  FinanceTransactionInput,
 } from '../types'
 import {
   clearIOSLocalData,
@@ -89,6 +92,10 @@ import {
   pairIOSLocalSyncPeer,
   syncIOSFocusWithPeer,
   importIOSKnowledge,
+  getIOSFinanceDashboard,
+  createIOSFinanceTransaction,
+  updateIOSFinanceTransaction,
+  deleteIOSFinanceTransaction,
 } from '../plataformas'
 
 type BudsBridge = {
@@ -831,6 +838,46 @@ export async function streamChat(
   }
 
   throw humanizeError(lastError) ?? new Error('Falha ao conectar com o chat.')
+}
+
+// ─── Finanças locais ───────────────────────────────────────────────────────
+
+export async function getFinanceDashboard(month: string): Promise<FinanceDashboard> {
+  if (isNativeIOSRuntime()) return getIOSFinanceDashboard(month)
+  const res = await authFetch(`${getBase()}/cognitive/finance?month=${encodeURIComponent(month)}`)
+  if (!res.ok) throw await apiError(res)
+  return await res.json()
+}
+
+export async function createFinanceTransaction(input: FinanceTransactionInput): Promise<FinanceTransaction> {
+  if (isNativeIOSRuntime()) return createIOSFinanceTransaction(input)
+  const res = await authFetch(`${getBase()}/cognitive/finance/transactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw await apiError(res)
+  return await res.json()
+}
+
+export async function updateFinanceTransactionStatus(
+  id: number,
+  status: FinanceTransaction['status'],
+): Promise<FinanceTransaction> {
+  if (isNativeIOSRuntime()) return updateIOSFinanceTransaction(id, status)
+  const res = await authFetch(`${getBase()}/cognitive/finance/transactions/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })
+  if (!res.ok) throw await apiError(res)
+  return await res.json()
+}
+
+export async function deleteFinanceTransaction(id: number): Promise<void> {
+  if (isNativeIOSRuntime()) return deleteIOSFinanceTransaction(id)
+  const res = await authFetch(`${getBase()}/cognitive/finance/transactions/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw await apiError(res)
 }
 
 // ─── Focus (Produtividade) ──────────────────────────────────────────────────

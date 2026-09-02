@@ -29,6 +29,7 @@ from cognitive import (
     focus,
     location,
     location_context,
+    finance_store,
 )
 import database_v2 as dbv2
 from database_v2 import get_db_connection
@@ -51,6 +52,43 @@ def _int_param(key: str, default: int = 10) -> int:
         return int(request.args.get(key, default))
     except (ValueError, TypeError):
         return default
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# FINANÇAS LOCAIS
+# ════════════════════════════════════════════════════════════════════════════
+
+@cognitive_bp.get("/finance")
+def finance_dashboard():
+    try:
+        return _ok(finance_store.dashboard(request.args.get("month")))
+    except ValueError as exc:
+        return _err(str(exc), 400)
+
+
+@cognitive_bp.post("/finance/transactions")
+def create_finance_transaction():
+    try:
+        return _ok(finance_store.create_transaction(request.get_json(silent=True) or {}), 201)
+    except ValueError as exc:
+        return _err(str(exc), 400)
+
+
+@cognitive_bp.patch("/finance/transactions/<int:transaction_id>")
+def update_finance_transaction(transaction_id: int):
+    try:
+        return _ok(finance_store.update_transaction(transaction_id, request.get_json(silent=True) or {}))
+    except ValueError as exc:
+        return _err(str(exc), 400)
+    except LookupError as exc:
+        return _err(str(exc), 404)
+
+
+@cognitive_bp.delete("/finance/transactions/<int:transaction_id>")
+def delete_finance_transaction(transaction_id: int):
+    if not finance_store.delete_transaction(transaction_id):
+        return _err("Lançamento não encontrado.", 404)
+    return _ok({"deleted": True})
 
 
 # ── Health / Stats ─────────────────────────────────────────────────────────--

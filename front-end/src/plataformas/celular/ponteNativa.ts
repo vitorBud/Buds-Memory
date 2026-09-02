@@ -11,6 +11,9 @@ import type {
   FocusTaskCategory,
   FocusTaskPriority,
   FocusTimelineEvent,
+  FinanceDashboard,
+  FinanceTransaction,
+  FinanceTransactionInput,
   KnownPlace,
   LocationDashboard,
   LocationContextSignal,
@@ -82,6 +85,18 @@ interface IOSLocalPlugin {
   updateMemory(options: { id: number; content?: string; importance?: number }): Promise<CognitiveMemory>
   setCoreMemory(options: { id: number; enabled: boolean }): Promise<CognitiveMemory>
   deleteMemory(options: { id: number; force: boolean }): Promise<void>
+  financeDashboard(options: { month: string }): Promise<FinanceDashboard>
+  createFinanceTransaction(options: {
+    kind: FinanceTransactionInput['kind']
+    amountCents: number
+    description: string
+    category: string
+    occurredOn: string
+    invoiceMonth?: string
+    status?: FinanceTransactionInput['status']
+  }): Promise<FinanceTransaction>
+  updateFinanceTransaction(options: { id: number; status: FinanceTransaction['status'] }): Promise<FinanceTransaction>
+  deleteFinanceTransaction(options: { id: number }): Promise<void>
   listFocusTasks(): Promise<{ tasks: FocusTask[] }>
   createFocusTask(options: {
     title: string
@@ -335,6 +350,30 @@ export function setIOSLocalCoreMemory(id: number, enabled: boolean): Promise<Cog
 
 export function deleteIOSLocalMemory(id: number, force = false): Promise<void> {
   return native.deleteMemory({ id, force })
+}
+
+export function getIOSFinanceDashboard(month: string): Promise<FinanceDashboard> {
+  return native.financeDashboard({ month })
+}
+
+export function createIOSFinanceTransaction(input: FinanceTransactionInput): Promise<FinanceTransaction> {
+  return native.createFinanceTransaction({
+    kind: input.kind,
+    amountCents: input.amount_cents,
+    description: input.description,
+    category: input.category,
+    occurredOn: input.occurred_on,
+    ...(input.invoice_month ? { invoiceMonth: input.invoice_month } : {}),
+    ...(input.status ? { status: input.status } : {}),
+  })
+}
+
+export function updateIOSFinanceTransaction(id: number, status: FinanceTransaction['status']): Promise<FinanceTransaction> {
+  return native.updateFinanceTransaction({ id, status })
+}
+
+export function deleteIOSFinanceTransaction(id: number): Promise<void> {
+  return native.deleteFinanceTransaction({ id })
 }
 
 export async function listIOSFocusTasks(): Promise<FocusTask[]> {

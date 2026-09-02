@@ -22,7 +22,7 @@ export const navigationStyles = {
   mobileMoreBackdrop:
     'fixed inset-0 z-[6990] hidden cursor-default border-0 bg-black/20 p-0 [backdrop-filter:blur(2px)] max-[760px]:block platform-ios:[backdrop-filter:none]',
   mobileMoreMenu:
-    'fixed right-3 bottom-[calc(82px+env(safe-area-inset-bottom))] left-3 z-[7010] mx-auto hidden w-auto max-w-[430px] grid-cols-3 gap-2 rounded-[22px] border border-[var(--liquid-border-strong)] p-2 shadow-[0_24px_70px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.15)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_44%),color-mix(in_srgb,var(--liquid-panel-strong)_96%,var(--bg)_4%)] [backdrop-filter:blur(30px)_saturate(1.45)] max-[760px]:grid platform-ios:[backdrop-filter:none]',
+    'fixed right-3 bottom-[calc(82px+env(safe-area-inset-bottom))] left-3 z-[7010] mx-auto hidden w-auto max-w-[430px] grid-cols-4 gap-2 rounded-[22px] border border-[var(--liquid-border-strong)] p-2 shadow-[0_24px_70px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.15)] [background:linear-gradient(135deg,var(--liquid-highlight),transparent_44%),color-mix(in_srgb,var(--liquid-panel-strong)_96%,var(--bg)_4%)] [backdrop-filter:blur(30px)_saturate(1.45)] max-[760px]:grid platform-ios:[backdrop-filter:none]',
   mobileMoreItem:
     'grid min-h-[68px] min-w-0 place-items-center content-center gap-1 rounded-[16px] border border-transparent px-2 text-center text-[10px] font-bold text-buds-muted transition-colors hover:border-[var(--liquid-border)] hover:bg-[var(--liquid-panel-soft)] hover:text-buds-text [&>svg]:size-[19px]',
   mobileMoreItemActive:

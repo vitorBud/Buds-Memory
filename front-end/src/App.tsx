@@ -18,6 +18,7 @@ import {
   MapPinned,
   MoreHorizontal,
   LoaderCircle,
+  WalletCards,
 } from 'lucide-react'
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import type { Transition } from 'framer-motion'
@@ -69,6 +70,7 @@ const FilesPanel = lazy(() => import('./components/panels/FilesPanel').then(modu
 const SummaryPanel = lazy(() => import('./components/panels/SummaryPanel').then(module => ({ default: module.SummaryPanel })))
 const FocusPage = lazy(() => import('./components/focus/FocusPage').then(module => ({ default: module.FocusPage })))
 const PaginaMapaBuds = lazy(() => import('./components/mapa/PaginaMapaBuds').then(module => ({ default: module.PaginaMapaBuds })))
+const FinancePage = lazy(() => import('./components/finance/FinancePage').then(module => ({ default: module.FinancePage })))
 
 const SETTINGS_KEY = 'buds-interface-settings'
 const DESKTOP_THEME_BOOT_KEY = 'buds-desktop-theme-boot-v1'
@@ -105,7 +107,7 @@ const MOBILE_CHAT_INTRO_KEY = 'buds-mobile-chat-intro-seen-v1'
 const FALLBACK_MODEL = 'qwen2.5-coder:3b'
 const DEFAULT_MODELS = [FALLBACK_MODEL, 'qwen2.5-coder:7b', 'qwen2.5-coder:14b']
 type RailTab = 'memory' | 'files' | 'summary'
-type AppView = 'home' | 'chat' | 'voice' | 'obsidian' | 'mobile' | 'focus' | 'map'
+type AppView = 'home' | 'chat' | 'voice' | 'obsidian' | 'mobile' | 'focus' | 'map' | 'finance'
 
 const VIEW_HASHES: Record<AppView, string> = {
   home: '',
@@ -115,9 +117,10 @@ const VIEW_HASHES: Record<AppView, string> = {
   mobile: '#mobile',
   focus: '#focus',
   map: '#map',
+  finance: '#finance',
 }
 
-const MOBILE_VIEW_ORDER: AppView[] = ['home', 'chat', 'voice', 'focus', 'map', 'obsidian', 'mobile']
+const MOBILE_VIEW_ORDER: AppView[] = ['home', 'chat', 'voice', 'finance', 'focus', 'map', 'obsidian', 'mobile']
 
 const MOBILE_VIEW_VARIANTS = {
   enter: (direction: number) => ({ opacity: 0, x: direction * 24, scale: 0.992 }),
@@ -1072,6 +1075,13 @@ export default function App() {
 
   const handleOpenMap = () => activateView('map')
 
+  const handleOpenFinance = () => activateView('finance')
+
+  const handleAskFinance = (prompt: string) => {
+    activateView('chat')
+    void handleSendText(prompt)
+  }
+
   const handleOpenSettings = () => {
     prepareViewportForView(activeView, true)
     setMobileMoreOpen(false)
@@ -1088,7 +1098,7 @@ export default function App() {
   ]
 
   const renderViewNav = () => {
-    const moreIsActive = settingsOpen || activeView === 'map' || activeView === 'obsidian'
+    const moreIsActive = settingsOpen || activeView === 'focus' || activeView === 'map' || activeView === 'obsidian'
     const renderMobileIndicator = (active: boolean) => active ? (
       <motion.div
         layoutId="mobile-bottom-nav-indicator"
@@ -1124,6 +1134,10 @@ export default function App() {
                 exit={{ opacity: 0, y: 8, scale: 0.98 }}
                 transition={{ duration: 0.18, ease: 'easeOut' }}
               >
+                <button type="button" role="menuitem" className={`${navigationStyles.mobileMoreItem} ${!settingsOpen && activeView === 'focus' ? navigationStyles.mobileMoreItemActive : ''}`} onClick={handleOpenFocus}>
+                  <Target />
+                  <span>Focus</span>
+                </button>
                 <button type="button" role="menuitem" className={`${navigationStyles.mobileMoreItem} ${!settingsOpen && activeView === 'map' ? navigationStyles.mobileMoreItemActive : ''}`} onClick={handleOpenMap}>
                   <MapPinned />
                   <span>Mapa</span>
@@ -1166,7 +1180,12 @@ export default function App() {
         <Mic2 size={14} />
         <span>Voz</span>
       </button>
-      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'focus' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenFocus} aria-current={!settingsOpen && activeView === 'focus' ? 'page' : undefined}>
+      <button type="button" className={`${navigationStyles.button} ${!settingsOpen && activeView === 'finance' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenFinance} aria-current={!settingsOpen && activeView === 'finance' ? 'page' : undefined}>
+        {renderMobileIndicator(!settingsOpen && activeView === 'finance')}
+        <WalletCards size={14} />
+        <span>Finanças</span>
+      </button>
+      <button type="button" className={`${navigationStyles.button} ${navigationStyles.desktopOnly} ${!settingsOpen && activeView === 'focus' ? `is-active ${navigationStyles.active}` : ''}`} onClick={handleOpenFocus} aria-current={!settingsOpen && activeView === 'focus' ? 'page' : undefined}>
         {renderMobileIndicator(!settingsOpen && activeView === 'focus')}
         <Target size={14} />
         <span>Focus</span>
@@ -1615,6 +1634,18 @@ export default function App() {
 
         {activeView === 'mobile' && (
           <AcessoCelular config={backendConfig} />
+        )}
+
+        {activeView === 'finance' && (
+          <motion.div
+            key="finance"
+            className="fixed inset-0 z-[1] h-dvh min-h-0 w-full overflow-hidden"
+            {...viewMotionProps}
+          >
+            <Suspense fallback={<DeferredSurface label="Carregando finanças..." />}>
+              <FinancePage visible={activeView === 'finance'} onAskBuds={handleAskFinance} />
+            </Suspense>
+          </motion.div>
         )}
 
         {activeView === 'focus' && (

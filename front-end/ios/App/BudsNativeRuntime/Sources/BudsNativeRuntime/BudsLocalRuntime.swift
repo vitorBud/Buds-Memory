@@ -196,6 +196,29 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         try ensureStore().deleteMemory(id: id, force: force)
     }
 
+    public func financeDashboard(month: String) throws -> BudsFinanceDashboardRecord {
+        try ensureStore().financeDashboard(month: month)
+    }
+
+    public func createFinanceTransaction(
+        kind: String, amountCents: Int64, description: String, category: String,
+        occurredOn: String, invoiceMonth: String?, status: String
+    ) throws -> BudsFinanceTransactionRecord {
+        try ensureStore().createFinanceTransaction(
+            kind: kind, amountCents: amountCents, description: description,
+            category: category, occurredOn: occurredOn,
+            invoiceMonth: invoiceMonth, status: status
+        )
+    }
+
+    public func updateFinanceTransaction(id: Int64, status: String) throws -> BudsFinanceTransactionRecord {
+        try ensureStore().updateFinanceTransaction(id: id, status: status)
+    }
+
+    public func deleteFinanceTransaction(id: Int64) throws {
+        try ensureStore().deleteFinanceTransaction(id: id)
+    }
+
     public func focusTasks() throws -> [BudsFocusTaskRecord] {
         try ensureStore().focusTasks()
     }
@@ -576,12 +599,26 @@ public final class BudsLocalRuntime: @unchecked Sendable {
         let store: BudsLocalStore
         let history: [BudsMessageRecord]
         var memories: [BudsMemoryRecord]
+        var financialReply: String?
         do {
             store = try ensureStore()
             let focusCandidates = BudsFocusCapture.detect(text)
             _ = try store.addMessage(sessionId: sessionId, sender: "user", text: text)
             history = try store.messages(sessionId: sessionId, limit: 24)
             memories = try store.memoriesForPrompt(sessionId: sessionId, limit: 16)
+            financialReply = try? store.financeDirectReply(userText: text)
+            if let financeContext = try? store.financePromptContext(userText: text),
+               !financeContext.isEmpty {
+                memories.insert(BudsMemoryRecord(
+                    id: -4,
+                    content: financeContext,
+                    importance: 1,
+                    isCore: false,
+                    createdAt: "",
+                    scope: "session",
+                    sessionId: sessionId
+                ), at: 0)
+            }
             if let knowledge = try? store.knowledgeContext(sessionId: sessionId, query: text),
                !knowledge.isEmpty {
                 memories.insert(BudsMemoryRecord(
@@ -638,7 +675,7 @@ public final class BudsLocalRuntime: @unchecked Sendable {
             throw error
         }
 
-        if let directReply = BudsPromptBuilder.directProductReply(for: text) {
+        if let directReply = financialReply ?? BudsPromptBuilder.directProductReply(for: text) {
             do {
                 guard isActiveGeneration(generationId, sessionId: sessionId) else {
                     throw BudsNativeError.cancelled

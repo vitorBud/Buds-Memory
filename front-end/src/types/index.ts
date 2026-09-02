@@ -128,6 +128,48 @@ export interface CognitiveMemory {
   created_at: string
 }
 
+export type FinanceTransactionKind = 'income' | 'expense' | 'investment' | 'card'
+export type FinanceTransactionStatus = 'confirmed' | 'pending' | 'paid'
+
+export interface FinanceTransaction {
+  id: number
+  kind: FinanceTransactionKind
+  amount_cents: number
+  description: string
+  category: string
+  occurred_on: string
+  invoice_month: string | null
+  status: FinanceTransactionStatus
+  created_at: string
+  updated_at: string
+}
+
+export interface FinanceTotals {
+  income_cents: number
+  expense_cents: number
+  investment_cents: number
+  invoice_cents: number
+  invoice_paid_cents: number
+  available_cents: number
+  savings_rate: number
+}
+
+export interface FinanceDashboard {
+  month: string
+  totals: FinanceTotals
+  transactions: FinanceTransaction[]
+}
+
+export interface FinanceTransactionInput {
+  kind: FinanceTransactionKind
+  amount_cents: number
+  description: string
+  category: string
+  occurred_on: string
+  invoice_month?: string | null
+  status?: FinanceTransactionStatus
+}
+
 export interface KnowledgeGraphEntity {
   id: number
   name: string

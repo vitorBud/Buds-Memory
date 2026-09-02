@@ -49,6 +49,7 @@ def migrate():
         _create_codebase_index(conn)
         _create_focus_tasks(conn)
         _create_focus_v2_tables(conn)
+        _create_finance_tables(conn)
         _migrate_focus_capture_columns(conn)
         _create_local_sync_v0(conn)
         _upgrade_local_sync_v1(conn)
@@ -89,6 +90,29 @@ def _create_focus_tasks(conn):
             confidence   REAL    NOT NULL DEFAULT 1.0
         );
     """)
+
+
+def _create_finance_tables(conn):
+    """Livro financeiro pessoal, local e independente do texto do chat."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS finance_transactions (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind          TEXT NOT NULL CHECK(kind IN ('income','expense','investment','card')),
+            amount_cents  INTEGER NOT NULL CHECK(amount_cents > 0),
+            description   TEXT NOT NULL,
+            category      TEXT NOT NULL DEFAULT 'Outros',
+            occurred_on   TEXT NOT NULL,
+            invoice_month TEXT,
+            status        TEXT NOT NULL DEFAULT 'confirmed'
+                          CHECK(status IN ('confirmed','pending','paid')),
+            created_at    TEXT NOT NULL,
+            updated_at    TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_finance_month "
+        "ON finance_transactions(occurred_on,invoice_month,kind,status)"
+    )
 
 def _create_focus_v2_tables(conn):
     conn.execute("""

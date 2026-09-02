@@ -24,7 +24,7 @@ from storage import get_data_dir, get_database_path, get_output_dir
 
 BACKUP_FORMAT = "buds_memory_backup"
 LEGACY_BACKUP_FORMATS = {"aether_memory_backup"}
-BACKUP_VERSION = 6
+BACKUP_VERSION = 7
 CLEAR_CONFIRMATION = "APAGAR TUDO"
 
 BACKUP_TABLES = [
@@ -57,6 +57,7 @@ FOCUS_BACKUP_TABLES = [
     "focus_decisions",
     "focus_timeline",
     "focus_inbox",
+    "finance_transactions",
     "location_places",
     "location_state",
     "location_events",
@@ -82,6 +83,7 @@ IMPORT_ORDER = [
     "focus_decisions",
     "focus_timeline",
     "focus_inbox",
+    "finance_transactions",
     "location_places",
     "location_state",
     "location_events",
@@ -124,6 +126,7 @@ CLEAR_ORDER = [
     "focus_decisions",
     "focus_ideas",
     "focus_tasks",
+    "finance_transactions",
     "kg_entity_mentions",
     "kg_relations",
     "memories",
